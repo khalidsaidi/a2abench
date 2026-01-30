@@ -24,5 +24,19 @@ services:
     ports:
       - "3000:3000"
 
+  mcp-remote:
+    build:
+      context: .
+      dockerfile: apps/mcp-remote/Dockerfile
+    environment:
+      API_BASE_URL: ${API_BASE_URL:-http://api:3000}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
+      API_KEY: ${API_KEY:-}
+      MCP_PORT: 4000
+    depends_on:
+      - api
+    ports:
+      - "4000:4000"
+
 volumes:
   db-data:
