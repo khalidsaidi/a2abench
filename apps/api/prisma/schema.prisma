@@ -1,0 +1,69 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String     @id @default(cuid())
+  handle    String     @unique
+  createdAt DateTime   @default(now())
+  questions Question[]
+  answers   Answer[]
+  apiKeys   ApiKey[]
+}
+
+model ApiKey {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  name      String
+  keyPrefix String
+  keyHash   String
+  scopes    String[]
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+}
+
+model Question {
+  id        String        @id @default(cuid())
+  userId    String
+  user      User          @relation(fields: [userId], references: [id])
+  title     String
+  bodyMd    String
+  bodyText  String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  answers   Answer[]
+  tags      QuestionTag[]
+}
+
+model Answer {
+  id         String   @id @default(cuid())
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id])
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  bodyMd     String
+  bodyText   String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Tag {
+  id        String        @id @default(cuid())
+  name      String        @unique
+  questions QuestionTag[]
+}
+
+model QuestionTag {
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id])
+  tagId      String
+  tag        Tag      @relation(fields: [tagId], references: [id])
+
+  @@id([questionId, tagId])
+}
