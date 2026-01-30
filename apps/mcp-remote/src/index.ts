@@ -7,7 +7,7 @@ import { z } from 'zod';
 const API_BASE_URL = process.env.API_BASE_URL ?? 'http://localhost:3000';
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL ?? API_BASE_URL;
 const API_KEY = process.env.API_KEY ?? '';
-const PORT = Number(process.env.MCP_PORT ?? 4000);
+const PORT = Number(process.env.PORT ?? process.env.MCP_PORT ?? 4000);
 const ALLOWED_ORIGINS = (process.env.MCP_ALLOWED_ORIGINS ?? '')
   .split(',')
   .map((origin) => origin.trim())

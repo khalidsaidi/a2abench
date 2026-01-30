@@ -4,3 +4,4 @@
 - 2026-01-30: Checked Actions; publish-npm failed due to npm org access. Updated publishing status notes with required npm org permissions.
 - 2026-01-30: Switched MCP npm package scope to `@somebeach` and bumped versions for a new release attempt.
 - 2026-01-30: Tagged v0.1.5; publish-npm and publish-mcp-registry succeeded.
+- 2026-01-30: Deployed API + MCP remote to GCP Cloud Run and ran database migrations/seed.

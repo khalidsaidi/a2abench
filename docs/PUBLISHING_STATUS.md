@@ -9,9 +9,9 @@
 
 ## Deployment gaps
 
-- Remote MCP endpoint URL is not yet deployed. Update `docs/CHATGPT_APP_SUBMISSION.md` and `docs/registry/server.json` once HTTPS endpoint exists.
+- Remote MCP endpoint is deployed at `https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp`.
+- API is deployed at `https://a2abench-api-405318049509.us-central1.run.app`.
 
 ## Next steps
 
-1. Deploy API and MCP remote to HTTPS.
-2. Update `PUBLIC_BASE_URL` and MCP endpoint URLs in docs.
+1. (Optional) Update `docs/PRIVACY.md` to a hosted URL if you want a non-GitHub privacy link.

@@ -45,3 +45,17 @@ pnpm --filter @a2abench/api prisma db seed
 
 - MCP remote requires HTTPS for production use.
 - Set `MCP_ALLOWED_ORIGINS` for browser-based MCP clients.
+
+## Deploy to GCP Cloud Run (current)
+
+- Project: `a2abench-prod`
+- Cloud SQL: `a2abench-db` (PostgreSQL 15, region `us-central1`)
+- Artifact Registry: `us-central1-docker.pkg.dev/a2abench-prod/a2abench`
+- Services:
+  - API: `https://a2abench-api-405318049509.us-central1.run.app`
+  - MCP remote: `https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp`
+
+Secrets stored in Secret Manager:
+- `a2abench-database-url`
+- `a2abench-admin-token`
+- `a2abench-api-key`

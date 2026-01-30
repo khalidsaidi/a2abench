@@ -5,3 +5,4 @@
 - 2026-01-30: Switched npm package scope to `@somebeach/a2abench-mcp` to align with available npm token.
 - 2026-01-30: MCP registry namespace set to `io.github.khalidsaidi/a2abench`.
 - 2026-01-30: MCP registry artifact location chosen as `docs/registry/server.json`.
+- 2026-01-30: Deployed to GCP project `a2abench-prod` on Cloud Run (us-central1).

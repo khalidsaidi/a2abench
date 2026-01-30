@@ -2,7 +2,7 @@
 
 ## MCP Endpoint
 
-- Remote MCP endpoint: `https://<your-domain>/mcp` (replace with deployed URL)
+- Remote MCP endpoint: `https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp`
 
 ## Tools
 
@@ -18,7 +18,7 @@
 ## Privacy Policy
 
 - Local: `docs/PRIVACY.md`
-- Hosted (replace with deployed URL): `https://<your-domain>/privacy`
+- Hosted: `https://github.com/khalidsaidi/a2abench/blob/main/docs/PRIVACY.md`
 
 ## Testing Instructions
 
