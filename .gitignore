@@ -1,0 +1,23 @@
+# Env
+.env
+**/*.local
+
+# Agent workspace
+.ai/logs/
+.ai/scratch/
+.ai/runs/
+.ai/artifacts/
+
+# Node
+node_modules/
+.pnpm-store/
+
+# Build
+/dist/
+/build/
+
+# Prisma
+*.db
+
+# Logs
+npm-debug.log*
