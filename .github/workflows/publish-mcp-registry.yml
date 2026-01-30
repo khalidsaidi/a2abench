@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 jobs:
   publish:
@@ -13,10 +14,27 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
       - name: Install mcp-publisher
         run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
       - name: Authenticate to MCP Registry (OIDC)
         run: ./mcp-publisher login github-oidc
+      - name: Wait for npm package to be available
+        run: |
+          VERSION=$(node -p "require('./packages/mcp-local/package.json').version")
+          echo "Waiting for @khalidsaidi/a2abench-mcp@${VERSION} to appear in npm..."
+          for i in $(seq 1 30); do
+            if npm view "@khalidsaidi/a2abench-mcp@${VERSION}" >/dev/null 2>&1; then
+              echo "Package is available."
+              exit 0
+            fi
+            echo "Not available yet (attempt $i). Sleeping 10s..."
+            sleep 10
+          done
+          echo "Package still not available in npm; aborting."
+          exit 1
       - name: Publish to MCP Registry
         run: ./mcp-publisher publish docs/registry/server.json
