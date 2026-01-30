@@ -12,7 +12,7 @@
   "remotes": [
     {
       "transport": {
-        "type": "streamable_http",
+        "type": "streamable-http",
         "url": "https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp"
       }
     }
