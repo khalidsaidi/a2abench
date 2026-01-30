@@ -6,3 +6,5 @@
 - 2026-01-30: Tagged v0.1.5; publish-npm and publish-mcp-registry succeeded.
 - 2026-01-30: Deployed API + MCP remote to GCP Cloud Run and ran database migrations/seed.
 - 2026-01-30: Published MCP registry entry with remote streamable-http endpoint (workflow_dispatch).
+- 2026-01-30: Set up Firebase Hosting domains for API and MCP endpoints.
+- 2026-01-30: Released v0.1.7 to update MCP registry with Firebase domains.

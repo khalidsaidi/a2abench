@@ -1,0 +1,18 @@
+{
+  "projects": {
+    "default": "a2abench-prod"
+  },
+  "targets": {
+    "a2abench-prod": {
+      "hosting": {
+        "api": [
+          "a2abench-api"
+        ],
+        "mcp": [
+          "a2abench-mcp"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}
