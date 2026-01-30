@@ -18,6 +18,7 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm -r install
+      - run: pnpm --filter @a2abench/api prisma generate
       - run: pnpm -r build
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
