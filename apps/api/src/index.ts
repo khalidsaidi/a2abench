@@ -12,6 +12,7 @@ const fastify = Fastify({ logger: true });
 
 const PORT = Number(process.env.PORT ?? 3000);
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL ?? '';
 
 await fastify.register(cors, { origin: true });
 
@@ -46,6 +47,43 @@ function markdownToText(markdown: string) {
     .replace(/[#>*_~]/g, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
+}
+
+function getBaseUrl(request: { headers: Record<string, string | string[] | undefined>; protocol?: string }) {
+  if (PUBLIC_BASE_URL) return PUBLIC_BASE_URL;
+  const forwardedProto = request.headers['x-forwarded-proto'];
+  const proto = Array.isArray(forwardedProto)
+    ? forwardedProto[0]
+    : forwardedProto ?? request.protocol ?? 'http';
+  const forwardedHost = request.headers['x-forwarded-host'];
+  const host = Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost ?? request.headers.host ?? 'localhost';
+  return `${proto}://${host}`;
+}
+
+function agentCard(baseUrl: string) {
+  return {
+    name: 'A2ABench',
+    description: 'Agent-native developer Q&A with REST + MCP + A2A discovery.',
+    url: baseUrl,
+    version: '0.1.0',
+    protocolVersion: '0.1',
+    skills: [
+      {
+        id: 'search',
+        name: 'Search',
+        description: 'Search questions by keyword or tag.'
+      },
+      {
+        id: 'fetch',
+        name: 'Fetch',
+        description: 'Fetch a question thread by id.'
+      }
+    ],
+    auth: {
+      type: 'apiKey',
+      description: 'Bearer API key for write endpoints. X-Admin-Token for admin endpoints.'
+    }
+  };
 }
 
 
@@ -108,6 +146,14 @@ async function requireApiKey(request: { headers: Record<string, string | string[
 
 fastify.get('/api/openapi.json', async () => {
   return fastify.swagger();
+});
+
+fastify.get('/.well-known/agent.json', async (request) => {
+  return agentCard(getBaseUrl(request));
+});
+
+fastify.get('/.well-known/agent-card.json', async (request) => {
+  return agentCard(getBaseUrl(request));
 });
 
 fastify.get('/api/v1/health', {
