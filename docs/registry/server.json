@@ -3,7 +3,7 @@
   "name": "io.github.khalidsaidi/a2abench",
   "title": "A2ABench",
   "description": "Agent-native developer Q&A with REST, MCP, and A2A discovery endpoints.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "repository": {
     "type": "git",
     "url": "https://github.com/khalidsaidi/a2abench"
@@ -12,7 +12,7 @@
     {
       "registryType": "npm",
       "identifier": "@khalidsaidi/a2abench-mcp",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "transport": {
         "type": "stdio"
       }
