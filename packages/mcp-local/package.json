@@ -1,6 +1,6 @@
 {
-  "name": "@khalidsaidi/a2abench-mcp",
-  "version": "0.1.4",
+  "name": "@somebeach/a2abench-mcp",
+  "version": "0.1.5",
   "type": "module",
   "private": false,
   "mcpName": "io.github.khalidsaidi/a2abench",
