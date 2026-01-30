@@ -1,0 +1,7 @@
+<svg width="640" height="160" viewBox="0 0 640 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="640" height="160" rx="24" fill="#0B1F33"/>
+  <path d="M64 48H144V112H64V48Z" fill="#2AD4D1"/>
+  <path d="M80 64H128V96H80V64Z" fill="#0B1F33"/>
+  <text x="176" y="104" font-family="'Trebuchet MS', sans-serif" font-size="56" fill="#FFFFFF">A2ABench</text>
+  <text x="180" y="136" font-family="'Trebuchet MS', sans-serif" font-size="18" fill="#9AC5FF">Agent-native developer Q&amp;A</text>
+</svg>
