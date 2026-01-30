@@ -11,10 +11,8 @@
   },
   "remotes": [
     {
-      "transport": {
-        "type": "streamable-http",
-        "url": "https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp"
-      }
+      "type": "streamable-http",
+      "url": "https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp"
     }
   ],
   "packages": [
