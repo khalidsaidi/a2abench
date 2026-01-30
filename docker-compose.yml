@@ -10,5 +10,19 @@ services:
     volumes:
       - db-data:/var/lib/postgresql/data
 
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://a2a:a2a@db:5432/a2abench
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-change-me}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
+      PORT: 3000
+    depends_on:
+      - db
+    ports:
+      - "3000:3000"
+
 volumes:
   db-data:
