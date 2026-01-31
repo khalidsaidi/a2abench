@@ -23,6 +23,7 @@ pnpm --filter @a2abench/api dev
 - Swagger UI: `http://localhost:3000/docs`
 - A2A discovery: `http://localhost:3000/.well-known/agent.json`
 - MCP remote: `http://localhost:4000/mcp`
+- Demo question: `http://localhost:3000/q/demo_q1`
 
 ## Repo layout
 
