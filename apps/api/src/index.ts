@@ -381,6 +381,21 @@ async function getUsageSummary(days: number) {
     `
   ]);
 
+  const recentErrors = await prisma.usageEvent.findMany({
+    where: { createdAt: { gte: since }, status: { gte: 400 } },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+    select: {
+      createdAt: true,
+      status: true,
+      route: true,
+      ip: true,
+      referer: true,
+      userAgent: true,
+      agentName: true
+    }
+  });
+
   return {
     days,
     since: since.toISOString(),
@@ -392,6 +407,15 @@ async function getUsageSummary(days: number) {
     byReferer: byReferer.map((row) => ({ referer: row.referer ?? 'unknown', count: row._count.referer })),
     byUserAgent: byUserAgent.map((row) => ({ userAgent: row.userAgent ?? 'unknown', count: row._count.userAgent })),
     byAgentName: byAgentName.map((row) => ({ agentName: row.agentName ?? 'unknown', count: row._count.agentName })),
+    recentErrors: recentErrors.map((row) => ({
+      createdAt: row.createdAt.toISOString(),
+      status: row.status,
+      route: row.route,
+      ip: row.ip ?? null,
+      referer: row.referer ?? null,
+      userAgent: row.userAgent ?? null,
+      agentName: row.agentName ?? null
+    })),
     daily: dailyRows.map((row) => {
       const date = row.day instanceof Date ? row.day : new Date(row.day);
       return {
@@ -444,6 +468,8 @@ fastify.get('/admin/usage', async (request, reply) => {
       .bar > span { display: block; height: 100%; background: #22c55e; }
       .muted { color: #6b7280; font-size: 12px; }
       .error { color: #b91c1c; font-size: 13px; margin-top: 8px; }
+      .error-item { display: grid; grid-template-columns: 90px 1fr; gap: 8px 12px; padding: 10px; border-radius: 10px; background: #fff7ed; border: 1px solid #fed7aa; font-size: 12px; }
+      .error-item code { background: #fff; padding: 2px 6px; border-radius: 6px; }
     </style>
   </head>
   <body>
@@ -508,6 +534,11 @@ fastify.get('/admin/usage', async (request, reply) => {
         <h2 style="margin-top:0;">Top agent names</h2>
         <div id="agentNames" class="list"></div>
       </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;">Recent errors (4xx/5xx)</h2>
+        <div id="errors" class="list"></div>
+      </div>
     </main>
     <script>
       const daysInput = document.getElementById('days');
@@ -524,6 +555,7 @@ fastify.get('/admin/usage', async (request, reply) => {
       const referrersEl = document.getElementById('referrers');
       const userAgentsEl = document.getElementById('userAgents');
       const agentNamesEl = document.getElementById('agentNames');
+      const errorsEl = document.getElementById('errors');
 
       function setStatus(text) { statusEl.textContent = text || ''; }
       function setError(text) { errorEl.textContent = text || ''; }
@@ -553,6 +585,27 @@ fastify.get('/admin/usage', async (request, reply) => {
         }
       }
 
+      function renderErrors(rows) {
+        errorsEl.innerHTML = '';
+        if (!rows.length) {
+          errorsEl.innerHTML = '<div class="muted">No errors yet.</div>';
+          return;
+        }
+        rows.forEach(row => {
+          const wrap = document.createElement('div');
+          wrap.className = 'error-item';
+          wrap.innerHTML =
+            '<div><strong>' + row.status + '</strong></div>' +
+            '<div><code>' + row.route + '</code></div>' +
+            '<div class="muted">Time</div><div>' + new Date(row.createdAt).toLocaleString() + '</div>' +
+            '<div class="muted">Agent</div><div>' + (row.agentName || '—') + '</div>' +
+            '<div class="muted">IP</div><div>' + (row.ip || '—') + '</div>' +
+            '<div class="muted">Referrer</div><div>' + (row.referer || '—') + '</div>' +
+            '<div class="muted">User-Agent</div><div>' + (row.userAgent || '—') + '</div>';
+          errorsEl.appendChild(wrap);
+        });
+      }
+
       async function loadUsage() {
         setError('');
         setStatus('Loading…');
@@ -574,6 +627,7 @@ fastify.get('/admin/usage', async (request, reply) => {
           renderList(referrersEl, data.byReferer || [], 'referer', 'count');
           renderList(userAgentsEl, data.byUserAgent || [], 'userAgent', 'count');
           renderList(agentNamesEl, data.byAgentName || [], 'agentName', 'count');
+          renderErrors(data.recentErrors || []);
           setStatus('Updated just now.');
         } catch (err) {
           setStatus('');
