@@ -248,8 +248,20 @@ async function requireApiKey(request: { headers: Record<string, string | string[
   return apiKey;
 }
 
-fastify.addHook('onRequest', async (request) => {
+fastify.addHook('onRequest', async (request, reply) => {
   (request as { startTimeNs?: bigint }).startTimeNs = process.hrtime.bigint();
+  if (request.method === 'GET') {
+    const rawUrl = request.raw.url ?? request.url;
+    if (rawUrl) {
+      const canonicalPaths = ['/.well-known/agent.json', '/.well-known/agent-card.json'];
+      for (const canonical of canonicalPaths) {
+        if (rawUrl.startsWith(canonical) && rawUrl !== canonical && !rawUrl.startsWith(`${canonical}?`)) {
+          reply.redirect(301, canonical);
+          return;
+        }
+      }
+    }
+  }
 });
 
 fastify.addHook('onResponse', async (request, reply) => {
@@ -305,6 +317,19 @@ fastify.get('/api/v1/health', {
     }
   }
 }, async () => ({ ok: true }));
+
+fastify.get('/robots.txt', async (request, reply) => {
+  const baseUrl = getBaseUrl(request);
+  const lines = [
+    'User-agent: *',
+    'Disallow: /admin/',
+    'Disallow: /docs/',
+    'Allow: /q/',
+    'Allow: /.well-known/',
+    `Sitemap: ${baseUrl}/sitemap.xml`
+  ];
+  reply.type('text/plain').send(lines.join('\n'));
+});
 
 fastify.get('/api/v1/usage/summary', {
   schema: {
@@ -988,6 +1013,10 @@ fastify.post('/api/v1/admin/api-keys/:id/revoke', {
 
 fastify.get('/q/:id', async (request, reply) => {
   const { id } = request.params as { id: string };
+  if (id === ':id') {
+    reply.type('text/plain').send('Template URL: replace :id with a real question id.');
+    return;
+  }
   const question = await prisma.question.findUnique({
     where: { id },
     include: {
