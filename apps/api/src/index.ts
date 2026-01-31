@@ -13,6 +13,8 @@ const fastify = Fastify({ logger: true });
 const PORT = Number(process.env.PORT ?? 3000);
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL ?? '';
+const ADMIN_DASH_USER = process.env.ADMIN_DASH_USER ?? '';
+const ADMIN_DASH_PASS = process.env.ADMIN_DASH_PASS ?? '';
 
 await fastify.register(cors, { origin: true });
 
@@ -104,6 +106,35 @@ function extractApiKeyPrefix(headers: Record<string, string | string[] | undefin
   const token = rest.join(' ').trim();
   if (!token) return null;
   return token.slice(0, 8);
+}
+
+function parseBasicAuth(headers: Record<string, string | string[] | undefined>) {
+  const header = normalizeHeader(headers.authorization);
+  if (!header || !header.toLowerCase().startsWith('basic ')) return null;
+  const encoded = header.slice(6).trim();
+  if (!encoded) return null;
+  try {
+    const decoded = Buffer.from(encoded, 'base64').toString('utf8');
+    const [user, pass] = decoded.split(':');
+    if (!user || !pass) return null;
+    return { user, pass };
+  } catch {
+    return null;
+  }
+}
+
+async function requireAdminDashboard(request: { headers: Record<string, string | string[] | undefined> }, reply: any) {
+  if (!ADMIN_DASH_USER || !ADMIN_DASH_PASS) {
+    reply.code(500).send('Admin dashboard credentials are not configured');
+    return false;
+  }
+  const creds = parseBasicAuth(request.headers);
+  if (!creds || creds.user !== ADMIN_DASH_USER || creds.pass !== ADMIN_DASH_PASS) {
+    reply.header('WWW-Authenticate', 'Basic realm="A2ABench Admin"');
+    reply.code(401).send('Unauthorized');
+    return false;
+  }
+  return true;
 }
 
 function agentCard(baseUrl: string) {
@@ -257,6 +288,10 @@ fastify.get('/api/v1/usage/summary', {
   if (!(await requireAdmin(request, reply))) return;
   const query = request.query as { days?: number };
   const days = Math.min(90, Math.max(1, Number(query.days ?? 7)));
+  return getUsageSummary(days);
+});
+
+async function getUsageSummary(days: number) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
@@ -300,9 +335,18 @@ fastify.get('/api/v1/usage/summary', {
       };
     })
   };
+}
+
+fastify.get('/admin/usage/data', async (request, reply) => {
+  if (!(await requireAdminDashboard(request, reply))) return;
+  const query = request.query as { days?: number };
+  const days = Math.min(90, Math.max(1, Number(query.days ?? 7)));
+  reply.header('Cache-Control', 'no-store');
+  return getUsageSummary(days);
 });
 
 fastify.get('/admin/usage', async (request, reply) => {
+  if (!(await requireAdminDashboard(request, reply))) return;
   const baseUrl = getBaseUrl(request);
   reply.type('text/html').send(`<!doctype html>
 <html lang="en">
@@ -345,10 +389,6 @@ fastify.get('/admin/usage', async (request, reply) => {
       <div class="card">
         <div class="row">
           <div class="field">
-            <label for="token">Admin token (stored in this browser only)</label>
-            <input id="token" type="password" placeholder="X-Admin-Token" />
-          </div>
-          <div class="field">
             <label for="days">Days</label>
             <input id="days" type="number" min="1" max="90" value="7" />
           </div>
@@ -384,7 +424,6 @@ fastify.get('/admin/usage', async (request, reply) => {
       </div>
     </main>
     <script>
-      const tokenInput = document.getElementById('token');
       const daysInput = document.getElementById('days');
       const loadBtn = document.getElementById('load');
       const statusEl = document.getElementById('status');
@@ -427,18 +466,9 @@ fastify.get('/admin/usage', async (request, reply) => {
       async function loadUsage() {
         setError('');
         setStatus('Loading…');
-        const token = tokenInput.value.trim();
         const days = Math.min(90, Math.max(1, Number(daysInput.value || 7)));
-        if (!token) {
-          setStatus('');
-          setError('Admin token is required.');
-          return;
-        }
-        sessionStorage.setItem('a2aAdminToken', token);
         try {
-          const res = await fetch('/api/v1/usage/summary?days=' + days, {
-            headers: { 'X-Admin-Token': token }
-          });
+          const res = await fetch('/admin/usage/data?days=' + days);
           if (!res.ok) {
             const text = await res.text();
             throw new Error(text || ('Request failed: ' + res.status));
@@ -458,10 +488,7 @@ fastify.get('/admin/usage', async (request, reply) => {
       }
 
       loadBtn.addEventListener('click', loadUsage);
-      const saved = sessionStorage.getItem('a2aAdminToken');
-      if (saved) {
-        tokenInput.value = saved;
-      }
+      loadUsage();
     </script>
   </body>
 </html>`);
