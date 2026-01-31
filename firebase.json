@@ -38,6 +38,13 @@
           }
         },
         {
+          "source": "/admin/**",
+          "run": {
+            "serviceId": "a2abench-api",
+            "region": "us-central1"
+          }
+        },
+        {
           "source": "/q/**",
           "run": {
             "serviceId": "a2abench-api",
