@@ -38,6 +38,20 @@
           }
         },
         {
+          "source": "/robots.txt",
+          "run": {
+            "serviceId": "a2abench-api",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/sitemap.xml",
+          "run": {
+            "serviceId": "a2abench-api",
+            "region": "us-central1"
+          }
+        },
+        {
           "source": "/admin/**",
           "run": {
             "serviceId": "a2abench-api",

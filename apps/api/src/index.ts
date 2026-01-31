@@ -331,6 +331,20 @@ fastify.get('/robots.txt', async (request, reply) => {
   reply.type('text/plain').send(lines.join('\n'));
 });
 
+fastify.get('/sitemap.xml', async (request, reply) => {
+  const baseUrl = getBaseUrl(request);
+  const urls = [
+    `${baseUrl}/.well-known/agent.json`,
+    `${baseUrl}/.well-known/agent-card.json`,
+    `${baseUrl}/docs`
+  ];
+  const body = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map((loc) => `  <url><loc>${loc}</loc></url>`).join('\n')}
+</urlset>`;
+  reply.type('application/xml').send(body);
+});
+
 fastify.get('/api/v1/usage/summary', {
   schema: {
     tags: ['usage', 'admin'],
