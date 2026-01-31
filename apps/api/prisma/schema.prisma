@@ -79,9 +79,11 @@ model UsageEvent {
   userAgent    String?
   ip           String?
   referer      String?
+  agentName    String?
 
   @@index([createdAt])
   @@index([route])
   @@index([apiKeyPrefix])
   @@index([ip])
+  @@index([agentName])
 }

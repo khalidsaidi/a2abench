@@ -108,6 +108,17 @@ function extractApiKeyPrefix(headers: Record<string, string | string[] | undefin
   return token.slice(0, 8);
 }
 
+function getAgentName(headers: Record<string, string | string[] | undefined>) {
+  const name = normalizeHeader(
+    headers['x-agent-name'] ??
+      headers['x-mcp-client-name'] ??
+      headers['mcp-client-name'] ??
+      headers['x-client-name']
+  );
+  if (!name) return null;
+  return name.slice(0, 128);
+}
+
 function firstHeaderIp(value: string) {
   return value.split(',')[0]?.trim();
 }
@@ -250,6 +261,7 @@ fastify.addHook('onResponse', async (request, reply) => {
   const userAgent = normalizeHeader(request.headers['user-agent']).slice(0, 256) || null;
   const ip = getClientIp(request as RouteRequest & { ip?: string; socket?: { remoteAddress?: string } });
   const referer = normalizeHeader(request.headers.referer).slice(0, 512) || null;
+  const agentName = getAgentName(request.headers);
 
   void prisma.usageEvent.create({
     data: {
@@ -260,7 +272,8 @@ fastify.addHook('onResponse', async (request, reply) => {
       apiKeyPrefix,
       userAgent,
       ip,
-      referer
+      referer,
+      agentName
     }
   }).catch((err) => {
     request.log.warn({ err }, 'usage event logging failed');
@@ -315,7 +328,7 @@ async function getUsageSummary(days: number) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-  const [total, lastDay, byRoute, byStatus, byIp, byReferer, byUserAgent, dailyRows] = await Promise.all([
+  const [total, lastDay, byRoute, byStatus, byIp, byReferer, byUserAgent, byAgentName, dailyRows] = await Promise.all([
     prisma.usageEvent.count({ where: { createdAt: { gte: since } } }),
     prisma.usageEvent.count({ where: { createdAt: { gte: last24h } } }),
     prisma.usageEvent.groupBy({
@@ -352,6 +365,13 @@ async function getUsageSummary(days: number) {
       orderBy: { _count: { userAgent: 'desc' } },
       take: 10
     }),
+    prisma.usageEvent.groupBy({
+      by: ['agentName'],
+      where: { createdAt: { gte: since }, agentName: { not: null } },
+      _count: { agentName: true },
+      orderBy: { _count: { agentName: 'desc' } },
+      take: 10
+    }),
     prisma.$queryRaw<Array<{ day: Date | string; count: bigint | number | string }>>`
       SELECT date_trunc('day', "createdAt") AS day, COUNT(*) AS count
       FROM "UsageEvent"
@@ -371,6 +391,7 @@ async function getUsageSummary(days: number) {
     byIp: byIp.map((row) => ({ ip: row.ip ?? 'unknown', count: row._count.ip })),
     byReferer: byReferer.map((row) => ({ referer: row.referer ?? 'unknown', count: row._count.referer })),
     byUserAgent: byUserAgent.map((row) => ({ userAgent: row.userAgent ?? 'unknown', count: row._count.userAgent })),
+    byAgentName: byAgentName.map((row) => ({ agentName: row.agentName ?? 'unknown', count: row._count.agentName })),
     daily: dailyRows.map((row) => {
       const date = row.day instanceof Date ? row.day : new Date(row.day);
       return {
@@ -418,6 +439,7 @@ fastify.get('/admin/usage', async (request, reply) => {
       .metric div { font-size: 22px; font-weight: 700; margin-top: 6px; }
       .list { display: grid; grid-template-columns: 1fr; gap: 6px; }
       .pill { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; background: #f3f4f6; border-radius: 8px; font-size: 13px; word-break: break-word; }
+      .pill span:first-child { overflow-wrap: anywhere; }
       .bar { height: 10px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
       .bar > span { display: block; height: 100%; background: #22c55e; }
       .muted { color: #6b7280; font-size: 12px; }
@@ -481,6 +503,11 @@ fastify.get('/admin/usage', async (request, reply) => {
         <h2 style="margin-top:0;">Top user agents</h2>
         <div id="userAgents" class="list"></div>
       </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;">Top agent names</h2>
+        <div id="agentNames" class="list"></div>
+      </div>
     </main>
     <script>
       const daysInput = document.getElementById('days');
@@ -496,6 +523,7 @@ fastify.get('/admin/usage', async (request, reply) => {
       const ipsEl = document.getElementById('ips');
       const referrersEl = document.getElementById('referrers');
       const userAgentsEl = document.getElementById('userAgents');
+      const agentNamesEl = document.getElementById('agentNames');
 
       function setStatus(text) { statusEl.textContent = text || ''; }
       function setError(text) { errorEl.textContent = text || ''; }
@@ -545,6 +573,7 @@ fastify.get('/admin/usage', async (request, reply) => {
           renderList(ipsEl, data.byIp || [], 'ip', 'count');
           renderList(referrersEl, data.byReferer || [], 'referer', 'count');
           renderList(userAgentsEl, data.byUserAgent || [], 'userAgent', 'count');
+          renderList(agentNamesEl, data.byAgentName || [], 'agentName', 'count');
           setStatus('Updated just now.');
         } catch (err) {
           setStatus('');

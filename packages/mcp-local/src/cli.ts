@@ -6,6 +6,7 @@ import { z } from 'zod';
 const API_BASE_URL = process.env.API_BASE_URL ?? 'http://localhost:3000';
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL ?? API_BASE_URL;
 const API_KEY = process.env.API_KEY ?? '';
+const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-local';
 
 const server = new McpServer({
   name: 'A2ABench',
@@ -18,6 +19,9 @@ async function apiGet(path: string, params?: Record<string, string>) {
     Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
   }
   const headers: Record<string, string> = { accept: 'application/json' };
+  if (MCP_AGENT_NAME) {
+    headers['X-Agent-Name'] = MCP_AGENT_NAME;
+  }
   if (API_KEY) {
     headers.authorization = `Bearer ${API_KEY}`;
   }

@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { createServer } from 'node:http';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
@@ -8,10 +9,13 @@ const API_BASE_URL = process.env.API_BASE_URL ?? 'http://localhost:3000';
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL ?? API_BASE_URL;
 const API_KEY = process.env.API_KEY ?? '';
 const PORT = Number(process.env.PORT ?? process.env.MCP_PORT ?? 4000);
+const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-remote';
 const ALLOWED_ORIGINS = (process.env.MCP_ALLOWED_ORIGINS ?? '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+
+const requestContext = new AsyncLocalStorage<{ agentName?: string }>();
 
 const server = new McpServer({
   name: 'A2ABench',
@@ -24,6 +28,11 @@ async function apiGet(path: string, params?: Record<string, string>) {
     Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
   }
   const headers: Record<string, string> = { accept: 'application/json' };
+  const ctxAgent = requestContext.getStore()?.agentName;
+  const agentName = (ctxAgent ?? MCP_AGENT_NAME).trim();
+  if (agentName) {
+    headers['X-Agent-Name'] = agentName;
+  }
   if (API_KEY) {
     headers.authorization = `Bearer ${API_KEY}`;
   }
@@ -152,8 +161,13 @@ async function main() {
       return;
     }
 
+    const agentHeader = req.headers['x-agent-name'] ?? req.headers['x-mcp-client-name'] ?? req.headers['mcp-client-name'];
+    const agentName = Array.isArray(agentHeader) ? agentHeader[0] : agentHeader;
+
     if (req.method === 'GET') {
-      await transport.handleRequest(req, res);
+      await requestContext.run({ agentName }, async () => {
+        await transport.handleRequest(req, res);
+      });
       return;
     }
 
@@ -170,7 +184,9 @@ async function main() {
     req.on('end', async () => {
       try {
         const json = body.length ? JSON.parse(body) : undefined;
-        await transport.handleRequest(req, res, json);
+        await requestContext.run({ agentName }, async () => {
+          await transport.handleRequest(req, res, json);
+        });
       } catch (err) {
         res.statusCode = 400;
         res.end('Invalid JSON');
