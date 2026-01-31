@@ -315,7 +315,7 @@ async function getUsageSummary(days: number) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-  const [total, lastDay, byRoute, byStatus, byIp, byReferer, dailyRows] = await Promise.all([
+  const [total, lastDay, byRoute, byStatus, byIp, byReferer, byUserAgent, dailyRows] = await Promise.all([
     prisma.usageEvent.count({ where: { createdAt: { gte: since } } }),
     prisma.usageEvent.count({ where: { createdAt: { gte: last24h } } }),
     prisma.usageEvent.groupBy({
@@ -345,6 +345,13 @@ async function getUsageSummary(days: number) {
       orderBy: { _count: { referer: 'desc' } },
       take: 10
     }),
+    prisma.usageEvent.groupBy({
+      by: ['userAgent'],
+      where: { createdAt: { gte: since }, userAgent: { not: null } },
+      _count: { userAgent: true },
+      orderBy: { _count: { userAgent: 'desc' } },
+      take: 10
+    }),
     prisma.$queryRaw<Array<{ day: Date | string; count: bigint | number | string }>>`
       SELECT date_trunc('day', "createdAt") AS day, COUNT(*) AS count
       FROM "UsageEvent"
@@ -363,6 +370,7 @@ async function getUsageSummary(days: number) {
     byStatus: byStatus.map((row) => ({ status: row.status, count: row._count.status })),
     byIp: byIp.map((row) => ({ ip: row.ip ?? 'unknown', count: row._count.ip })),
     byReferer: byReferer.map((row) => ({ referer: row.referer ?? 'unknown', count: row._count.referer })),
+    byUserAgent: byUserAgent.map((row) => ({ userAgent: row.userAgent ?? 'unknown', count: row._count.userAgent })),
     daily: dailyRows.map((row) => {
       const date = row.day instanceof Date ? row.day : new Date(row.day);
       return {
@@ -409,7 +417,7 @@ fastify.get('/admin/usage', async (request, reply) => {
       .metric h3 { margin: 0; font-size: 13px; color: #6b7280; }
       .metric div { font-size: 22px; font-weight: 700; margin-top: 6px; }
       .list { display: grid; grid-template-columns: 1fr; gap: 6px; }
-      .pill { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; background: #f3f4f6; border-radius: 8px; font-size: 13px; }
+      .pill { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; background: #f3f4f6; border-radius: 8px; font-size: 13px; word-break: break-word; }
       .bar { height: 10px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
       .bar > span { display: block; height: 100%; background: #22c55e; }
       .muted { color: #6b7280; font-size: 12px; }
@@ -468,6 +476,11 @@ fastify.get('/admin/usage', async (request, reply) => {
         <h2 style="margin-top:0;">Top referrers</h2>
         <div id="referrers" class="list"></div>
       </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;">Top user agents</h2>
+        <div id="userAgents" class="list"></div>
+      </div>
     </main>
     <script>
       const daysInput = document.getElementById('days');
@@ -482,6 +495,7 @@ fastify.get('/admin/usage', async (request, reply) => {
       const dailyEl = document.getElementById('daily');
       const ipsEl = document.getElementById('ips');
       const referrersEl = document.getElementById('referrers');
+      const userAgentsEl = document.getElementById('userAgents');
 
       function setStatus(text) { statusEl.textContent = text || ''; }
       function setError(text) { errorEl.textContent = text || ''; }
@@ -530,6 +544,7 @@ fastify.get('/admin/usage', async (request, reply) => {
           renderList(dailyEl, data.daily || [], 'day', 'count');
           renderList(ipsEl, data.byIp || [], 'ip', 'count');
           renderList(referrersEl, data.byReferer || [], 'referer', 'count');
+          renderList(userAgentsEl, data.byUserAgent || [], 'userAgent', 'count');
           setStatus('Updated just now.');
         } catch (err) {
           setStatus('');
