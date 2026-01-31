@@ -108,6 +108,22 @@ function extractApiKeyPrefix(headers: Record<string, string | string[] | undefin
   return token.slice(0, 8);
 }
 
+function firstHeaderIp(value: string) {
+  return value.split(',')[0]?.trim();
+}
+
+function getClientIp(request: RouteRequest & { ip?: string; socket?: { remoteAddress?: string } }) {
+  const forwarded = normalizeHeader(request.headers['x-forwarded-for']);
+  if (forwarded) return firstHeaderIp(forwarded);
+  const realIp = normalizeHeader(request.headers['x-real-ip']);
+  if (realIp) return realIp;
+  const cfIp = normalizeHeader(request.headers['cf-connecting-ip']);
+  if (cfIp) return cfIp;
+  const appEngineIp = normalizeHeader(request.headers['x-appengine-user-ip']);
+  if (appEngineIp) return appEngineIp;
+  return request.ip ?? request.socket?.remoteAddress ?? null;
+}
+
 function parseBasicAuth(headers: Record<string, string | string[] | undefined>) {
   const header = normalizeHeader(headers.authorization);
   if (!header || !header.toLowerCase().startsWith('basic ')) return null;
@@ -232,6 +248,8 @@ fastify.addHook('onResponse', async (request, reply) => {
   const route = resolveRoute(request as RouteRequest);
   const apiKeyPrefix = extractApiKeyPrefix(request.headers);
   const userAgent = normalizeHeader(request.headers['user-agent']).slice(0, 256) || null;
+  const ip = getClientIp(request as RouteRequest & { ip?: string; socket?: { remoteAddress?: string } });
+  const referer = normalizeHeader(request.headers.referer).slice(0, 512) || null;
 
   void prisma.usageEvent.create({
     data: {
@@ -240,7 +258,9 @@ fastify.addHook('onResponse', async (request, reply) => {
       status: reply.statusCode,
       durationMs: Math.round(durationMs),
       apiKeyPrefix,
-      userAgent
+      userAgent,
+      ip,
+      referer
     }
   }).catch((err) => {
     request.log.warn({ err }, 'usage event logging failed');
@@ -295,7 +315,7 @@ async function getUsageSummary(days: number) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-  const [total, lastDay, byRoute, byStatus, dailyRows] = await Promise.all([
+  const [total, lastDay, byRoute, byStatus, byIp, byReferer, dailyRows] = await Promise.all([
     prisma.usageEvent.count({ where: { createdAt: { gte: since } } }),
     prisma.usageEvent.count({ where: { createdAt: { gte: last24h } } }),
     prisma.usageEvent.groupBy({
@@ -310,6 +330,20 @@ async function getUsageSummary(days: number) {
       where: { createdAt: { gte: since } },
       _count: { status: true },
       orderBy: { _count: { status: 'desc' } }
+    }),
+    prisma.usageEvent.groupBy({
+      by: ['ip'],
+      where: { createdAt: { gte: since }, ip: { not: null } },
+      _count: { ip: true },
+      orderBy: { _count: { ip: 'desc' } },
+      take: 10
+    }),
+    prisma.usageEvent.groupBy({
+      by: ['referer'],
+      where: { createdAt: { gte: since }, referer: { not: null } },
+      _count: { referer: true },
+      orderBy: { _count: { referer: 'desc' } },
+      take: 10
     }),
     prisma.$queryRaw<Array<{ day: Date | string; count: bigint | number | string }>>`
       SELECT date_trunc('day', "createdAt") AS day, COUNT(*) AS count
@@ -327,6 +361,8 @@ async function getUsageSummary(days: number) {
     last24h: lastDay,
     byRoute: byRoute.map((row) => ({ route: row.route, count: row._count.route })),
     byStatus: byStatus.map((row) => ({ status: row.status, count: row._count.status })),
+    byIp: byIp.map((row) => ({ ip: row.ip ?? 'unknown', count: row._count.ip })),
+    byReferer: byReferer.map((row) => ({ referer: row.referer ?? 'unknown', count: row._count.referer })),
     daily: dailyRows.map((row) => {
       const date = row.day instanceof Date ? row.day : new Date(row.day);
       return {
@@ -422,6 +458,16 @@ fastify.get('/admin/usage', async (request, reply) => {
         <h2 style="margin-top:0;">Daily</h2>
         <div id="daily" class="list"></div>
       </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;">Top IPs</h2>
+        <div id="ips" class="list"></div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;">Top referrers</h2>
+        <div id="referrers" class="list"></div>
+      </div>
     </main>
     <script>
       const daysInput = document.getElementById('days');
@@ -434,6 +480,8 @@ fastify.get('/admin/usage', async (request, reply) => {
       const routesEl = document.getElementById('routes');
       const statusesEl = document.getElementById('statuses');
       const dailyEl = document.getElementById('daily');
+      const ipsEl = document.getElementById('ips');
+      const referrersEl = document.getElementById('referrers');
 
       function setStatus(text) { statusEl.textContent = text || ''; }
       function setError(text) { errorEl.textContent = text || ''; }
@@ -480,6 +528,8 @@ fastify.get('/admin/usage', async (request, reply) => {
           renderList(routesEl, data.byRoute || [], 'route', 'count');
           renderList(statusesEl, data.byStatus || [], 'status', 'count');
           renderList(dailyEl, data.daily || [], 'day', 'count');
+          renderList(ipsEl, data.byIp || [], 'ip', 'count');
+          renderList(referrersEl, data.byReferer || [], 'referer', 'count');
           setStatus('Updated just now.');
         } catch (err) {
           setStatus('');
