@@ -302,6 +302,171 @@ fastify.get('/api/v1/usage/summary', {
   };
 });
 
+fastify.get('/admin/usage', async (request, reply) => {
+  const baseUrl = getBaseUrl(request);
+  reply.type('text/html').send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A2ABench Usage</title>
+    <style>
+      :root { color-scheme: light; }
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; margin: 0; background: #f6f7fb; color: #101827; }
+      header { background: #0b0f1a; color: #fff; padding: 24px 20px; }
+      header h1 { margin: 0 0 6px; font-size: 20px; }
+      header p { margin: 0; color: #c7c9d3; font-size: 13px; }
+      main { max-width: 960px; margin: 0 auto; padding: 20px; }
+      .card { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 8px 24px rgba(17, 24, 39, 0.08); margin-bottom: 16px; }
+      .row { display: flex; gap: 16px; flex-wrap: wrap; }
+      .field { display: flex; flex-direction: column; gap: 6px; min-width: 220px; }
+      label { font-size: 12px; color: #6b7280; }
+      input { border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+      button { background: #2563eb; color: #fff; border: 0; border-radius: 8px; padding: 10px 14px; font-weight: 600; cursor: pointer; }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
+      .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+      .metric { background: #f9fafb; border-radius: 10px; padding: 12px; }
+      .metric h3 { margin: 0; font-size: 13px; color: #6b7280; }
+      .metric div { font-size: 22px; font-weight: 700; margin-top: 6px; }
+      .list { display: grid; grid-template-columns: 1fr; gap: 6px; }
+      .pill { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; background: #f3f4f6; border-radius: 8px; font-size: 13px; }
+      .bar { height: 10px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
+      .bar > span { display: block; height: 100%; background: #22c55e; }
+      .muted { color: #6b7280; font-size: 12px; }
+      .error { color: #b91c1c; font-size: 13px; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>A2ABench Usage</h1>
+      <p>Live usage summary from ${baseUrl}</p>
+    </header>
+    <main>
+      <div class="card">
+        <div class="row">
+          <div class="field">
+            <label for="token">Admin token (stored in this browser only)</label>
+            <input id="token" type="password" placeholder="X-Admin-Token" />
+          </div>
+          <div class="field">
+            <label for="days">Days</label>
+            <input id="days" type="number" min="1" max="90" value="7" />
+          </div>
+          <div class="field" style="align-self: flex-end;">
+            <button id="load">Load usage</button>
+          </div>
+        </div>
+        <div id="status" class="muted" style="margin-top:8px;"></div>
+        <div id="error" class="error"></div>
+      </div>
+
+      <div class="card">
+        <div class="metrics">
+          <div class="metric"><h3>Total (range)</h3><div id="total">—</div></div>
+          <div class="metric"><h3>Last 24h</h3><div id="last24h">—</div></div>
+          <div class="metric"><h3>Since</h3><div id="since">—</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;">Top routes</h2>
+        <div id="routes" class="list"></div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;">Status codes</h2>
+        <div id="statuses" class="list"></div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;">Daily</h2>
+        <div id="daily" class="list"></div>
+      </div>
+    </main>
+    <script>
+      const tokenInput = document.getElementById('token');
+      const daysInput = document.getElementById('days');
+      const loadBtn = document.getElementById('load');
+      const statusEl = document.getElementById('status');
+      const errorEl = document.getElementById('error');
+      const totalEl = document.getElementById('total');
+      const last24hEl = document.getElementById('last24h');
+      const sinceEl = document.getElementById('since');
+      const routesEl = document.getElementById('routes');
+      const statusesEl = document.getElementById('statuses');
+      const dailyEl = document.getElementById('daily');
+
+      function setStatus(text) { statusEl.textContent = text || ''; }
+      function setError(text) { errorEl.textContent = text || ''; }
+
+      function renderList(container, rows, labelKey, countKey) {
+        container.innerHTML = '';
+        const max = Math.max(...rows.map(r => r[countKey]), 1);
+        rows.forEach(row => {
+          const wrapper = document.createElement('div');
+          wrapper.className = 'pill';
+          wrapper.innerHTML = '<span>' + row[labelKey] + '</span><span>' + row[countKey] + '</span>';
+          const bar = document.createElement('div');
+          bar.className = 'bar';
+          const fill = document.createElement('span');
+          fill.style.width = Math.round((row[countKey] / max) * 100) + '%';
+          bar.appendChild(fill);
+          const containerWrap = document.createElement('div');
+          containerWrap.style.display = 'flex';
+          containerWrap.style.flexDirection = 'column';
+          containerWrap.style.gap = '6px';
+          containerWrap.appendChild(wrapper);
+          containerWrap.appendChild(bar);
+          container.appendChild(containerWrap);
+        });
+        if (!rows.length) {
+          container.innerHTML = '<div class="muted">No data yet.</div>';
+        }
+      }
+
+      async function loadUsage() {
+        setError('');
+        setStatus('Loading…');
+        const token = tokenInput.value.trim();
+        const days = Math.min(90, Math.max(1, Number(daysInput.value || 7)));
+        if (!token) {
+          setStatus('');
+          setError('Admin token is required.');
+          return;
+        }
+        sessionStorage.setItem('a2aAdminToken', token);
+        try {
+          const res = await fetch('/api/v1/usage/summary?days=' + days, {
+            headers: { 'X-Admin-Token': token }
+          });
+          if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text || ('Request failed: ' + res.status));
+          }
+          const data = await res.json();
+          totalEl.textContent = data.total ?? '0';
+          last24hEl.textContent = data.last24h ?? '0';
+          sinceEl.textContent = (data.since || '').slice(0, 10);
+          renderList(routesEl, data.byRoute || [], 'route', 'count');
+          renderList(statusesEl, data.byStatus || [], 'status', 'count');
+          renderList(dailyEl, data.daily || [], 'day', 'count');
+          setStatus('Updated just now.');
+        } catch (err) {
+          setStatus('');
+          setError(err.message || 'Failed to load usage.');
+        }
+      }
+
+      loadBtn.addEventListener('click', loadUsage);
+      const saved = sessionStorage.getItem('a2aAdminToken');
+      if (saved) {
+        tokenInput.value = saved;
+      }
+    </script>
+  </body>
+</html>`);
+});
+
 fastify.get('/api/v1/search', {
   schema: {
     tags: ['search'],
