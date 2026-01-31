@@ -5,7 +5,7 @@ A2ABench stores user-submitted questions and answers.
 We collect:
 - Account identifiers (handle)
 - Content submitted to the service
-- API metadata (timestamps, user IDs)
+- API metadata (timestamps, routes, status codes, user IDs, user agent)
 
 We do not sell personal data.
 

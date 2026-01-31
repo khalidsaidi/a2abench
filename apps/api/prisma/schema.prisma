@@ -67,3 +67,18 @@ model QuestionTag {
 
   @@id([questionId, tagId])
 }
+
+model UsageEvent {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  method       String
+  route        String
+  status       Int
+  durationMs   Int
+  apiKeyPrefix String?
+  userAgent    String?
+
+  @@index([createdAt])
+  @@index([route])
+  @@index([apiKeyPrefix])
+}

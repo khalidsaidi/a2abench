@@ -23,6 +23,15 @@ await fastify.register(swagger, {
       title: 'A2ABench API',
       description: 'Agent-native developer Q&A service',
       version: '0.1.0'
+    },
+    components: {
+      securitySchemes: {
+        AdminToken: {
+          type: 'apiKey',
+          in: 'header',
+          name: 'X-Admin-Token'
+        }
+      }
     }
   }
 });
@@ -37,6 +46,15 @@ await fastify.register(swaggerUi, {
 function sha256(value: string) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
+
+type RouteRequest = {
+  routerPath?: string;
+  routeOptions?: { url?: string };
+  raw: { url?: string };
+  url: string;
+  method: string;
+  headers: Record<string, string | string[] | undefined>;
+};
 
 function markdownToText(markdown: string) {
   return markdown
@@ -58,6 +76,34 @@ function getBaseUrl(request: { headers: Record<string, string | string[] | undef
   const forwardedHost = request.headers['x-forwarded-host'];
   const host = Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost ?? request.headers.host ?? 'localhost';
   return `${proto}://${host}`;
+}
+
+function normalizeHeader(value: string | string[] | undefined) {
+  if (!value) return '';
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function stripQuery(value: string) {
+  const index = value.indexOf('?');
+  return index === -1 ? value : value.slice(0, index);
+}
+
+function resolveRoute(request: RouteRequest) {
+  return (
+    request.routerPath ??
+    request.routeOptions?.url ??
+    stripQuery(request.raw.url ?? request.url)
+  );
+}
+
+function extractApiKeyPrefix(headers: Record<string, string | string[] | undefined>) {
+  const auth = normalizeHeader(headers.authorization);
+  if (!auth) return null;
+  const [scheme, ...rest] = auth.split(' ');
+  if (!scheme || scheme.toLowerCase() !== 'bearer') return null;
+  const token = rest.join(' ').trim();
+  if (!token) return null;
+  return token.slice(0, 8);
 }
 
 function agentCard(baseUrl: string) {
@@ -144,6 +190,32 @@ async function requireApiKey(request: { headers: Record<string, string | string[
   return apiKey;
 }
 
+fastify.addHook('onRequest', async (request) => {
+  (request as { startTimeNs?: bigint }).startTimeNs = process.hrtime.bigint();
+});
+
+fastify.addHook('onResponse', async (request, reply) => {
+  if (request.method === 'OPTIONS') return;
+  const startNs = (request as { startTimeNs?: bigint }).startTimeNs;
+  const durationMs = startNs ? Math.max(0, Number(process.hrtime.bigint() - startNs) / 1_000_000) : 0;
+  const route = resolveRoute(request as RouteRequest);
+  const apiKeyPrefix = extractApiKeyPrefix(request.headers);
+  const userAgent = normalizeHeader(request.headers['user-agent']).slice(0, 256) || null;
+
+  void prisma.usageEvent.create({
+    data: {
+      method: request.method,
+      route,
+      status: reply.statusCode,
+      durationMs: Math.round(durationMs),
+      apiKeyPrefix,
+      userAgent
+    }
+  }).catch((err) => {
+    request.log.warn({ err }, 'usage event logging failed');
+  });
+});
+
 fastify.get('/api/openapi.json', async () => {
   return fastify.swagger();
 });
@@ -169,6 +241,66 @@ fastify.get('/api/v1/health', {
     }
   }
 }, async () => ({ ok: true }));
+
+fastify.get('/api/v1/usage/summary', {
+  schema: {
+    tags: ['usage', 'admin'],
+    security: [{ AdminToken: [] }],
+    querystring: {
+      type: 'object',
+      properties: {
+        days: { type: 'integer', minimum: 1, maximum: 90 }
+      }
+    }
+  }
+}, async (request, reply) => {
+  if (!(await requireAdmin(request, reply))) return;
+  const query = request.query as { days?: number };
+  const days = Math.min(90, Math.max(1, Number(query.days ?? 7)));
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const [total, lastDay, byRoute, byStatus, dailyRows] = await Promise.all([
+    prisma.usageEvent.count({ where: { createdAt: { gte: since } } }),
+    prisma.usageEvent.count({ where: { createdAt: { gte: last24h } } }),
+    prisma.usageEvent.groupBy({
+      by: ['route'],
+      where: { createdAt: { gte: since } },
+      _count: { route: true },
+      orderBy: { _count: { route: 'desc' } },
+      take: 10
+    }),
+    prisma.usageEvent.groupBy({
+      by: ['status'],
+      where: { createdAt: { gte: since } },
+      _count: { status: true },
+      orderBy: { _count: { status: 'desc' } }
+    }),
+    prisma.$queryRaw<Array<{ day: Date | string; count: bigint | number | string }>>`
+      SELECT date_trunc('day', "createdAt") AS day, COUNT(*) AS count
+      FROM "UsageEvent"
+      WHERE "createdAt" >= ${since}
+      GROUP BY 1
+      ORDER BY day ASC
+    `
+  ]);
+
+  return {
+    days,
+    since: since.toISOString(),
+    total,
+    last24h: lastDay,
+    byRoute: byRoute.map((row) => ({ route: row.route, count: row._count.route })),
+    byStatus: byStatus.map((row) => ({ status: row.status, count: row._count.status })),
+    daily: dailyRows.map((row) => {
+      const date = row.day instanceof Date ? row.day : new Date(row.day);
+      return {
+        day: date.toISOString().slice(0, 10),
+        count: Number(row.count)
+      };
+    })
+  };
+});
 
 fastify.get('/api/v1/search', {
   schema: {
@@ -415,6 +547,7 @@ fastify.post('/api/v1/questions/:id/answers', {
 fastify.post('/api/v1/admin/users', {
   schema: {
     tags: ['admin'],
+    security: [{ AdminToken: [] }],
     body: {
       type: 'object',
       required: ['handle'],
@@ -442,6 +575,7 @@ fastify.post('/api/v1/admin/users', {
 fastify.post('/api/v1/admin/api-keys', {
   schema: {
     tags: ['admin'],
+    security: [{ AdminToken: [] }],
     body: {
       type: 'object',
       required: ['userId', 'name'],
@@ -494,6 +628,7 @@ fastify.post('/api/v1/admin/api-keys', {
 fastify.post('/api/v1/admin/api-keys/:id/revoke', {
   schema: {
     tags: ['admin'],
+    security: [{ AdminToken: [] }],
     params: {
       type: 'object',
       properties: { id: { type: 'string' } },
