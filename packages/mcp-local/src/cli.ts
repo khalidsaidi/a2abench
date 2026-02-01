@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import 'dotenv/config';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -10,7 +11,7 @@ const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-local';
 
 const server = new McpServer({
   name: 'A2ABench',
-  version: '0.1.10'
+  version: '0.1.11'
 });
 
 async function apiGet(path: string, params?: Record<string, string>) {
@@ -101,6 +102,21 @@ server.registerTool(
 );
 
 async function main() {
+  const args = new Set(process.argv.slice(2));
+  if (args.has('--help') || args.has('-h')) {
+    console.log(`A2ABench MCP (local stdio)
+
+Usage:
+  a2abench-mcp
+
+Environment:
+  API_BASE_URL   Base API URL (default: http://localhost:3000)
+  PUBLIC_BASE_URL Canonical base URL for citations (default: API_BASE_URL)
+  API_KEY        Optional bearer token for write/auth endpoints
+  MCP_AGENT_NAME Agent identifier header (default: a2abench-mcp-local)
+`);
+    process.exit(0);
+  }
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
