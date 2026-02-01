@@ -5,30 +5,18 @@ updates:
     schedule:
       interval: "daily"
     open-pull-requests-limit: 10
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
   - package-ecosystem: "npm"
     directory: "/apps/api"
     schedule:
       interval: "daily"
     open-pull-requests-limit: 10
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
   - package-ecosystem: "npm"
     directory: "/apps/mcp-remote"
     schedule:
       interval: "daily"
     open-pull-requests-limit: 10
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
   - package-ecosystem: "npm"
     directory: "/packages/mcp-local"
     schedule:
       interval: "daily"
     open-pull-requests-limit: 10
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
