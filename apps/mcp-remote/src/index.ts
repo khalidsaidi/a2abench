@@ -21,7 +21,7 @@ const requestContext = new AsyncLocalStorage<{ agentName?: string }>();
 
 const server = new McpServer({
   name: 'A2ABench',
-  version: '0.1.9'
+  version: '0.1.10'
 });
 
 const metrics = {
