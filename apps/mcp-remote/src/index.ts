@@ -284,6 +284,8 @@ async function main() {
     const requestId =
       (Array.isArray(req.headers['x-request-id']) ? req.headers['x-request-id'][0] : req.headers['x-request-id']) ??
       randomUUID();
+    const rawUrl = req.url;
+    const rawPath = rawUrl?.split('?')[0];
     const pathname = (() => {
       try {
         return new URL(req.url, 'http://localhost').pathname;
@@ -327,7 +329,7 @@ async function main() {
       return;
     }
 
-    if (pathname === '/healthz' || pathname.startsWith('/healthz/')) {
+    if (rawPath === '/healthz' || rawPath === '/healthz/' || pathname === '/healthz' || pathname.startsWith('/healthz/')) {
       respondJson(res, 200, {
         status: 'ok',
         version: SERVICE_VERSION,
@@ -349,7 +351,7 @@ async function main() {
       return;
     }
 
-    if (pathname === '/readyz' || pathname.startsWith('/readyz/')) {
+    if (rawPath === '/readyz' || rawPath === '/readyz/' || pathname === '/readyz' || pathname.startsWith('/readyz/')) {
       const ok = await checkApiHealth();
       if (ok) {
         respondJson(res, 200, { status: 'ok' });

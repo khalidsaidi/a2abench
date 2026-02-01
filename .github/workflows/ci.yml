@@ -42,3 +42,8 @@ jobs:
           code=$(curl -sS -o /tmp/mcp_call.json -w "%{http_code}" -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" -X POST "$MCP_URL" -d "$call")
           test "$code" = "200"
           grep -q '"content"' /tmp/mcp_call.json
+      - name: Healthz smoke test (deployed)
+        env:
+          CLOUDRUN_URL: ${{ vars.CLOUDRUN_URL }}
+          LEGACY_URL: ${{ vars.LEGACY_URL }}
+        run: ./scripts/smoke-healthz.sh
