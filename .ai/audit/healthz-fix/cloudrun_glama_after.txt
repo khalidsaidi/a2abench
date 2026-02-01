@@ -1,0 +1,9 @@
+HTTP/2 200 
+content-type: application/json
+x-cloud-trace-context: 9f06d18847f2967ea8b3775594f1b801;o=1
+date: Sun, 01 Feb 2026 20:56:15 GMT
+server: Google Frontend
+content-length: 109
+alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
+
+{"$schema":"https://glama.ai/mcp/schemas/connector.json","maintainers":[{"email":"khalidsaidi66@gmail.com"}]}

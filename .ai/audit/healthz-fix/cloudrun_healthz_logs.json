@@ -1,0 +1,176 @@
+[
+  {
+    "httpRequest": {
+      "latency": "0.005124928s",
+      "protocol": "HTTP/1.1",
+      "remoteIp": "173.180.186.140",
+      "requestMethod": "GET",
+      "requestSize": "286",
+      "requestUrl": "https://a2abench-mcp-remote-7mymv6hkwa-uc.a.run.app/healthz/",
+      "responseSize": "232",
+      "serverIp": "34.143.74.2",
+      "status": 200,
+      "userAgent": "curl/7.81.0"
+    },
+    "insertId": "697fbf68000b0eab9fa29c97",
+    "labels": {
+      "instanceId": "005eb6974cc9dd387b416b252b6f20ade1d07e893d1de8b863a3c9e775185f09c22bf7c3713769ae4afad454f78985c34e86d300689e06a6c8879a8315662ca9510b90fb14af0f14921f6c9e666c93"
+    },
+    "logName": "projects/a2abench-prod/logs/run.googleapis.com%2Frequests",
+    "receiveTimestamp": "2026-02-01T21:02:32.729874089Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "a2abench-mcp-remote",
+        "location": "us-central1",
+        "project_id": "a2abench-prod",
+        "revision_name": "a2abench-mcp-remote-00010-kn5",
+        "service_name": "a2abench-mcp-remote"
+      },
+      "type": "cloud_run_revision"
+    },
+    "severity": "INFO",
+    "spanId": "1b54753ff065c4a4",
+    "timestamp": "2026-02-01T21:02:32.717182Z",
+    "trace": "projects/a2abench-prod/traces/f19b7fb11755524e85bf8c13b55375c9",
+    "traceSampled": true
+  },
+  {
+    "httpRequest": {
+      "latency": "0.002274346s",
+      "protocol": "HTTP/1.1",
+      "remoteIp": "66.249.84.36",
+      "requestMethod": "GET",
+      "requestSize": "992",
+      "requestUrl": "https://a2abench-mcp-remote-7mymv6hkwa-uc.a.run.app/healthz/",
+      "responseSize": "231",
+      "serverIp": "34.143.77.2",
+      "status": 200,
+      "userAgent": "curl/7.81.0"
+    },
+    "insertId": "697fbeeb000539811ad67372",
+    "labels": {
+      "instanceId": "005eb6974cc9dd387b416b252b6f20ade1d07e893d1de8b863a3c9e775185f09c22bf7c3713769ae4afad454f78985c34e86d300689e06a6c8879a8315662ca9510b90fb14af0f14921f6c9e666c93"
+    },
+    "logName": "projects/a2abench-prod/logs/run.googleapis.com%2Frequests",
+    "receiveTimestamp": "2026-02-01T21:00:27.396424509Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "a2abench-mcp-remote",
+        "location": "us-central1",
+        "project_id": "a2abench-prod",
+        "revision_name": "a2abench-mcp-remote-00010-kn5",
+        "service_name": "a2abench-mcp-remote"
+      },
+      "type": "cloud_run_revision"
+    },
+    "severity": "INFO",
+    "spanId": "1c13f81c85db1ee1",
+    "timestamp": "2026-02-01T21:00:27.338557Z",
+    "trace": "projects/a2abench-prod/traces/e21dd290a2599349d4cea42388045966"
+  },
+  {
+    "httpRequest": {
+      "latency": "0.002443466s",
+      "protocol": "HTTP/1.1",
+      "remoteIp": "173.180.186.140",
+      "requestMethod": "GET",
+      "requestSize": "306",
+      "requestUrl": "https://a2abench-mcp-remote-405318049509.us-central1.run.app/healthz/",
+      "responseSize": "231",
+      "serverIp": "34.143.78.2",
+      "status": 200,
+      "userAgent": "curl/7.81.0"
+    },
+    "insertId": "697fbeeb0000e123ddbd058f",
+    "labels": {
+      "instanceId": "005eb6974cc9dd387b416b252b6f20ade1d07e893d1de8b863a3c9e775185f09c22bf7c3713769ae4afad454f78985c34e86d300689e06a6c8879a8315662ca9510b90fb14af0f14921f6c9e666c93"
+    },
+    "logName": "projects/a2abench-prod/logs/run.googleapis.com%2Frequests",
+    "receiveTimestamp": "2026-02-01T21:00:27.065833560Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "a2abench-mcp-remote",
+        "location": "us-central1",
+        "project_id": "a2abench-prod",
+        "revision_name": "a2abench-mcp-remote-00010-kn5",
+        "service_name": "a2abench-mcp-remote"
+      },
+      "type": "cloud_run_revision"
+    },
+    "severity": "INFO",
+    "spanId": "eb880a443f606e5a",
+    "timestamp": "2026-02-01T21:00:27.053417Z",
+    "trace": "projects/a2abench-prod/traces/5c49a93b1df9c0d5551c989c7bc3c6ba",
+    "traceSampled": true
+  },
+  {
+    "httpRequest": {
+      "latency": "0.002824768s",
+      "protocol": "HTTP/1.1",
+      "remoteIp": "66.249.84.194",
+      "requestMethod": "GET",
+      "requestSize": "993",
+      "requestUrl": "https://a2abench-mcp-remote-7mymv6hkwa-uc.a.run.app/healthz/",
+      "responseSize": "231",
+      "serverIp": "34.143.75.2",
+      "status": 200,
+      "userAgent": "curl/7.81.0"
+    },
+    "insertId": "697fbcc500036c3780720f8e",
+    "labels": {
+      "instanceId": "005eb6974cc9dd387b416b252b6f20ade1d07e893d1de8b863a3c9e775185f09c22bf7c3713769ae4afad454f78985c34e86d300689e06a6c8879a8315662ca9510b90fb14af0f14921f6c9e666c93"
+    },
+    "logName": "projects/a2abench-prod/logs/run.googleapis.com%2Frequests",
+    "receiveTimestamp": "2026-02-01T20:51:17.230369884Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "a2abench-mcp-remote",
+        "location": "us-central1",
+        "project_id": "a2abench-prod",
+        "revision_name": "a2abench-mcp-remote-00010-kn5",
+        "service_name": "a2abench-mcp-remote"
+      },
+      "type": "cloud_run_revision"
+    },
+    "severity": "INFO",
+    "spanId": "4ecd9796bb3d9620",
+    "timestamp": "2026-02-01T20:51:17.214735Z",
+    "trace": "projects/a2abench-prod/traces/b5bd9028b918a4e0769e2a244b38093e",
+    "traceSampled": true
+  },
+  {
+    "httpRequest": {
+      "latency": "0.008084992s",
+      "protocol": "HTTP/1.1",
+      "remoteIp": "173.180.186.140",
+      "requestMethod": "GET",
+      "requestSize": "306",
+      "requestUrl": "https://a2abench-mcp-remote-405318049509.us-central1.run.app/healthz/",
+      "responseSize": "231",
+      "serverIp": "34.143.74.2",
+      "status": 200,
+      "userAgent": "curl/7.81.0"
+    },
+    "insertId": "697fbc9c0003b58de345ffe3",
+    "labels": {
+      "instanceId": "005eb6974cc9dd387b416b252b6f20ade1d07e893d1de8b863a3c9e775185f09c22bf7c3713769ae4afad454f78985c34e86d300689e06a6c8879a8315662ca9510b90fb14af0f14921f6c9e666c93"
+    },
+    "logName": "projects/a2abench-prod/logs/run.googleapis.com%2Frequests",
+    "receiveTimestamp": "2026-02-01T20:50:36.248514570Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "a2abench-mcp-remote",
+        "location": "us-central1",
+        "project_id": "a2abench-prod",
+        "revision_name": "a2abench-mcp-remote-00010-kn5",
+        "service_name": "a2abench-mcp-remote"
+      },
+      "type": "cloud_run_revision"
+    },
+    "severity": "INFO",
+    "spanId": "4606012d71fea3a0",
+    "timestamp": "2026-02-01T20:50:36.229189Z",
+    "trace": "projects/a2abench-prod/traces/6cd74fbd73d2051b727a698c1d10f7df",
+    "traceSampled": true
+  }
+]

@@ -1,14 +1,18 @@
-HTTP/2 301 
-location: https://a2abench-mcp-remote-405318049509.us-central1.run.app/healthz/
-content-type: text/plain; charset=utf-8
+HTTP/2 200 
+cache-control: private
+content-type: application/json
+server: Google Frontend
+strict-transport-security: max-age=31556926; includeSubDomains; preload
+x-cloud-trace-context: e21dd290a2599349d4cea42388045966
+x-country-code: CA
 accept-ranges: bytes
-date: Sun, 01 Feb 2026 20:16:51 GMT
-x-served-by: cache-yvr1534-YVR
+date: Sun, 01 Feb 2026 21:00:27 GMT
+x-served-by: cache-yvr1533-YVR
 x-cache: MISS
 x-cache-hits: 0
-x-timer: S1769977012.634972,VS0,VE19
-vary: x-fh-requested-host, accept-encoding
+x-timer: S1769979627.277310,VS0,VE90
+vary: cookie,need-authorization, x-fh-requested-host, accept-encoding
 alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
-content-length: 84
+content-length: 104
 
-Redirecting to https://a2abench-mcp-remote-405318049509.us-central1.run.app/healthz/
+{"status":"ok","version":"0.1.13","commit":"2e7fd71f32124440ed87182db70436e61e55cfe7","uptimeMs":931284}

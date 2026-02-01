@@ -1,9 +1,9 @@
-HTTP/2 404 
-content-type: text/html; charset=UTF-8
-referrer-policy: no-referrer
-content-length: 1568
-date: Sun, 01 Feb 2026 21:00:26 GMT
-alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
+HTTP/1.1 404 Not Found
+Content-Type: text/html; charset=UTF-8
+Referrer-Policy: no-referrer
+Content-Length: 1568
+Date: Sun, 01 Feb 2026 21:06:03 GMT
+Alt-Svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
 
 <!DOCTYPE html>
 <html lang=en>

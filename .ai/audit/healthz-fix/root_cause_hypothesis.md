@@ -1,0 +1,3 @@
+Observed: Cloud Run domain returns a Google Frontend 404 for /healthz (no slash), while /healthz/ hits the service and returns JSON. Cloud Run request logs show only /healthz/ entries; /healthz never reaches the container.
+Hypothesis: /healthz is reserved or intercepted by Cloud Run/Google Frontend, so requests without trailing slash are not forwarded to the service. This appears to be an infrastructure constraint rather than app routing.
+Mitigation: Serve /healthz (no slash) from the legacy Firebase host as a static JSON file and keep /healthz/ proxied to Cloud Run. For Cloud Run direct domain, use /healthz/ as the canonical check; a custom load balancer domain would be required to rewrite /healthz to /healthz/.

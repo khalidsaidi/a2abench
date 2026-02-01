@@ -1,0 +1,10 @@
+in_progress		chore(audit): record healthz fix deploy outputs	release	v0.1.13	push	21570057899	17s	2026-02-01T20:53:53Z
+in_progress		chore(audit): record healthz fix deploy outputs	publish-npm	v0.1.13	push	21570057897	17s	2026-02-01T20:53:53Z
+in_progress		chore(audit): record healthz fix deploy outputs	publish-mcp-registry	v0.1.13	push	21570057894	17s	2026-02-01T20:53:53Z
+completed	success	chore(audit): record healthz fix deploy outputs	ci	main	push	21570048783	25s	2026-02-01T20:53:19Z
+completed	success	Merge pull request #24 from khalidsaidi/fix/healthz-no-slash	ci	main	push	21569856661	21s	2026-02-01T20:39:24Z
+completed	success	Fix /healthz no-slash + publish-ready v0.1.13	ci	fix/healthz-no-slash	pull_request	21569842528	23s	2026-02-01T20:38:20Z
+completed	skipped	Fix /healthz no-slash + publish-ready v0.1.13	dependabot-automerge	fix/healthz-no-slash	pull_request	21569842527	1s	2026-02-01T20:38:20Z
+completed	success	Fix /healthz no-slash + publish-ready v0.1.13	ci	fix/healthz-no-slash	pull_request	21569822285	23s	2026-02-01T20:36:48Z
+completed	skipped	Fix /healthz no-slash + publish-ready v0.1.13	dependabot-automerge	fix/healthz-no-slash	pull_request	21569822278	1s	2026-02-01T20:36:48Z
+completed	success	chore: auto-merge all dependabot updates	ci	main	push	21569125629	17s	2026-02-01T19:48:12Z

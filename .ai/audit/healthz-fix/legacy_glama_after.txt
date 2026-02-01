@@ -1,0 +1,24 @@
+HTTP/2 200 
+cache-control: max-age=3600
+content-type: application/json
+etag: "b6540f447ae57f2b42aedd581ce251d47015e3a2b15851dfd63767d74a9d6dd4"
+last-modified: Sun, 01 Feb 2026 20:49:52 GMT
+strict-transport-security: max-age=31556926; includeSubDomains; preload
+accept-ranges: bytes
+date: Sun, 01 Feb 2026 20:55:57 GMT
+x-served-by: cache-yvr1527-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1769979357.897997,VS0,VE119
+vary: x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 140
+
+{
+  "$schema": "https://glama.ai/mcp/schemas/connector.json",
+  "maintainers": [
+    {
+      "email": "khalidsaidi66@gmail.com"
+    }
+  ]
+}

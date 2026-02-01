@@ -1,0 +1,147 @@
+{
+  "apiVersion": "serving.knative.dev/v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "run.googleapis.com/client-name": "gcloud",
+      "run.googleapis.com/client-version": "554.0.0",
+      "run.googleapis.com/ingress": "all",
+      "run.googleapis.com/ingress-status": "all",
+      "run.googleapis.com/maxScale": "20",
+      "run.googleapis.com/operation-id": "4a60cafc-1568-4b5b-99e5-e883e0b12955",
+      "run.googleapis.com/urls": "[\"https://a2abench-mcp-remote-405318049509.us-central1.run.app\",\"https://a2abench-mcp-remote-7mymv6hkwa-uc.a.run.app\"]",
+      "serving.knative.dev/creator": "khalidsaidi66@gmail.com",
+      "serving.knative.dev/lastModifier": "khalidsaidi66@gmail.com"
+    },
+    "creationTimestamp": "2026-01-30T20:54:53.600751Z",
+    "generation": 10,
+    "labels": {
+      "cloud.googleapis.com/location": "us-central1"
+    },
+    "name": "a2abench-mcp-remote",
+    "namespace": "405318049509",
+    "resourceVersion": "AAZJyUdpaFA",
+    "selfLink": "/apis/serving.knative.dev/v1/namespaces/405318049509/services/a2abench-mcp-remote",
+    "uid": "3f0f948e-4ad2-418e-95c9-e4386a0452c9"
+  },
+  "spec": {
+    "template": {
+      "metadata": {
+        "annotations": {
+          "autoscaling.knative.dev/maxScale": "20",
+          "run.googleapis.com/client-name": "gcloud",
+          "run.googleapis.com/client-version": "554.0.0",
+          "run.googleapis.com/startup-cpu-boost": "true"
+        },
+        "labels": {
+          "client.knative.dev/nonce": "iyhvcdhonl",
+          "run.googleapis.com/startupProbeType": "Default"
+        }
+      },
+      "spec": {
+        "containerConcurrency": 80,
+        "containers": [
+          {
+            "env": [
+              {
+                "name": "API_KEY",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "latest",
+                    "name": "a2abench-api-key"
+                  }
+                }
+              },
+              {
+                "name": "API_BASE_URL",
+                "value": "https://a2abench-api.web.app"
+              },
+              {
+                "name": "PUBLIC_BASE_URL",
+                "value": "https://a2abench-api.web.app"
+              },
+              {
+                "name": "PUBLIC_MCP_URL",
+                "value": "https://a2abench-mcp.web.app/mcp"
+              },
+              {
+                "name": "SERVICE_VERSION",
+                "value": "0.1.13"
+              },
+              {
+                "name": "COMMIT_SHA",
+                "value": "2e7fd71f32124440ed87182db70436e61e55cfe7"
+              },
+              {
+                "name": "LOG_LEVEL",
+                "value": "info"
+              }
+            ],
+            "image": "us-central1-docker.pkg.dev/a2abench-prod/a2abench/mcp-remote:0.1.13",
+            "ports": [
+              {
+                "containerPort": 8080,
+                "name": "http1"
+              }
+            ],
+            "resources": {
+              "limits": {
+                "cpu": "1000m",
+                "memory": "512Mi"
+              }
+            },
+            "startupProbe": {
+              "failureThreshold": 1,
+              "periodSeconds": 240,
+              "tcpSocket": {
+                "port": 8080
+              },
+              "timeoutSeconds": 240
+            }
+          }
+        ],
+        "serviceAccountName": "405318049509-compute@developer.gserviceaccount.com",
+        "timeoutSeconds": 300
+      }
+    },
+    "traffic": [
+      {
+        "latestRevision": true,
+        "percent": 100
+      }
+    ]
+  },
+  "status": {
+    "address": {
+      "url": "https://a2abench-mcp-remote-7mymv6hkwa-uc.a.run.app"
+    },
+    "conditions": [
+      {
+        "lastTransitionTime": "2026-02-01T20:44:55.608400Z",
+        "status": "True",
+        "type": "Ready"
+      },
+      {
+        "lastTransitionTime": "2026-02-01T20:44:51.459218Z",
+        "status": "True",
+        "type": "ConfigurationsReady"
+      },
+      {
+        "lastTransitionTime": "2026-02-01T20:44:55.571928Z",
+        "status": "True",
+        "type": "RoutesReady"
+      }
+    ],
+    "latestCreatedRevisionName": "a2abench-mcp-remote-00010-kn5",
+    "latestReadyRevisionName": "a2abench-mcp-remote-00010-kn5",
+    "observedGeneration": 10,
+    "traffic": [
+      {
+        "latestRevision": true,
+        "percent": 100,
+        "revisionName": "a2abench-mcp-remote-00010-kn5"
+      }
+    ],
+    "url": "https://a2abench-mcp-remote-7mymv6hkwa-uc.a.run.app"
+  }
+}

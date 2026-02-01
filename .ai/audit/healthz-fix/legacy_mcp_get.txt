@@ -3,19 +3,19 @@ cache-control: private
 content-type: text/plain; charset=utf-8
 server: Google Frontend
 strict-transport-security: max-age=31556926; includeSubDomains; preload
-x-cloud-trace-context: 9a233cc3144009fcd41c1e3dc3c9859c;o=1
+x-cloud-trace-context: a2a861d76833295655a967749e66ab7c
 x-country-code: CA
 accept-ranges: bytes
-date: Sun, 01 Feb 2026 20:17:22 GMT
-x-served-by: cache-yvr1526-YVR
+date: Sun, 01 Feb 2026 21:00:27 GMT
+x-served-by: cache-yvr1528-YVR
 x-cache: MISS
 x-cache-hits: 0
-x-timer: S1769977043.680615,VS0,VE77
+x-timer: S1769979627.465147,VS0,VE74
 vary: cookie,need-authorization, x-fh-requested-host, accept-encoding
 alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
-content-length: 202
+content-length: 170
 
 A2ABench MCP endpoint. Use an MCP client.
-Endpoint: https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp
+Endpoint: https://a2abench-mcp.web.app/mcp
 Docs: https://a2abench-api.web.app/docs
 Repo: https://github.com/khalidsaidi/a2abench
