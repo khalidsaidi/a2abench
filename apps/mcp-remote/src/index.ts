@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { createServer } from 'node:http';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
@@ -12,16 +13,19 @@ const PUBLIC_MCP_URL =
 const API_KEY = process.env.API_KEY ?? '';
 const PORT = Number(process.env.PORT ?? process.env.MCP_PORT ?? 4000);
 const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-remote';
+const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.12';
+const COMMIT_SHA = process.env.COMMIT_SHA ?? process.env.GIT_SHA ?? 'unknown';
+const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
 const ALLOWED_ORIGINS = (process.env.MCP_ALLOWED_ORIGINS ?? '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-const requestContext = new AsyncLocalStorage<{ agentName?: string }>();
+const requestContext = new AsyncLocalStorage<{ agentName?: string; requestId?: string }>();
 
 const server = new McpServer({
   name: 'A2ABench',
-  version: '0.1.10'
+  version: SERVICE_VERSION
 });
 
 const metrics = {
@@ -37,6 +41,30 @@ function bumpMap<K>(map: Map<K, number>, key: K) {
   map.set(key, (map.get(key) ?? 0) + 1);
 }
 
+const LOG_LEVELS: Record<string, number> = {
+  silent: 0,
+  error: 1,
+  warn: 2,
+  info: 3,
+  debug: 4
+};
+
+function shouldLog(level: 'error' | 'warn' | 'info' | 'debug') {
+  const current = LOG_LEVELS[LOG_LEVEL] ?? LOG_LEVELS.info;
+  return current >= LOG_LEVELS[level];
+}
+
+function logEvent(level: 'error' | 'warn' | 'info' | 'debug', payload: Record<string, unknown>) {
+  if (!shouldLog(level)) return;
+  console.log(
+    JSON.stringify({
+      level,
+      ts: new Date().toISOString(),
+      ...payload
+    })
+  );
+}
+
 function logMetricsSummary() {
   const byStatus: Record<string, number> = {};
   const byTool: Record<string, number> = {};
@@ -44,17 +72,15 @@ function logMetricsSummary() {
   for (const [key, value] of metrics.byStatus) byStatus[String(key)] = value;
   for (const [key, value] of metrics.byTool) byTool[key] = value;
   for (const [key, value] of metrics.toolErrors) toolErrors[key] = value;
-  console.log(
-    JSON.stringify({
-      kind: 'mcp_metrics_summary',
-      startedAt: metrics.startedAt,
-      totalRequests: metrics.totalRequests,
-      totalToolCalls: metrics.totalToolCalls,
-      byStatus,
-      byTool,
-      toolErrors
-    })
-  );
+  logEvent('info', {
+    kind: 'mcp_metrics_summary',
+    startedAt: metrics.startedAt,
+    totalRequests: metrics.totalRequests,
+    totalToolCalls: metrics.totalToolCalls,
+    byStatus,
+    byTool,
+    toolErrors
+  });
 }
 
 async function apiGet(path: string, params?: Record<string, string>) {
@@ -87,18 +113,18 @@ server.registerTool(
   async ({ query }) => {
     const toolStart = Date.now();
     const response = await apiGet('/api/v1/search', { q: query });
+    const requestId = requestContext.getStore()?.requestId ?? null;
     if (!response.ok) {
       metrics.totalToolCalls += 1;
       bumpMap(metrics.byTool, 'search');
       bumpMap(metrics.toolErrors, 'search');
-      console.log(
-        JSON.stringify({
-          kind: 'mcp_tool',
-          tool: 'search',
-          status: response.status,
-          durationMs: Date.now() - toolStart
-        })
-      );
+      logEvent('warn', {
+        kind: 'mcp_tool',
+        tool: 'search',
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
       return {
         content: [
           {
@@ -116,15 +142,14 @@ server.registerTool(
     }));
     metrics.totalToolCalls += 1;
     bumpMap(metrics.byTool, 'search');
-    console.log(
-      JSON.stringify({
-        kind: 'mcp_tool',
-        tool: 'search',
-        status: response.status,
-        durationMs: Date.now() - toolStart,
-        resultCount: results.length
-      })
-    );
+    logEvent('info', {
+      kind: 'mcp_tool',
+      tool: 'search',
+      status: response.status,
+      durationMs: Date.now() - toolStart,
+      resultCount: results.length,
+      requestId
+    });
     return {
       content: [
         {
@@ -148,19 +173,19 @@ server.registerTool(
   async ({ id }) => {
     const toolStart = Date.now();
     const response = await apiGet(`/api/v1/questions/${id}`);
+    const requestId = requestContext.getStore()?.requestId ?? null;
     if (!response.ok) {
       metrics.totalToolCalls += 1;
       bumpMap(metrics.byTool, 'fetch');
       bumpMap(metrics.toolErrors, 'fetch');
-      console.log(
-        JSON.stringify({
-          kind: 'mcp_tool',
-          tool: 'fetch',
-          status: response.status,
-          durationMs: Date.now() - toolStart,
-          id
-        })
-      );
+      logEvent('warn', {
+        kind: 'mcp_tool',
+        tool: 'fetch',
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        id,
+        requestId
+      });
       return {
         content: [
           {
@@ -173,15 +198,14 @@ server.registerTool(
     const data = await response.json();
     metrics.totalToolCalls += 1;
     bumpMap(metrics.byTool, 'fetch');
-    console.log(
-      JSON.stringify({
-        kind: 'mcp_tool',
-        tool: 'fetch',
-        status: response.status,
-        durationMs: Date.now() - toolStart,
-        id
-      })
-    );
+    logEvent('info', {
+      kind: 'mcp_tool',
+      tool: 'fetch',
+      status: response.status,
+      durationMs: Date.now() - toolStart,
+      id,
+      requestId
+    });
     return {
       content: [
         {
@@ -205,7 +229,35 @@ function applyCors(res: import('node:http').ServerResponse, origin: string | und
   res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, mcp-session-id, mcp-protocol-version, last-event-id');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,HEAD,OPTIONS');
+}
+
+async function checkApiHealth() {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
+  try {
+    const response = await fetch(new URL('/api/v1/health', API_BASE_URL), {
+      signal: controller.signal,
+      headers: { accept: 'application/json' }
+    });
+    clearTimeout(timeout);
+    return response.ok;
+  } catch {
+    clearTimeout(timeout);
+    return false;
+  }
+}
+
+function respondJson(res: import('node:http').ServerResponse, status: number, payload: Record<string, unknown>) {
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify(payload));
+}
+
+function respondText(res: import('node:http').ServerResponse, status: number, text: string) {
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.end(text);
 }
 
 async function main() {
@@ -225,22 +277,13 @@ async function main() {
     const origin = req.headers.origin as string | undefined;
     applyCors(res, origin);
 
-    if (req.method === 'OPTIONS') {
-      res.statusCode = 204;
-      res.end();
-      return;
-    }
-
-    if (!isOriginAllowed(origin)) {
-      res.statusCode = 403;
-      res.end('Origin not allowed');
-      return;
-    }
-
     const agentHeader = req.headers['x-agent-name'] ?? req.headers['x-mcp-client-name'] ?? req.headers['mcp-client-name'];
     const agentName = Array.isArray(agentHeader) ? agentHeader[0] : agentHeader;
     const userAgent = Array.isArray(req.headers['user-agent']) ? req.headers['user-agent'][0] : req.headers['user-agent'];
     const startMs = Date.now();
+    const requestId =
+      (Array.isArray(req.headers['x-request-id']) ? req.headers['x-request-id'][0] : req.headers['x-request-id']) ??
+      randomUUID();
     const pathname = (() => {
       try {
         return new URL(req.url, 'http://localhost').pathname;
@@ -249,23 +292,82 @@ async function main() {
       }
     })();
 
-    if (pathname === '/healthz' || pathname.startsWith('/healthz/')) {
-      res.setHeader('Content-Type', 'application/json');
+    if (req.method === 'OPTIONS') {
       res.statusCode = 200;
-      res.end(JSON.stringify({ status: 'ok' }));
+      res.end();
+      return;
+    }
+
+    if (!isOriginAllowed(origin)) {
+      respondText(res, 403, 'Origin not allowed');
+      return;
+    }
+
+    if (pathname === '/.well-known/glama.json') {
+      respondJson(res, 200, {
+        $schema: 'https://glama.ai/mcp/schemas/connector.json',
+        maintainers: [
+          {
+            email: 'khalidsaidi66@gmail.com'
+          }
+        ]
+      });
       metrics.totalRequests += 1;
       bumpMap(metrics.byStatus, res.statusCode);
-      console.log(
-        JSON.stringify({
-          kind: 'mcp_request',
-          method: req.method,
-          status: res.statusCode,
-          durationMs: Date.now() - startMs,
-          agentName: agentName ?? null,
-          userAgent: userAgent ?? null,
-          path: '/healthz'
-        })
-      );
+      logEvent('info', {
+        kind: 'mcp_request',
+        method: req.method,
+        status: res.statusCode,
+        durationMs: Date.now() - startMs,
+        requestId,
+        agentName: agentName ?? null,
+        userAgent: userAgent ?? null,
+        path: '/.well-known/glama.json'
+      });
+      return;
+    }
+
+    if (pathname === '/healthz' || pathname.startsWith('/healthz/')) {
+      respondJson(res, 200, {
+        status: 'ok',
+        version: SERVICE_VERSION,
+        commit: COMMIT_SHA,
+        uptimeMs: Math.round(process.uptime() * 1000)
+      });
+      metrics.totalRequests += 1;
+      bumpMap(metrics.byStatus, res.statusCode);
+      logEvent('info', {
+        kind: 'mcp_request',
+        method: req.method,
+        status: res.statusCode,
+        durationMs: Date.now() - startMs,
+        requestId,
+        agentName: agentName ?? null,
+        userAgent: userAgent ?? null,
+        path: '/healthz'
+      });
+      return;
+    }
+
+    if (pathname === '/readyz' || pathname.startsWith('/readyz/')) {
+      const ok = await checkApiHealth();
+      if (ok) {
+        respondJson(res, 200, { status: 'ok' });
+      } else {
+        respondJson(res, 503, { status: 'error', reason: 'api_unreachable' });
+      }
+      metrics.totalRequests += 1;
+      bumpMap(metrics.byStatus, res.statusCode);
+      logEvent(ok ? 'info' : 'warn', {
+        kind: 'mcp_request',
+        method: req.method,
+        status: res.statusCode,
+        durationMs: Date.now() - startMs,
+        requestId,
+        agentName: agentName ?? null,
+        userAgent: userAgent ?? null,
+        path: '/readyz'
+      });
       return;
     }
 
@@ -280,16 +382,15 @@ async function main() {
       res.end();
       metrics.totalRequests += 1;
       bumpMap(metrics.byStatus, res.statusCode);
-      console.log(
-        JSON.stringify({
-          kind: 'mcp_request',
-          method: 'HEAD',
-          status: res.statusCode,
-          durationMs: Date.now() - startMs,
-          agentName: agentName ?? null,
-          userAgent: userAgent ?? null
-        })
-      );
+      logEvent('info', {
+        kind: 'mcp_request',
+        method: 'HEAD',
+        status: res.statusCode,
+        durationMs: Date.now() - startMs,
+        requestId,
+        agentName: agentName ?? null,
+        userAgent: userAgent ?? null
+      });
       return;
     }
 
@@ -323,34 +424,46 @@ async function main() {
 </html>`);
         metrics.totalRequests += 1;
         bumpMap(metrics.byStatus, res.statusCode);
-        console.log(
-          JSON.stringify({
-            kind: 'mcp_request',
-            method: 'GET',
-            status: res.statusCode,
-            durationMs: Date.now() - startMs,
-            agentName: agentName ?? null,
-            userAgent: userAgent ?? null,
-            html: true
-          })
-        );
-        return;
-      }
-      await requestContext.run({ agentName }, async () => {
-        await transport.handleRequest(req, res);
-      });
-      metrics.totalRequests += 1;
-      bumpMap(metrics.byStatus, res.statusCode);
-      console.log(
-        JSON.stringify({
+        logEvent('info', {
           kind: 'mcp_request',
           method: 'GET',
           status: res.statusCode,
           durationMs: Date.now() - startMs,
+          requestId,
           agentName: agentName ?? null,
-          userAgent: userAgent ?? null
-        })
-      );
+          userAgent: userAgent ?? null,
+          html: true
+        });
+        return;
+      }
+      if (accept.includes('application/json')) {
+        respondJson(res, 200, {
+          name: 'A2ABench MCP',
+          version: SERVICE_VERSION,
+          endpoint: PUBLIC_MCP_URL,
+          transport: 'streamable-http',
+          tools: ['search', 'fetch'],
+          docs: 'https://a2abench-api.web.app/docs',
+          repo: 'https://github.com/khalidsaidi/a2abench'
+        });
+      } else {
+        respondText(
+          res,
+          200,
+          `A2ABench MCP endpoint. Use an MCP client.\nEndpoint: ${PUBLIC_MCP_URL}\nDocs: https://a2abench-api.web.app/docs\nRepo: https://github.com/khalidsaidi/a2abench`
+        );
+      }
+      metrics.totalRequests += 1;
+      bumpMap(metrics.byStatus, res.statusCode);
+      logEvent('info', {
+        kind: 'mcp_request',
+        method: 'GET',
+        status: res.statusCode,
+        durationMs: Date.now() - startMs,
+        requestId,
+        agentName: agentName ?? null,
+        userAgent: userAgent ?? null
+      });
       return;
     }
 
@@ -367,37 +480,35 @@ async function main() {
     req.on('end', async () => {
       try {
         const json = body.length ? JSON.parse(body) : undefined;
-        await requestContext.run({ agentName }, async () => {
+        await requestContext.run({ agentName, requestId }, async () => {
           await transport.handleRequest(req, res, json);
         });
         metrics.totalRequests += 1;
         bumpMap(metrics.byStatus, res.statusCode);
-        console.log(
-          JSON.stringify({
-            kind: 'mcp_request',
-            method: 'POST',
-            status: res.statusCode,
-            durationMs: Date.now() - startMs,
-            agentName: agentName ?? null,
-            userAgent: userAgent ?? null
-          })
-        );
+        logEvent('info', {
+          kind: 'mcp_request',
+          method: 'POST',
+          status: res.statusCode,
+          durationMs: Date.now() - startMs,
+          requestId,
+          agentName: agentName ?? null,
+          userAgent: userAgent ?? null
+        });
       } catch (err) {
-        res.statusCode = 400;
-        res.end('Invalid JSON');
+        respondText(res, 400, 'Invalid JSON');
         metrics.totalRequests += 1;
         bumpMap(metrics.byStatus, res.statusCode);
-        console.log(
-          JSON.stringify({
-            kind: 'mcp_request',
-            method: 'POST',
-            status: res.statusCode,
-            durationMs: Date.now() - startMs,
-            agentName: agentName ?? null,
-            userAgent: userAgent ?? null,
-            error: 'invalid_json'
-          })
-        );
+        logEvent('warn', {
+          kind: 'mcp_request',
+          method: 'POST',
+          status: res.statusCode,
+          durationMs: Date.now() - startMs,
+          requestId,
+          agentName: agentName ?? null,
+          userAgent: userAgent ?? null,
+          error: 'invalid_json',
+          errorName: err instanceof Error ? err.name : 'unknown'
+        });
       }
     });
   });

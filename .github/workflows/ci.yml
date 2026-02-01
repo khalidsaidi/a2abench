@@ -22,3 +22,23 @@ jobs:
       - run: pnpm -r lint
       - run: pnpm -r typecheck
       - run: pnpm -r test
+      - name: MCP smoke test (deployed)
+        env:
+          MCP_URL: https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp
+        run: |
+          set -euo pipefail
+          init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci-smoke","version":"0.0.0"}}}'
+          tools='{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+          call='{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search","arguments":{"query":"demo"}}}'
+
+          code=$(curl -sS -o /tmp/mcp_init.json -w "%{http_code}" -H "Content-Type: application/json" -H "Accept: application/json" -X POST "$MCP_URL" -d "$init")
+          test "$code" = "200"
+          grep -q '"result"' /tmp/mcp_init.json
+
+          code=$(curl -sS -o /tmp/mcp_tools.json -w "%{http_code}" -H "Content-Type: application/json" -H "Accept: application/json" -X POST "$MCP_URL" -d "$tools")
+          test "$code" = "200"
+          grep -q '"result"' /tmp/mcp_tools.json
+
+          code=$(curl -sS -o /tmp/mcp_call.json -w "%{http_code}" -H "Content-Type: application/json" -H "Accept: application/json" -X POST "$MCP_URL" -d "$call")
+          test "$code" = "200"
+          grep -q '"content"' /tmp/mcp_call.json

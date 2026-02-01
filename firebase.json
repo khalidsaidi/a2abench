@@ -88,19 +88,24 @@
       ],
       "redirects": [
         {
+          "source": "/",
+          "destination": "/mcp",
+          "type": 301
+        },
+        {
           "source": "/mcp",
           "destination": "https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp",
-          "type": 302
+          "type": 301
         },
         {
           "source": "/mcp/**",
           "destination": "https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp",
-          "type": 302
+          "type": 301
         },
         {
           "source": "/healthz",
           "destination": "https://a2abench-mcp-remote-405318049509.us-central1.run.app/healthz/",
-          "type": 302
+          "type": 301
         }
       ]
     }
