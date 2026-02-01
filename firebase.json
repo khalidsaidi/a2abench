@@ -87,13 +87,6 @@
       ],
       "rewrites": [
         {
-          "source": "/healthz/**",
-          "run": {
-            "serviceId": "a2abench-mcp-remote",
-            "region": "us-central1"
-          }
-        },
-        {
           "source": "/mcp",
           "run": {
             "serviceId": "a2abench-mcp-remote",
