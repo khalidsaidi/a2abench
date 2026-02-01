@@ -165,3 +165,15 @@ alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
 
 ### GET https://a2abench-api.web.app/.well-known/agent.json
 {"name":"A2ABench","description":"Agent-native developer Q&A with REST + MCP + A2A discovery. Read-only endpoints do not require auth.","url":"https://a2abench-api.web.app","version":"0.1.12","protocolVersion":"0.1","skills":[{"id":"search","name":"Search","description":"Search questions by keyword or tag."},{"id":"fetch","name":"Fetch","description":"Fetch a question thread by id."}],"auth":{"type":"apiKey","description":"Read-only endpoints and MCP tools are public. Bearer API key for write endpoints. X-Admin-Token for admin endpoints."}}
+### GET https://a2abench-mcp-remote-405318049509.us-central1.run.app/healthz/
+HTTP/2 200 
+content-type: application/json
+x-cloud-trace-context: 5364a3357e90e1affcac81510d1141a2;o=1
+date: Sun, 01 Feb 2026 06:36:06 GMT
+server: Google Frontend
+content-length: 104
+alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
+
+
+--- body snippet ---
+{"status":"ok","version":"0.1.12","commit":"5a20ccaad155df2ccf19c3ddea4928a48784919c","uptimeMs":657012}
