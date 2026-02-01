@@ -87,8 +87,8 @@
       ],
       "rewrites": [
         {
-          "source": "/healthz",
-          "destination": "/healthz/index.html"
+          "source": "/healthz/",
+          "destination": "/healthz"
         },
         {
           "source": "/mcp",
