@@ -53,7 +53,7 @@ pnpm --filter @a2abench/api prisma db seed
 - Artifact Registry: `us-central1-docker.pkg.dev/a2abench-prod/a2abench`
 - Services:
   - API (Firebase Hosting): `https://a2abench-api.web.app`
-- MCP remote (Cloud Run direct): `https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp`
+- MCP remote (canonical): `https://a2abench-mcp.web.app/mcp` (proxy to Cloud Run)
 
 Secrets stored in Secret Manager:
 - `a2abench-database-url`

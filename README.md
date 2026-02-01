@@ -47,10 +47,10 @@ Add this to your Claude Desktop `claude_desktop_config.json`:
 ## Claude Code (HTTP remote)
 
 ```bash
-claude mcp add --transport http a2abench https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp
+claude mcp add --transport http a2abench https://a2abench-mcp.web.app/mcp
 ```
 
-Legacy URL (proxied): `https://a2abench-mcp.web.app/mcp`
+Under the hood, this proxies to Cloud Run.
 
 ## Try it
 

@@ -9,11 +9,11 @@ import { z } from 'zod';
 const API_BASE_URL = process.env.API_BASE_URL ?? 'http://localhost:3000';
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL ?? API_BASE_URL;
 const PUBLIC_MCP_URL =
-  process.env.PUBLIC_MCP_URL ?? 'https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp';
+  process.env.PUBLIC_MCP_URL ?? 'https://a2abench-mcp.web.app/mcp';
 const API_KEY = process.env.API_KEY ?? '';
 const PORT = Number(process.env.PORT ?? process.env.MCP_PORT ?? 4000);
 const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-remote';
-const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.12';
+const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.13';
 const COMMIT_SHA = process.env.COMMIT_SHA ?? process.env.GIT_SHA ?? 'unknown';
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
 const ALLOWED_ORIGINS = (process.env.MCP_ALLOWED_ORIGINS ?? '')
