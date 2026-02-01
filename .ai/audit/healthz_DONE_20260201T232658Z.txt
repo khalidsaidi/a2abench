@@ -1,0 +1,99 @@
+Sun Feb  1 11:26:58 PM UTC 2026
+
+HTTP/2 404 
+content-type: text/html; charset=UTF-8
+referrer-policy: no-referrer
+accept-ranges: bytes
+date: Sun, 01 Feb 2026 23:26:58 GMT
+x-served-by: cache-yvr1527-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1769988418.262008,VS0,VE5
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 1568
+
+<!DOCTYPE html>
+<html lang=en>
+  <meta charset=utf-8>
+  <meta name=viewport content="initial-scale=1, minimum-scale=1, width=device-width">
+  <title>Error 404 (Not Found)!!1</title>
+  <style>
+    *{margin:0;padding:0}html,code{font:15px/22px arial,sans-serif}html{background:#fff;color:#222;padding:15px}body{margin:7% auto 0;max-width:390px;min-height:180px;padding:30px 0 15px}* > body{background:url(//www.google.com/images/errors/robot.png) 100% 5px no-repeat;padding-right:205px}p{margin:11px 0 22px;overflow:hidden}ins{color:#777;text-decoration:none}a img{border:0}@media screen and (max-width:772px){body{background:none;margin-top:0;max-width:none;padding-right:0}}#logo{background:url(//www.google.com/images/branding/googlelogo/1x/googlelogo_color_150x54dp.png) no-repeat;margin-left:-5px}@media only screen and (min-resolution:192dpi){#logo{background:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) no-repeat 0% 0%/100% 100%;-moz-border-image:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) 0}}@media only screen and (-webkit-min-device-pixel-ratio:2){#logo{background:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) no-repeat;-webkit-background-size:100% 100%}}#logo{display:inline-block;height:54px;width:150px}
+  </style>
+  <a href=//www.google.com/><span id=logo aria-label=Google></span></a>
+  <p><b>404.</b> <ins>That’s an error.</ins>
+  <p>The requested URL <code>/healthz</code> was not found on this server.  <ins>That’s all we know.</ins>
+
+HTTP/2 200 
+cache-control: max-age=3600
+content-type: application/json
+etag: "47500c4b8b715e1c49a2c540a2d303654db33ac4ecfa8d93d597a099d2e93065"
+last-modified: Sun, 01 Feb 2026 23:25:14 GMT
+strict-transport-security: max-age=31556926; includeSubDomains; preload
+accept-ranges: bytes
+date: Sun, 01 Feb 2026 23:26:58 GMT
+x-served-by: cache-yvr1522-YVR
+x-cache: HIT
+x-cache-hits: 0
+x-timer: S1769988418.423240,VS0,VE1
+vary: x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 62
+
+{"status":"ok","version":"0.1.13","source":"firebase-static"}
+
+HTTP/2 200 
+cache-control: private
+content-type: application/json
+server: Google Frontend
+strict-transport-security: max-age=31556926; includeSubDomains; preload
+x-cloud-trace-context: 71df95419479eafb5fd784ae9d5c8aa9;o=1
+x-country-code: CA
+accept-ranges: bytes
+date: Sun, 01 Feb 2026 23:26:58 GMT
+x-served-by: cache-yvr1534-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1769988419.552523,VS0,VE376
+vary: cookie,need-authorization, x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 15
+
+{"status":"ok"}
+HTTP/2 404 
+content-type: text/html; charset=UTF-8
+referrer-policy: no-referrer
+content-length: 1568
+date: Sun, 01 Feb 2026 23:26:59 GMT
+alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
+
+<!DOCTYPE html>
+<html lang=en>
+  <meta charset=utf-8>
+  <meta name=viewport content="initial-scale=1, minimum-scale=1, width=device-width">
+  <title>Error 404 (Not Found)!!1</title>
+  <style>
+    *{margin:0;padding:0}html,code{font:15px/22px arial,sans-serif}html{background:#fff;color:#222;padding:15px}body{margin:7% auto 0;max-width:390px;min-height:180px;padding:30px 0 15px}* > body{background:url(//www.google.com/images/errors/robot.png) 100% 5px no-repeat;padding-right:205px}p{margin:11px 0 22px;overflow:hidden}ins{color:#777;text-decoration:none}a img{border:0}@media screen and (max-width:772px){body{background:none;margin-top:0;max-width:none;padding-right:0}}#logo{background:url(//www.google.com/images/branding/googlelogo/1x/googlelogo_color_150x54dp.png) no-repeat;margin-left:-5px}@media only screen and (min-resolution:192dpi){#logo{background:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) no-repeat 0% 0%/100% 100%;-moz-border-image:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) 0}}@media only screen and (-webkit-min-device-pixel-ratio:2){#logo{background:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) no-repeat;-webkit-background-size:100% 100%}}#logo{display:inline-block;height:54px;width:150px}
+  </style>
+  <a href=//www.google.com/><span id=logo aria-label=Google></span></a>
+  <p><b>404.</b> <ins>That’s an error.</ins>
+  <p>The requested URL <code>/healthz</code> was not found on this server.  <ins>That’s all we know.</ins>
+
+HTTP/2 200 
+content-type: application/json
+x-cloud-trace-context: 9c9b6148e60cc36257f1e3afd8646dbf
+date: Sun, 01 Feb 2026 23:26:59 GMT
+server: Google Frontend
+content-length: 104
+alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
+
+{"status":"ok","version":"0.1.13","commit":"2e7fd71f32124440ed87182db70436e61e55cfe7","uptimeMs":444382}
+HTTP/2 200 
+content-type: application/json
+x-cloud-trace-context: 85a4e1f06f02ecf3f529ea8e5ebaa4d3
+date: Sun, 01 Feb 2026 23:26:59 GMT
+server: Google Frontend
+content-length: 15
+alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
+
+{"status":"ok"}
