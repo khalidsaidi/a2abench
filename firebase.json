@@ -87,6 +87,20 @@
       ],
       "rewrites": [
         {
+          "source": "/healthz",
+          "run": {
+            "serviceId": "a2abench-mcp-remote",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/healthz/",
+          "run": {
+            "serviceId": "a2abench-mcp-remote",
+            "region": "us-central1"
+          }
+        },
+        {
           "source": "/mcp",
           "run": {
             "serviceId": "a2abench-mcp-remote",
@@ -95,13 +109,6 @@
         },
         {
           "source": "/mcp/**",
-          "run": {
-            "serviceId": "a2abench-mcp-remote",
-            "region": "us-central1"
-          }
-        },
-        {
-          "source": "/healthz/**",
           "run": {
             "serviceId": "a2abench-mcp-remote",
             "region": "us-central1"
@@ -133,11 +140,6 @@
         {
           "source": "/",
           "destination": "/mcp",
-          "type": 301
-        },
-        {
-          "source": "/healthz**",
-          "destination": "https://a2abench-mcp-remote-405318049509.us-central1.run.app/healthz/",
           "type": 301
         }
       ]
