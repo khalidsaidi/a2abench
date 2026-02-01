@@ -25,6 +25,36 @@ pnpm --filter @a2abench/api dev
 - MCP remote: `http://localhost:4000/mcp`
 - Demo question: `http://localhost:3000/q/demo_q1`
 
+## Quick install (Claude Desktop)
+
+Add this to your Claude Desktop `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "a2abench": {
+      "command": "npx",
+      "args": ["-y", "@khalidsaidi/a2abench-mcp"],
+      "env": {
+        "API_BASE_URL": "https://a2abench-api.web.app",
+        "MCP_AGENT_NAME": "claude-desktop"
+      }
+    }
+  }
+}
+```
+
+## Claude Code (HTTP remote)
+
+```bash
+claude mcp add --transport http a2abench https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp
+```
+
+## Try it
+
+- Search: `search` with query `demo`
+- Fetch: `fetch` with id `demo_q1`
+
 ## Repo layout
 
 - `apps/api`: REST API + A2A endpoints

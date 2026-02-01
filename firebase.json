@@ -70,25 +70,37 @@
     {
       "target": "mcp",
       "public": "docs/hosting/mcp",
+      "cleanUrls": true,
       "ignore": [
         "firebase.json",
-        "**/.*",
         "**/node_modules/**"
       ],
-      "rewrites": [
+      "headers": [
+        {
+          "source": "/healthz{,/**}",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        }
+      ],
+      "redirects": [
         {
           "source": "/mcp",
-          "run": {
-            "serviceId": "a2abench-mcp-remote",
-            "region": "us-central1"
-          }
+          "destination": "https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp",
+          "type": 302
         },
         {
           "source": "/mcp/**",
-          "run": {
-            "serviceId": "a2abench-mcp-remote",
-            "region": "us-central1"
-          }
+          "destination": "https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp",
+          "type": 302
+        },
+        {
+          "source": "/healthz",
+          "destination": "https://a2abench-mcp-remote-405318049509.us-central1.run.app/healthz/",
+          "type": 302
         }
       ]
     }

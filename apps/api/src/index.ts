@@ -24,7 +24,7 @@ await fastify.register(swagger, {
     info: {
       title: 'A2ABench API',
       description: 'Agent-native developer Q&A service',
-      version: '0.1.0'
+      version: '0.1.9'
     },
     components: {
       securitySchemes: {
@@ -167,9 +167,9 @@ async function requireAdminDashboard(request: { headers: Record<string, string |
 function agentCard(baseUrl: string) {
   return {
     name: 'A2ABench',
-    description: 'Agent-native developer Q&A with REST + MCP + A2A discovery.',
+    description: 'Agent-native developer Q&A with REST + MCP + A2A discovery. Read-only endpoints do not require auth.',
     url: baseUrl,
-    version: '0.1.0',
+    version: '0.1.9',
     protocolVersion: '0.1',
     skills: [
       {
@@ -185,7 +185,7 @@ function agentCard(baseUrl: string) {
     ],
     auth: {
       type: 'apiKey',
-      description: 'Bearer API key for write endpoints. X-Admin-Token for admin endpoints.'
+      description: 'Read-only endpoints and MCP tools are public. Bearer API key for write endpoints. X-Admin-Token for admin endpoints.'
     }
   };
 }
