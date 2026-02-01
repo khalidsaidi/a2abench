@@ -1,0 +1,2 @@
+apps/mcp-remote/src/index.ts:352:    if (pathname === '/readyz' || pathname.startsWith('/readyz/')) {
+apps/mcp-remote/src/index.ts:369:        path: '/readyz'

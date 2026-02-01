@@ -1,0 +1,14 @@
+HTTP/2 301 
+location: https://a2abench-mcp-remote-405318049509.us-central1.run.app/healthz/
+content-type: text/plain; charset=utf-8
+accept-ranges: bytes
+date: Sun, 01 Feb 2026 20:16:51 GMT
+x-served-by: cache-yvr1534-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1769977012.634972,VS0,VE19
+vary: x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 84
+
+Redirecting to https://a2abench-mcp-remote-405318049509.us-central1.run.app/healthz/

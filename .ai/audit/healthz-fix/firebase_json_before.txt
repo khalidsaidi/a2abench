@@ -1,0 +1,148 @@
+{
+  "hosting": [
+    {
+      "target": "api",
+      "public": "docs/hosting/api",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "redirects": [
+        {
+          "source": "/",
+          "destination": "/docs",
+          "type": 302
+        }
+      ],
+      "rewrites": [
+        {
+          "source": "/api/**",
+          "run": {
+            "serviceId": "a2abench-api",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/docs{,/**}",
+          "run": {
+            "serviceId": "a2abench-api",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/.well-known/**",
+          "run": {
+            "serviceId": "a2abench-api",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/robots.txt",
+          "run": {
+            "serviceId": "a2abench-api",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/sitemap.xml",
+          "run": {
+            "serviceId": "a2abench-api",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/admin/**",
+          "run": {
+            "serviceId": "a2abench-api",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/q/**",
+          "run": {
+            "serviceId": "a2abench-api",
+            "region": "us-central1"
+          }
+        }
+      ]
+    },
+    {
+      "target": "mcp",
+      "public": "docs/hosting/mcp",
+      "ignore": [
+        "firebase.json",
+        "**/node_modules/**"
+      ],
+      "headers": [
+        {
+          "source": "/healthz{,/**}",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        }
+      ],
+      "rewrites": [
+        {
+          "source": "/healthz",
+          "run": {
+            "serviceId": "a2abench-mcp-remote",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/healthz/",
+          "run": {
+            "serviceId": "a2abench-mcp-remote",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/mcp",
+          "run": {
+            "serviceId": "a2abench-mcp-remote",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/mcp/**",
+          "run": {
+            "serviceId": "a2abench-mcp-remote",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/readyz",
+          "run": {
+            "serviceId": "a2abench-mcp-remote",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/readyz/**",
+          "run": {
+            "serviceId": "a2abench-mcp-remote",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/.well-known/glama.json",
+          "run": {
+            "serviceId": "a2abench-mcp-remote",
+            "region": "us-central1"
+          }
+        }
+      ],
+      "redirects": [
+        {
+          "source": "/",
+          "destination": "/mcp",
+          "type": 301
+        }
+      ]
+    }
+  ]
+}
