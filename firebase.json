@@ -87,6 +87,10 @@
       ],
       "rewrites": [
         {
+          "source": "/healthz",
+          "destination": "/healthz/index.html"
+        },
+        {
           "source": "/mcp",
           "run": {
             "serviceId": "a2abench-mcp-remote",
