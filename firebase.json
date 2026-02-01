@@ -87,8 +87,12 @@
       ],
       "rewrites": [
         {
+          "source": "/healthz",
+          "destination": "/healthz.json"
+        },
+        {
           "source": "/healthz/",
-          "destination": "/healthz"
+          "destination": "/healthz.json"
         },
         {
           "source": "/mcp",
