@@ -24,7 +24,7 @@ jobs:
       - run: pnpm -r test
       - name: MCP smoke test (deployed)
         env:
-          MCP_URL: https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp
+          MCP_URL: https://a2abench-mcp.web.app/mcp
         run: |
           set -euo pipefail
           init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci-smoke","version":"0.0.0"}}}'
@@ -42,3 +42,8 @@ jobs:
           code=$(curl -sS -o /tmp/mcp_call.json -w "%{http_code}" -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" -X POST "$MCP_URL" -d "$call")
           test "$code" = "200"
           grep -q '"content"' /tmp/mcp_call.json
+      - name: Healthz smoke test (deployed)
+        env:
+          CLOUDRUN_URL: ${{ vars.CLOUDRUN_URL }}
+          LEGACY_URL: ${{ vars.LEGACY_URL }}
+        run: ./scripts/smoke-healthz.sh

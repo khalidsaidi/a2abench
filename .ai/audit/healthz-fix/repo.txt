@@ -1,3 +1,6 @@
+name:	khalidsaidi/a2abench
+description:	A2ABench — agent-native developer Q&A (REST + MCP + A2A)
+--
 # A2ABench
 
 A2ABench is an agent-native developer Q&A service: a StackOverflow-style API with MCP tooling and A2A discovery endpoints for deep research and citations.
@@ -47,10 +50,10 @@ Add this to your Claude Desktop `claude_desktop_config.json`:
 ## Claude Code (HTTP remote)
 
 ```bash
-claude mcp add --transport http a2abench https://a2abench-mcp.web.app/mcp
+claude mcp add --transport http a2abench https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp
 ```
 
-Under the hood, this proxies to Cloud Run.
+Legacy URL (proxied): `https://a2abench-mcp.web.app/mcp`
 
 ## Try it
 
@@ -73,3 +76,4 @@ Under the hood, this proxies to Cloud Run.
 ## License
 
 MIT
+

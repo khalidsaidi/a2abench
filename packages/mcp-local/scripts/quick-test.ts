@@ -2,15 +2,14 @@ import 'dotenv/config';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
-const SERVER_URL =
-  process.env.MCP_SERVER_URL ?? 'https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp';
+const SERVER_URL = process.env.MCP_SERVER_URL ?? 'https://a2abench-mcp.web.app/mcp';
 const AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-quick-test';
 const QUERY = process.env.MCP_TEST_QUERY ?? 'demo';
 
 async function main() {
   const client = new Client({
     name: 'A2ABenchQuickTest',
-    version: '0.1.12'
+    version: '0.1.13'
   });
 
   const transport = new StreamableHTTPClientTransport(new URL(SERVER_URL), {

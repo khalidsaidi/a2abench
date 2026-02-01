@@ -28,5 +28,5 @@ API_BASE_URL=http://localhost:3000 PUBLIC_BASE_URL=http://localhost:3000 npx -y 
 ## Quick test (one command)
 
 ```bash
-MCP_SERVER_URL=https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp MCP_AGENT_NAME=demo-agent pnpm -C packages/mcp-local quick-test
+MCP_SERVER_URL=https://a2abench-mcp.web.app/mcp MCP_AGENT_NAME=demo-agent pnpm -C packages/mcp-local quick-test
 ```

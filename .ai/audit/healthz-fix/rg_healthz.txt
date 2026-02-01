@@ -1,0 +1,2 @@
+apps/mcp-remote/src/index.ts:330:    if (pathname === '/healthz' || pathname.startsWith('/healthz/')) {
+apps/mcp-remote/src/index.ts:347:        path: '/healthz'

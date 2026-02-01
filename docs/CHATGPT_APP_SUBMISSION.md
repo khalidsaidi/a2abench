@@ -2,7 +2,7 @@
 
 ## MCP Endpoint
 
-- Remote MCP endpoint: `https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp`
+- Remote MCP endpoint: `https://a2abench-mcp.web.app/mcp`
 
 ## Tools
 

@@ -1,0 +1,18 @@
+23	chore(deps): bump @fastify/swagger-ui from 1.10.2 to 5.2.5	dependabot/npm_and_yarn/fastify/swagger-ui-5.2.5	OPEN	2026-02-01T19:46:25Z
+22	chore(deps): bump fastify from 4.29.1 to 5.7.2	dependabot/npm_and_yarn/fastify-5.7.2	OPEN	2026-02-01T19:46:12Z
+21	chore(deps): bump @fastify/cors from 8.5.0 to 11.2.0 in /apps/api	dependabot/npm_and_yarn/apps/api/fastify/cors-11.2.0	OPEN	2026-02-01T19:46:06Z
+20	chore(deps): bump @fastify/swagger from 8.15.0 to 9.6.1 in /apps/api	dependabot/npm_and_yarn/apps/api/fastify/swagger-9.6.1	OPEN	2026-02-01T19:46:03Z
+19	chore(deps-dev): bump @types/node from 20.19.30 to 25.2.0 in /apps/api	dependabot/npm_and_yarn/apps/api/types/node-25.2.0	OPEN	2026-02-01T19:45:59Z
+18	chore(deps-dev): bump @types/node from 20.19.30 to 25.2.0	dependabot/npm_and_yarn/types/node-25.2.0	OPEN	2026-02-01T19:45:53Z
+17	chore(deps): bump zod from 3.25.76 to 4.3.6 in /apps/api	dependabot/npm_and_yarn/apps/api/zod-4.3.6	OPEN	2026-02-01T19:45:53Z
+16	chore(deps): bump dotenv from 16.6.1 to 17.2.3 in /apps/api	dependabot/npm_and_yarn/apps/api/dotenv-17.2.3	OPEN	2026-02-01T19:45:50Z
+15	chore(deps-dev): bump prisma from 5.22.0 to 7.3.0 in /apps/api	dependabot/npm_and_yarn/apps/api/prisma-7.3.0	OPEN	2026-02-01T19:45:47Z
+14	chore(deps): bump @prisma/client from 5.22.0 to 7.3.0	dependabot/npm_and_yarn/prisma/client-7.3.0	OPEN	2026-02-01T19:45:42Z
+13	chore(deps): bump zod from 3.25.76 to 4.3.6 in /packages/mcp-local	dependabot/npm_and_yarn/packages/mcp-local/zod-4.3.6	OPEN	2026-02-01T19:45:32Z
+12	chore(deps): bump @prisma/client from 5.22.0 to 7.3.0 in /apps/api	dependabot/npm_and_yarn/apps/api/prisma/client-7.3.0	OPEN	2026-02-01T19:45:31Z
+11	chore(deps): bump dotenv from 16.6.1 to 17.2.3 in /packages/mcp-local	dependabot/npm_and_yarn/packages/mcp-local/dotenv-17.2.3	OPEN	2026-02-01T19:45:28Z
+10	chore(deps): bump zod from 3.25.76 to 4.3.6 in /apps/mcp-remote	dependabot/npm_and_yarn/apps/mcp-remote/zod-4.3.6	OPEN	2026-02-01T19:45:27Z
+9	chore(deps-dev): bump @types/node from 20.19.30 to 25.2.0 in /packages/mcp-local	dependabot/npm_and_yarn/packages/mcp-local/types/node-25.2.0	OPEN	2026-02-01T19:45:24Z
+8	chore(deps-dev): bump @types/node from 20.19.30 to 25.2.0 in /apps/mcp-remote	dependabot/npm_and_yarn/apps/mcp-remote/types/node-25.2.0	OPEN	2026-02-01T19:45:22Z
+7	chore(deps): bump dotenv from 16.6.1 to 17.2.3 in /apps/mcp-remote	dependabot/npm_and_yarn/apps/mcp-remote/dotenv-17.2.3	OPEN	2026-02-01T19:45:17Z
+6	chore(deps): bump @fastify/swagger-ui from 1.10.2 to 5.2.5 in /apps/api	dependabot/npm_and_yarn/apps/api/fastify/swagger-ui-5.2.5	OPEN	2026-02-01T19:45:15Z
