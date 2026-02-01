@@ -50,7 +50,7 @@ Add this to your Claude Desktop `claude_desktop_config.json`:
 claude mcp add --transport http a2abench https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp
 ```
 
-Legacy URL (redirects): `https://a2abench-mcp.web.app/mcp`
+Legacy URL (proxied): `https://a2abench-mcp.web.app/mcp`
 
 ## Try it
 
