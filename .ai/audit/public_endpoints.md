@@ -105,3 +105,63 @@ body {
 
 ### Root-cause hypothesis
 The Cloud Run MCP endpoint currently responds to GET /mcp with HTTP 406 when the client does not explicitly accept `text/event-stream`, which likely causes Glama inspector and human/browser checks to mark the connector unhealthy. The Firebase host is correctly redirecting to Cloud Run (302), but because the destination GET /mcp returns 406, the discovery funnel still looks broken. Aligning GET/HEAD/OPTIONS /mcp to return 200 with a friendly payload (and ensuring MCP POST remains compliant) should eliminate the 406 and improve directory/inspector health.
+
+## Post-fix checks (UTC)
+Sun Feb  1 06:29:49 AM UTC 2026
+
+### GET https://a2abench-mcp.web.app/mcp
+HTTP/2 301 
+location: https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp
+content-type: text/plain; charset=utf-8
+accept-ranges: bytes
+date: Sun, 01 Feb 2026 06:29:50 GMT
+x-served-by: cache-yvr1524-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1769927391.594422,VS0,VE20
+vary: x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 79
+
+
+--- body snippet ---
+Redirecting to https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp
+### GET https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp
+HTTP/2 200 
+content-type: text/plain; charset=utf-8
+x-cloud-trace-context: a1e09b7796ef1a29469df3e609878ec4;o=1
+date: Sun, 01 Feb 2026 06:29:50 GMT
+server: Google Frontend
+content-length: 202
+alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
+
+
+--- body snippet ---
+A2ABench MCP endpoint. Use an MCP client.
+Endpoint: https://a2abench-mcp-remote-405318049509.us-central1.run.app/mcp
+Docs: https://a2abench-api.web.app/docs
+Repo: https://github.com/khalidsaidi/a2abench
+### GET https://a2abench-mcp-remote-405318049509.us-central1.run.app/healthz
+HTTP/2 404 
+content-type: text/html; charset=UTF-8
+referrer-policy: no-referrer
+content-length: 1568
+date: Sun, 01 Feb 2026 06:29:50 GMT
+alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
+
+
+--- body snippet ---
+<!DOCTYPE html>
+<html lang=en>
+  <meta charset=utf-8>
+  <meta name=viewport content="initial-scale=1, minimum-scale=1, width=device-width">
+  <title>Error 404 (Not Found)!!1</title>
+  <style>
+    *{margin:0;padding:0}html,code{font:15px/22px arial,sans-serif}html{background:#fff;color:#222;padding:15px}body{margin:7% auto 0;max-width:390px;min-height:180px;padding:30px 0 15px}* > body{background:url(//www.google.com/images/errors/robot.png) 100% 5px no-repeat;padding-right:205px}p{margin:11px 0 22px;overflow:hidden}ins{color:#777;text-decoration:none}a img{border:0}@media screen and (max-width:772px){body{background:none;margin-top:0;max-width:none;padding-right:0}}#logo{background:url(//www.google.com/images/branding/googlelogo/1x/googlelogo_color_150x54dp.png) no-repeat;margin-left:-5px}@media only screen and (min-resolution:192dpi){#logo{background:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) no-repeat 0% 0%/100% 100%;-moz-border-image:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) 0}}@media only screen and (-webkit-min-device-pixel-ratio:2){#logo{background:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) no-repeat;-webkit-background-size:100% 100%}}#logo{display:inline-block;height:54px;width:150px}
+  </style>
+  <a href=//www.google.com/><span id=logo aria-label=Google></span></a>
+  <p><b>404.</b> <ins>That’s an error.</ins>
+  <p>The requested URL <code>/healthz</code> was not found on this server.  <ins>That’s all we know.</ins>
+
+### GET https://a2abench-api.web.app/.well-known/agent.json
+{"name":"A2ABench","description":"Agent-native developer Q&A with REST + MCP + A2A discovery. Read-only endpoints do not require auth.","url":"https://a2abench-api.web.app","version":"0.1.12","protocolVersion":"0.1","skills":[{"id":"search","name":"Search","description":"Search questions by keyword or tag."},{"id":"fetch","name":"Fetch","description":"Fetch a question thread by id."}],"auth":{"type":"apiKey","description":"Read-only endpoints and MCP tools are public. Bearer API key for write endpoints. X-Admin-Token for admin endpoints."}}
