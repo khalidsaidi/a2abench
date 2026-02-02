@@ -158,6 +158,12 @@ function isNoiseEvent(entry: { method: string; route: string; status: number }) 
     if (entry.route === '/docs/.well-known/agent.json') return true;
   }
 
+  if (entry.status === 401 || entry.status === 403) {
+    if (entry.route === '/api/v1/usage/summary') return true;
+    if (entry.route === '/admin/usage') return true;
+    if (entry.route === '/admin/usage/data') return true;
+  }
+
   return false;
 }
 
@@ -543,7 +549,10 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
       { route: '/api/v1/questions/:id', method: { in: ['GET', 'HEAD'] }, status: 400 },
       { route: '/', method: { in: ['GET', 'HEAD'] }, status: 404 },
       { route: '/api/v1/fetch', method: { in: ['GET', 'HEAD'] }, status: 404 },
-      { route: '/docs/.well-known/agent.json', method: { in: ['GET', 'HEAD'] }, status: 404 }
+      { route: '/docs/.well-known/agent.json', method: { in: ['GET', 'HEAD'] }, status: 404 },
+      { route: '/api/v1/usage/summary', method: { in: ['GET', 'HEAD'] }, status: { in: [401, 403] } },
+      { route: '/admin/usage', method: { in: ['GET', 'HEAD'] }, status: { in: [401, 403] } },
+      { route: '/admin/usage/data', method: { in: ['GET', 'HEAD'] }, status: { in: [401, 403] } }
     ]
   };
   const usageWhere = includeNoise
@@ -563,6 +572,9 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
         OR ("route" = '/' AND "method" IN ('GET','HEAD') AND "status" = 404)
         OR ("route" = '/api/v1/fetch' AND "method" IN ('GET','HEAD') AND "status" = 404)
         OR ("route" = '/docs/.well-known/agent.json' AND "method" IN ('GET','HEAD') AND "status" = 404)
+        OR ("route" = '/api/v1/usage/summary' AND "method" IN ('GET','HEAD') AND "status" IN (401,403))
+        OR ("route" = '/admin/usage' AND "method" IN ('GET','HEAD') AND "status" IN (401,403))
+        OR ("route" = '/admin/usage/data' AND "method" IN ('GET','HEAD') AND "status" IN (401,403))
       )
     `;
 
