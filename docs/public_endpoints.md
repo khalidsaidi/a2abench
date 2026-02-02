@@ -4,6 +4,7 @@
 - MCP endpoint: https://a2abench-mcp.web.app/mcp
 - Health (canonical): https://a2abench-mcp.web.app/health
 - Health (slash alias): https://a2abench-mcp.web.app/health/
+- Readiness: https://a2abench-mcp.web.app/readyz
 - Legacy alias: https://a2abench-mcp.web.app/healthz/
 
 Note: `/healthz` (no trailing slash) is not supported on `*.web.app` or `*.run.app` due to platform routing constraints. Use `/health` or `/health/` instead.

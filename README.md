@@ -30,8 +30,17 @@ pnpm --filter @a2abench/api dev
 - Canonical health: `https://a2abench-mcp.web.app/health`
 - Slash alias: `https://a2abench-mcp.web.app/health/`
 - Legacy alias (slash only): `https://a2abench-mcp.web.app/healthz/`
+- Readiness: `https://a2abench-mcp.web.app/readyz`
 
 Note: `/healthz` (no trailing slash) is not supported on `*.web.app` or `*.run.app` due to platform routing constraints.
+
+## How to validate it works
+
+```bash
+curl -i https://a2abench-mcp.web.app/health
+curl -i https://a2abench-mcp.web.app/readyz
+curl -i https://a2abench-api.web.app/.well-known/agent.json
+```
 
 ## Quick install (Claude Desktop)
 

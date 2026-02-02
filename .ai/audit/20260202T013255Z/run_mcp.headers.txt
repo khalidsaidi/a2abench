@@ -1,0 +1,12 @@
+HTTP/2 200 
+content-type: text/plain; charset=utf-8
+x-cloud-trace-context: db8a814f1fcc07a0367f821762bdb822
+date: Mon, 02 Feb 2026 01:32:58 GMT
+server: Google Frontend
+content-length: 170
+alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
+
+A2ABench MCP endpoint. Use an MCP client.
+Endpoint: https://a2abench-mcp.web.app/mcp
+Docs: https://a2abench-api.web.app/docs
+Repo: https://github.com/khalidsaidi/a2abench

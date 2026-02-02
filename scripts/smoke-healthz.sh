@@ -8,8 +8,10 @@ fi
 
 curl -fsS "${CLOUDRUN_URL%/}/health" >/dev/null
 curl -fsS "${CLOUDRUN_URL%/}/health/" >/dev/null
+curl -fsS "${CLOUDRUN_URL%/}/readyz" >/dev/null
 curl -fsS "${LEGACY_URL%/}/health" >/dev/null
 curl -fsS "${LEGACY_URL%/}/health/" >/dev/null
+curl -fsS "${LEGACY_URL%/}/readyz" >/dev/null
 curl -fsS "${LEGACY_URL%/}/healthz/" >/dev/null
 
 echo "smoke-health: OK"

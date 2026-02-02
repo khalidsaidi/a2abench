@@ -1,0 +1,18 @@
+HTTP/2 200 
+cache-control: private
+content-type: application/json
+server: Google Frontend
+strict-transport-security: max-age=31556926; includeSubDomains; preload
+x-cloud-trace-context: 795f65f08c0072fc7af8e8f8c34e94bc;o=1
+x-country-code: CA
+accept-ranges: bytes
+date: Mon, 02 Feb 2026 01:32:56 GMT
+x-served-by: cache-yvr1527-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1769995977.540401,VS0,VE307
+vary: cookie,need-authorization, x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 15
+
+{"status":"ok"}
