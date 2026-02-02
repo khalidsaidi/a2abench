@@ -83,9 +83,26 @@
               "value": "application/json"
             }
           ]
+        },
+        {
+          "source": "/health{,/**}",
+          "headers": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ]
         }
       ],
       "rewrites": [
+        {
+          "source": "/health",
+          "destination": "/health.json"
+        },
+        {
+          "source": "/health/",
+          "destination": "/health.json"
+        },
         {
           "source": "/healthz",
           "destination": "/healthz.json"

@@ -329,7 +329,16 @@ async function main() {
       return;
     }
 
-    if (rawPath === '/healthz' || rawPath === '/healthz/' || pathname === '/healthz' || pathname.startsWith('/healthz/')) {
+    const isHealthPath =
+      rawPath === '/health' ||
+      rawPath === '/health/' ||
+      pathname === '/health' ||
+      pathname.startsWith('/health/') ||
+      rawPath === '/healthz/' ||
+      pathname === '/healthz/' ||
+      pathname.startsWith('/healthz/');
+
+    if (isHealthPath) {
       respondJson(res, 200, {
         status: 'ok',
         version: SERVICE_VERSION,
@@ -346,12 +355,22 @@ async function main() {
         requestId,
         agentName: agentName ?? null,
         userAgent: userAgent ?? null,
-        path: '/healthz'
+        path: rawPath
       });
       return;
     }
 
-    if (rawPath === '/readyz' || rawPath === '/readyz/' || pathname === '/readyz' || pathname.startsWith('/readyz/')) {
+    const isReadyPath =
+      rawPath === '/ready' ||
+      rawPath === '/ready/' ||
+      pathname === '/ready' ||
+      pathname.startsWith('/ready/') ||
+      rawPath === '/readyz' ||
+      rawPath === '/readyz/' ||
+      pathname === '/readyz' ||
+      pathname.startsWith('/readyz/');
+
+    if (isReadyPath) {
       const ok = await checkApiHealth();
       if (ok) {
         respondJson(res, 200, { status: 'ok' });
@@ -368,7 +387,7 @@ async function main() {
         requestId,
         agentName: agentName ?? null,
         userAgent: userAgent ?? null,
-        path: '/readyz'
+        path: rawPath
       });
       return;
     }

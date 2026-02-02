@@ -1,0 +1,10 @@
+Scope: 3 of 4 workspace projects
+apps/api test$ echo 'no tests'
+apps/mcp-remote test$ echo 'no tests'
+packages/mcp-local test$ echo 'no tests'
+apps/api test: no tests
+apps/api test: Done
+packages/mcp-local test: no tests
+apps/mcp-remote test: no tests
+apps/mcp-remote test: Done
+packages/mcp-local test: Done
