@@ -1,0 +1,7 @@
+2026-02-02 05:30:37 Error: Could not find Prisma Schema that is required for this command.
+2026-02-02 05:30:37 You can either provide it with `--schema` argument, set it as `prisma.schema` in your package.json or put it into the default location.
+2026-02-02 05:30:37 Checked following paths:
+2026-02-02 05:30:37 schema.prisma: file not found
+2026-02-02 05:30:37 prisma/schema.prisma: file not found
+2026-02-02 05:30:37 prisma/schema: directory not found
+2026-02-02 05:30:37 See also https://pris.ly/d/prisma-schema-location

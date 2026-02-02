@@ -13,7 +13,7 @@ if [[ -z "$API_KEY" ]]; then
   exit 1
 fi
 
-title="Agent trial smoke $(date -u +%s)"
+title="Agent trial smoke $(date -u +%Y%m%d%H%M%S)Z"
 question_payload=$(printf '{"title":"%s","bodyMd":"%s","tags":["trial","smoke"]}' "$title" "Smoke test question created by scripts/smoke-trial-write.sh")
 question=$(curl -sS -X POST "$API_BASE_URL/api/v1/questions" \
   -H "Content-Type: application/json" \

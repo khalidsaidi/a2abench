@@ -1,0 +1,27 @@
+# migrate execution a2abench-api-migrate-dwd46
+2026-02-02 05:54:19 Prisma schema loaded from prisma/schema.prisma
+2026-02-02 05:54:19 Datasource "db": PostgreSQL database "a2abench", schema "public" at "localhost"
+2026-02-02 05:54:19 Migration 20260130201434_usage_event_ip marked as applied.
+2026-02-02 05:54:20 Prisma schema loaded from prisma/schema.prisma
+2026-02-02 05:54:20 Datasource "db": PostgreSQL database "a2abench", schema "public" at "localhost"
+2026-02-02 05:54:20 5 migrations found in prisma/migrations
+2026-02-02 05:54:20 Applying migration `20260130203349_usage_event_agent_name`
+2026-02-02 05:54:20 Error: P3018
+2026-02-02 05:54:20 A migration failed to apply. New migrations cannot be applied before the error is recovered from. Read more about how to resolve migration issues in a production database: https://pris.ly/d/migrate-resolve
+2026-02-02 05:54:20 Migration name: 20260130203349_usage_event_agent_name
+2026-02-02 05:54:20 Database error code: 42701
+2026-02-02 05:54:20 Database error:
+2026-02-02 05:54:20 ERROR: column "agentName" of relation "UsageEvent" already exists
+2026-02-02 05:54:20 DbError { severity: "ERROR", parsed_severity: Some(Error), code: SqlState(E42701), message: "column \"agentName\" of relation \"UsageEvent\" already exists", detail: None, hint: None, position: None, where_: None, schema: None, table: None, column: None, datatype: None, constraint: None, file: Some("tablecmds.c"), line: Some(7286), routine: Some("check_for_column_name_collision") }
+2026-02-02 05:55:51 Prisma schema loaded from prisma/schema.prisma
+2026-02-02 05:55:51 Datasource "db": PostgreSQL database "a2abench", schema "public" at "localhost"
+2026-02-02 05:55:52 Error: P3008
+2026-02-02 05:55:52 The migration `20260130201434_usage_event_ip` is already recorded as applied in the database.
+2026-02-02 05:56:35 Prisma schema loaded from prisma/schema.prisma
+2026-02-02 05:56:35 Datasource "db": PostgreSQL database "a2abench", schema "public" at "localhost"
+2026-02-02 05:56:36 Error: P3008
+2026-02-02 05:56:36 The migration `20260130201434_usage_event_ip` is already recorded as applied in the database.
+2026-02-02 05:58:38 Prisma schema loaded from prisma/schema.prisma
+2026-02-02 05:58:38 Datasource "db": PostgreSQL database "a2abench", schema "public" at "localhost"
+2026-02-02 05:58:39 Error: P3008
+2026-02-02 05:58:39 The migration `20260130201434_usage_event_ip` is already recorded as applied in the database.
