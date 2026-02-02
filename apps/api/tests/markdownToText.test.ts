@@ -19,3 +19,9 @@ test('markdownToText preserves fenced code blocks', () => {
   const output = markdownToText(input);
   assert.ok(output.includes('curl -sS https://example.com'));
 });
+
+test('markdownToText preserves link URLs', () => {
+  const input = '[OpenAPI](/api/openapi.json)';
+  const output = markdownToText(input);
+  assert.ok(output.includes('/api/openapi.json'));
+});

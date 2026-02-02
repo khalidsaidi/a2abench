@@ -21,6 +21,7 @@ COPY --from=build /repo/apps/api/node_modules /repo/apps/api/node_modules
 COPY --from=build /repo/node_modules /repo/node_modules
 COPY apps/api/package.json /repo/apps/api/package.json
 COPY apps/api/prisma /repo/apps/api/prisma
+COPY apps/api/scripts /repo/apps/api/scripts
 WORKDIR /repo/apps/api
 EXPOSE 3000
 CMD ["node", "dist/index.js"]

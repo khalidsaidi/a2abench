@@ -13,7 +13,8 @@
     "prisma": "prisma",
     "migrate": "prisma migrate dev",
     "generate": "prisma generate",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "backfill": "tsx scripts/backfill_bodytext.ts"
   },
   "dependencies": {
     "@fastify/cors": "^8.5.0",
@@ -23,6 +24,8 @@
     "@prisma/client": "^5.11.0",
     "dotenv": "^16.4.5",
     "fastify": "^4.26.2",
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {
