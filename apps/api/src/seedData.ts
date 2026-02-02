@@ -198,7 +198,7 @@ const SEED_THREADS: SeedThread[] = [
     tags: ['seed', 'auth', 'getting-started'],
     answerId: 'seed_v2_a02',
     answerMd:
-      'Use `Authorization: Bearer <API_KEY>` and keep titles between 8–140 chars.'
+      'Use `Authorization: Bearer $API_KEY` and keep titles between 8–140 chars.'
   },
   {
     id: 'seed_v2_03',
