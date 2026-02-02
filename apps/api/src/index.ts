@@ -4,7 +4,7 @@ import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { markdownToText } from './markdown.js';
 import { z } from 'zod';
 import crypto from 'crypto';
@@ -520,61 +520,92 @@ fastify.get('/api/v1/usage/summary', {
     querystring: {
       type: 'object',
       properties: {
-        days: { type: 'integer', minimum: 1, maximum: 90 }
+        days: { type: 'integer', minimum: 1, maximum: 90 },
+        includeNoise: { type: 'boolean' }
       }
     }
   }
 }, async (request, reply) => {
   if (!(await requireAdmin(request, reply))) return;
-  const query = request.query as { days?: number };
+  const query = request.query as { days?: number; includeNoise?: boolean };
   const days = Math.min(90, Math.max(1, Number(query.days ?? 7)));
-  return getUsageSummary(days);
+  return getUsageSummary(days, Boolean(query.includeNoise));
 });
 
-async function getUsageSummary(days: number) {
+async function getUsageSummary(days: number, includeNoise: boolean) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const noiseWhere: Prisma.UsageEventWhereInput = {
+    OR: [
+      { route: '/api/v1/auth/trial-key', method: { in: ['GET', 'HEAD'] }, status: 405 },
+      { route: '/api/v1/questions/:id/answers', method: { in: ['GET', 'HEAD'] }, status: 405 },
+      { route: '/q/:id', method: { in: ['GET', 'HEAD'] }, status: 400 },
+      { route: '/api/v1/questions/:id', method: { in: ['GET', 'HEAD'] }, status: 400 },
+      { route: '/', method: { in: ['GET', 'HEAD'] }, status: 404 },
+      { route: '/api/v1/fetch', method: { in: ['GET', 'HEAD'] }, status: 404 },
+      { route: '/docs/.well-known/agent.json', method: { in: ['GET', 'HEAD'] }, status: 404 }
+    ]
+  };
+  const usageWhere = includeNoise
+    ? { createdAt: { gte: since } }
+    : { AND: [{ createdAt: { gte: since } }, { NOT: noiseWhere }] };
+  const last24hWhere = includeNoise
+    ? { createdAt: { gte: last24h } }
+    : { AND: [{ createdAt: { gte: last24h } }, { NOT: noiseWhere }] };
+  const noiseSql = includeNoise
+    ? Prisma.empty
+    : Prisma.sql`
+      AND NOT (
+        ("route" = '/api/v1/auth/trial-key' AND "method" IN ('GET','HEAD') AND "status" = 405)
+        OR ("route" = '/api/v1/questions/:id/answers' AND "method" IN ('GET','HEAD') AND "status" = 405)
+        OR ("route" = '/q/:id' AND "method" IN ('GET','HEAD') AND "status" = 400)
+        OR ("route" = '/api/v1/questions/:id' AND "method" IN ('GET','HEAD') AND "status" = 400)
+        OR ("route" = '/' AND "method" IN ('GET','HEAD') AND "status" = 404)
+        OR ("route" = '/api/v1/fetch' AND "method" IN ('GET','HEAD') AND "status" = 404)
+        OR ("route" = '/docs/.well-known/agent.json' AND "method" IN ('GET','HEAD') AND "status" = 404)
+      )
+    `;
 
   const [total, lastDay, byRoute, byStatus, byIp, byReferer, byUserAgent, byAgentName, dailyRows] = await Promise.all([
-    prisma.usageEvent.count({ where: { createdAt: { gte: since } } }),
-    prisma.usageEvent.count({ where: { createdAt: { gte: last24h } } }),
+    prisma.usageEvent.count({ where: usageWhere }),
+    prisma.usageEvent.count({ where: last24hWhere }),
     prisma.usageEvent.groupBy({
       by: ['route'],
-      where: { createdAt: { gte: since } },
+      where: usageWhere,
       _count: { route: true },
       orderBy: { _count: { route: 'desc' } },
       take: 10
     }),
     prisma.usageEvent.groupBy({
       by: ['status'],
-      where: { createdAt: { gte: since } },
+      where: usageWhere,
       _count: { status: true },
       orderBy: { _count: { status: 'desc' } }
     }),
     prisma.usageEvent.groupBy({
       by: ['ip'],
-      where: { createdAt: { gte: since }, ip: { not: null } },
+      where: { ...usageWhere, ip: { not: null } },
       _count: { ip: true },
       orderBy: { _count: { ip: 'desc' } },
       take: 10
     }),
     prisma.usageEvent.groupBy({
       by: ['referer'],
-      where: { createdAt: { gte: since }, referer: { not: null } },
+      where: { ...usageWhere, referer: { not: null } },
       _count: { referer: true },
       orderBy: { _count: { referer: 'desc' } },
       take: 10
     }),
     prisma.usageEvent.groupBy({
       by: ['userAgent'],
-      where: { createdAt: { gte: since }, userAgent: { not: null } },
+      where: { ...usageWhere, userAgent: { not: null } },
       _count: { userAgent: true },
       orderBy: { _count: { userAgent: 'desc' } },
       take: 10
     }),
     prisma.usageEvent.groupBy({
       by: ['agentName'],
-      where: { createdAt: { gte: since }, agentName: { not: null } },
+      where: { ...usageWhere, agentName: { not: null } },
       _count: { agentName: true },
       orderBy: { _count: { agentName: 'desc' } },
       take: 10
@@ -583,13 +614,14 @@ async function getUsageSummary(days: number) {
       SELECT date_trunc('day', "createdAt") AS day, COUNT(*) AS count
       FROM "UsageEvent"
       WHERE "createdAt" >= ${since}
+      ${noiseSql}
       GROUP BY 1
       ORDER BY day ASC
     `
   ]);
 
   const recentErrors = await prisma.usageEvent.findMany({
-    where: { createdAt: { gte: since }, status: { gte: 400 } },
+    where: { AND: [usageWhere, { status: { gte: 400 } }] },
     orderBy: { createdAt: 'desc' },
     take: 50,
     select: {
@@ -635,10 +667,10 @@ async function getUsageSummary(days: number) {
 
 fastify.get('/admin/usage/data', async (request, reply) => {
   if (!(await requireAdminDashboard(request, reply))) return;
-  const query = request.query as { days?: number };
+  const query = request.query as { days?: number; includeNoise?: boolean };
   const days = Math.min(90, Math.max(1, Number(query.days ?? 7)));
   reply.header('Cache-Control', 'no-store');
-  return getUsageSummary(days);
+  return getUsageSummary(days, Boolean(query.includeNoise));
 });
 
 fastify.get('/admin/usage', async (request, reply) => {
@@ -690,6 +722,10 @@ fastify.get('/admin/usage', async (request, reply) => {
           <div class="field">
             <label for="days">Days</label>
             <input id="days" type="number" min="1" max="90" value="7" />
+          </div>
+          <div class="field">
+            <label for="noise">Include bot noise</label>
+            <input id="noise" type="checkbox" />
           </div>
           <div class="field" style="align-self: flex-end;">
             <button id="load">Load usage</button>
@@ -749,6 +785,7 @@ fastify.get('/admin/usage', async (request, reply) => {
     </main>
     <script>
       const daysInput = document.getElementById('days');
+      const noiseInput = document.getElementById('noise');
       const loadBtn = document.getElementById('load');
       const statusEl = document.getElementById('status');
       const errorEl = document.getElementById('error');
@@ -818,7 +855,8 @@ fastify.get('/admin/usage', async (request, reply) => {
         setStatus('Loading…');
         const days = Math.min(90, Math.max(1, Number(daysInput.value || 7)));
         try {
-          const res = await fetch('/admin/usage/data?days=' + days);
+          const includeNoise = noiseInput.checked ? '&includeNoise=1' : '';
+          const res = await fetch('/admin/usage/data?days=' + days + includeNoise);
           if (!res.ok) {
             const text = await res.text();
             throw new Error(text || ('Request failed: ' + res.status));
