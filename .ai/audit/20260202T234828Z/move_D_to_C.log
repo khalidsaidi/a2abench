@@ -1,0 +1,24 @@
+--- aicostledger-prod-usw1-a87bf2 ---
+billingAccountName: billingAccounts/01F279-46BBDE-D0E6D1
+billingEnabled: true
+name: projects/aicostledger-prod-usw1-a87bf2/billingInfo
+projectId: aicostledger-prod-usw1-a87bf2
+
+--- best-2b507 ---
+billingAccountName: billingAccounts/01F279-46BBDE-D0E6D1
+billingEnabled: true
+name: projects/best-2b507/billingInfo
+projectId: best-2b507
+
+--- ai-status-dashboard-dev ---
+billingAccountName: billingAccounts/01F279-46BBDE-D0E6D1
+billingEnabled: true
+name: projects/ai-status-dashboard-dev/billingInfo
+projectId: ai-status-dashboard-dev
+
+--- langley-hub-prod ---
+billingAccountName: billingAccounts/01F279-46BBDE-D0E6D1
+billingEnabled: true
+name: projects/langley-hub-prod/billingInfo
+projectId: langley-hub-prod
+
