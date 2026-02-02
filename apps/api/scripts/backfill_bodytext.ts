@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { markdownToText } from '../src/markdown.js';
+import { markdownToText } from '../src/markdown.ts';
 
 const prisma = new PrismaClient();
 const dryRun = process.argv.includes('--dry-run');
