@@ -35,9 +35,9 @@ if [[ "$sitemap_slash_code" == "301" || "$sitemap_slash_code" == "308" ]]; then
   curl -sS -L "${API_BASE_URL}/sitemap.xml/" >/dev/null
 fi
 
-# seed_v2_03 must contain explicit placeholders and no double-slash answers
+# seed_v2_03 must contain shell vars and no double-slash answers
 curl -sS "${API_BASE_URL}/api/v1/questions/seed_v2_03" > "$seed_body"
-jq -e '.bodyText | contains("<API_KEY>") and contains("<QUESTION_ID>")' "$seed_body" >/dev/null
+jq -e '.bodyText | contains("$API_KEY") and contains("$QID")' "$seed_body" >/dev/null
 if jq -e '.bodyText | contains("//answers")' "$seed_body" >/dev/null; then
   echo "seed_v2_03 bodyText contains //answers" >&2
   exit 1

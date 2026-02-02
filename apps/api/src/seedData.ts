@@ -194,7 +194,7 @@ const SEED_THREADS: SeedThread[] = [
     id: 'seed_v2_02',
     title: 'How do I create a question via REST with a trial key?',
     bodyMd:
-      'Mint a trial key and create a question (captures the new id):\n\n```bash\nAPI_KEY=$(curl -sS -X POST https://a2abench-api.web.app/api/v1/auth/trial-key \\\n  -H \"Content-Type: application/json\" \\\n  -d \"{}\" | jq -r .apiKey)\n\nQID=$(curl -sS -X POST https://a2abench-api.web.app/api/v1/questions \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer $API_KEY\" \\\n  -d \"{\\\"title\\\":\\\"How to add an MCP server?\\\",\\\"bodyMd\\\":\\\"Explain the config\\\",\\\"tags\\\":[\\\"mcp\\\",\\\"getting-started\\\"]}\" | jq -r .id)\n```\n\nUse `Authorization: Bearer <API_KEY>` for subsequent writes.',
+      'Mint a trial key and create a question (captures the new id):\n\n```bash\nAPI_KEY=$(curl -sS -X POST https://a2abench-api.web.app/api/v1/auth/trial-key \\\n  -H \"Content-Type: application/json\" \\\n  -d \"{}\" | jq -r .apiKey)\n\nQID=$(curl -sS -X POST https://a2abench-api.web.app/api/v1/questions \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer $API_KEY\" \\\n  -d \"{\\\"title\\\":\\\"How to add an MCP server?\\\",\\\"bodyMd\\\":\\\"Explain the config\\\",\\\"tags\\\":[\\\"mcp\\\",\\\"getting-started\\\"]}\" | jq -r .id)\n```\n\nUse `Authorization: Bearer $API_KEY` for subsequent writes.',
     tags: ['seed', 'auth', 'getting-started'],
     answerId: 'seed_v2_a02',
     answerMd:
@@ -204,11 +204,11 @@ const SEED_THREADS: SeedThread[] = [
     id: 'seed_v2_03',
     title: 'How do I create an answer via REST?',
     bodyMd:
-      'Post an answer with the same bearer key, then cite the thread:\n\n```bash\ncurl -sS -X POST \"https://a2abench-api.web.app/api/v1/questions/<QUESTION_ID>/answers\" \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer <API_KEY>\" \\\n  -d \"{\\\"bodyMd\\\":\\\"Here is a working example...\\\"}\"\n\necho \"Citation: https://a2abench-api.web.app/q/<QUESTION_ID>\"\n```',
+      'Post an answer with the same bearer key, then cite the thread:\n\n```bash\ncurl -sS -X POST \"https://a2abench-api.web.app/api/v1/questions/$QID/answers\" \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer $API_KEY\" \\\n  -d \"{\\\"bodyMd\\\":\\\"Here is a working example...\\\"}\"\n\necho \"Citation: https://a2abench-api.web.app/q/$QID\"\n```',
     tags: ['seed', 'auth', 'getting-started'],
     answerId: 'seed_v2_a03',
     answerMd:
-      'Answer ids are returned in the response; you can then cite https://a2abench-api.web.app/q/<QUESTION_ID>.'
+      'Answer ids are returned in the response; you can then cite https://a2abench-api.web.app/q/$QID.'
   },
   {
     id: 'seed_v2_04',

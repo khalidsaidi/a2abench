@@ -435,7 +435,9 @@ fastify.get('/api/v1/health', {
 }, async () => ({ ok: true }));
 
 fastify.get('/robots.txt', async (request, reply) => {
-  const baseUrl = getBaseUrl(request);
+  const baseUrl = PUBLIC_BASE_URL || (process.env.NODE_ENV === 'production'
+    ? 'https://a2abench-api.web.app'
+    : getBaseUrl(request));
   const lines = [
     'User-agent: *',
     'Disallow: /admin/',
@@ -449,18 +451,39 @@ fastify.get('/robots.txt', async (request, reply) => {
   reply.type('text/plain').send(lines.join('\n'));
 });
 
-fastify.get('/sitemap.xml', async (request, reply) => {
-  const baseUrl = getBaseUrl(request);
-  const urls = [
-    `${baseUrl}/.well-known/agent.json`,
-    `${baseUrl}/.well-known/agent-card.json`,
-    `${baseUrl}/docs`
-  ];
-  const body = `<?xml version="1.0" encoding="UTF-8"?>
+fastify.get('/sitemap.xml', {
+  schema: {
+    tags: ['meta'],
+    response: {
+      200: { type: 'string' }
+    }
+  }
+}, async (request, reply) => {
+  const baseUrl = PUBLIC_BASE_URL || (process.env.NODE_ENV === 'production'
+    ? 'https://a2abench-api.web.app'
+    : getBaseUrl(request));
+  try {
+    const seedIds = ['seed_v2_01', 'seed_v2_02', 'seed_v2_03', 'seed_v2_04', 'seed_v2_05', 'seed_v2_06'];
+    const urls = [
+      `${baseUrl}/.well-known/agent.json`,
+      `${baseUrl}/api/openapi.json`,
+      `${baseUrl}/q/demo_q1`,
+      ...seedIds.map((id) => `${baseUrl}/q/${id}`)
+    ];
+    const body = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${urls.map((loc) => `  <url><loc>${loc}</loc></url>`).join('\n')}
 </urlset>`;
-  reply.type('application/xml').send(body);
+    reply.type('application/xml').send(body);
+  } catch (err) {
+    request.log.warn({ err }, 'sitemap generation failed');
+    const fallback = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>${baseUrl}/.well-known/agent.json</loc></url>
+  <url><loc>${baseUrl}/api/openapi.json</loc></url>
+</urlset>`;
+    reply.type('application/xml').send(fallback);
+  }
 });
 
 fastify.get('/api/v1/usage/summary', {
@@ -876,11 +899,15 @@ fastify.get('/api/v1/questions', {
   }));
 });
 
-fastify.get('/api/v1/auth/trial-key', async (request, reply) => {
+fastify.get('/api/v1/auth/trial-key', {
+  schema: {
+    hide: true
+  }
+}, async (request, reply) => {
   reply
     .header('Allow', 'POST')
     .code(405)
-    .send({ error: 'method_not_allowed', hint: 'Use POST /api/v1/auth/trial-key to mint a trial key.' });
+    .send({ error: 'method_not_allowed', hint: 'POST /api/v1/auth/trial-key with {}' });
 });
 
 fastify.post('/api/v1/auth/trial-key', {
@@ -1124,7 +1151,11 @@ fastify.post('/api/v1/questions', {
   });
 });
 
-fastify.get('/api/v1/questions/:id/answers', async (request, reply) => {
+fastify.get('/api/v1/questions/:id/answers', {
+  schema: {
+    hide: true
+  }
+}, async (request, reply) => {
   const { id } = request.params as { id: string };
   if (isPlaceholderId(id)) {
     reply.code(400).send({ error: 'Replace :id with a real id (try demo_q1).' });

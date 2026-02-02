@@ -13,6 +13,11 @@
           "source": "/",
           "destination": "/docs",
           "type": 302
+        },
+        {
+          "source": "/sitemap.xml/",
+          "destination": "/sitemap.xml",
+          "type": 308
         }
       ],
       "rewrites": [
