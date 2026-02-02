@@ -372,7 +372,7 @@ fastify.addHook('onRequest', async (request, reply) => {
       const canonicalPaths = ['/.well-known/agent.json', '/.well-known/agent-card.json'];
       for (const canonical of canonicalPaths) {
         if (rawUrl.startsWith(canonical) && rawUrl !== canonical && !rawUrl.startsWith(`${canonical}?`)) {
-          reply.redirect(301, canonical);
+          reply.redirect(canonical, 301);
           return;
         }
       }
