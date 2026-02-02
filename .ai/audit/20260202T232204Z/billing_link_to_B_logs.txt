@@ -1,0 +1,13 @@
+--- topoloom-prod-20260202-kh ---
+billingAccountName: billingAccounts/012BA1-3C440F-05F02B
+billingEnabled: true
+name: projects/topoloom-prod-20260202-kh/billingInfo
+projectId: topoloom-prod-20260202-kh
+
+--- langley-hub-prod ---
+ERROR: (gcloud.billing.projects.link) FAILED_PRECONDITION: Precondition check failed.
+- '@type': type.googleapis.com/google.rpc.QuotaFailure
+  violations:
+  - description: 'Cloud billing quota exceeded: https://support.google.com/code/contact/billing_quota_increase'
+    subject: billingAccounts/012BA1-3C440F-05F02B
+
