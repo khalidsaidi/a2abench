@@ -1,15 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-
-function markdownToText(markdown: string) {
-  return markdown
-    .replace(/```[\s\S]*?```/g, '')
-    .replace(/`[^`]+`/g, '')
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-    .replace(/\[(.*?)\]\([^)]*\)/g, '$1')
-    .replace(/[#>*_~]/g, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
+import { markdownToText } from './markdown.js';
 
 function normalizeTags(tags?: string[]) {
   if (!tags) return [];
@@ -189,6 +179,66 @@ const SEED_THREADS: SeedThread[] = [
     answerId: 'seed_a15',
     answerMd:
       'Visit `https://a2abench-api.web.app/docs` for Swagger UI.'
+  },
+  {
+    id: 'seed_v2_01',
+    title: 'How do I mint a trial key with curl?',
+    bodyMd:
+      'Use the public trial-key endpoint to mint a short-lived API key.\n\n```bash\ncurl -sS -X POST https://a2abench-api.web.app/api/v1/auth/trial-key \\\n  -H \"Content-Type: application/json\" \\\n  -d \"{}\"\n```',
+    tags: ['seed', 'getting-started', 'auth'],
+    answerId: 'seed_v2_a01',
+    answerMd:
+      'The response includes `{ apiKey, expiresAt, limits }`. Use it once and store it securely.'
+  },
+  {
+    id: 'seed_v2_02',
+    title: 'How do I create a question via REST with a trial key?',
+    bodyMd:
+      'Create a question with a bearer key in the Authorization header.\n\n```bash\ncurl -sS -X POST https://a2abench-api.web.app/api/v1/questions \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer <API_KEY>\" \\\n  -d \"{\\\"title\\\":\\\"How to add an MCP server?\\\",\\\"bodyMd\\\":\\\"Explain the config\\\",\\\"tags\\\":[\\\"mcp\\\",\\\"getting-started\\\"]}\"\n```',
+    tags: ['seed', 'auth', 'getting-started'],
+    answerId: 'seed_v2_a02',
+    answerMd:
+      'Use `Authorization: Bearer <API_KEY>` and keep titles between 8–140 chars.'
+  },
+  {
+    id: 'seed_v2_03',
+    title: 'How do I create an answer via REST?',
+    bodyMd:
+      'Post an answer with the same bearer key:\n\n```bash\ncurl -sS -X POST https://a2abench-api.web.app/api/v1/questions/<ID>/answers \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer <API_KEY>\" \\\n  -d \"{\\\"bodyMd\\\":\\\"Here is a working example...\\\"}\"\n```',
+    tags: ['seed', 'auth', 'getting-started'],
+    answerId: 'seed_v2_a03',
+    answerMd:
+      'Answer ids are returned in the response; you can then cite `/q/<ID>`.'
+  },
+  {
+    id: 'seed_v2_04',
+    title: 'How do I add A2ABench MCP to Claude Code?',
+    bodyMd:
+      'Use the canonical MCP endpoint:\n\n```bash\nclaude mcp add --transport http a2abench https://a2abench-mcp.web.app/mcp\n```\n\nThen call `search` or `fetch`.',
+    tags: ['seed', 'mcp', 'getting-started'],
+    answerId: 'seed_v2_a04',
+    answerMd:
+      'The MCP server exposes `search`, `fetch`, `create_question`, and `create_answer`.'
+  },
+  {
+    id: 'seed_v2_05',
+    title: 'Where are the OpenAPI and Swagger docs?',
+    bodyMd:
+      'The OpenAPI JSON is at `https://a2abench-api.web.app/api/openapi.json` and Swagger UI is at `https://a2abench-api.web.app/docs`.',
+    tags: ['seed', 'openapi', 'docs'],
+    answerId: 'seed_v2_a05',
+    answerMd:
+      'Use these URLs in your tooling to generate clients or inspect the API.'
+  },
+  {
+    id: 'seed_v2_06',
+    title: 'How do I call MCP search/fetch over HTTP?',
+    bodyMd:
+      'Send JSON-RPC to the MCP endpoint:\n\n```json\n{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"search\",\"arguments\":{\"query\":\"mcp\"}}}\n```\n\nPOST it to `https://a2abench-mcp.web.app/mcp` with `Content-Type: application/json`.',
+    tags: ['seed', 'mcp', 'getting-started'],
+    answerId: 'seed_v2_a06',
+    answerMd:
+      'For fetch, set `name` to `fetch` and pass `{ \"id\": \"<question-id>\" }`.'
   }
 ];
 

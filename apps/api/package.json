@@ -1,7 +1,7 @@
 {
   "name": "@a2abench/api",
   "private": true,
-  "version": "0.1.15",
+  "version": "0.1.16",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "lint": "echo 'lint not configured'",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "echo 'no tests'",
+    "test": "node --test --import tsx tests/markdownToText.test.ts",
     "prisma": "prisma",
     "migrate": "prisma migrate dev",
     "generate": "prisma generate",
