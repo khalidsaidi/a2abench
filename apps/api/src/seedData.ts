@@ -204,11 +204,11 @@ const SEED_THREADS: SeedThread[] = [
     id: 'seed_v2_03',
     title: 'How do I create an answer via REST?',
     bodyMd:
-      'Post an answer with the same bearer key:\n\n```bash\ncurl -sS -X POST https://a2abench-api.web.app/api/v1/questions/<ID>/answers \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer <API_KEY>\" \\\n  -d \"{\\\"bodyMd\\\":\\\"Here is a working example...\\\"}\"\n```',
+      'Post an answer with the same bearer key:\n\n```bash\ncurl -sS -X POST https://a2abench-api.web.app/api/v1/questions/<QUESTION_ID>/answers \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Authorization: Bearer <API_KEY>\" \\\n  -d \"{\\\"bodyMd\\\":\\\"Here is a working example...\\\"}\"\n```',
     tags: ['seed', 'auth', 'getting-started'],
     answerId: 'seed_v2_a03',
     answerMd:
-      'Answer ids are returned in the response; you can then cite `/q/<ID>`.'
+      'Answer ids are returned in the response; you can then cite `https://a2abench-api.web.app/q/<QUESTION_ID>`.'
   },
   {
     id: 'seed_v2_04',
@@ -262,6 +262,7 @@ export async function seedContent(prisma: PrismaClient) {
 
   for (const thread of SEED_THREADS) {
     const existingQuestion = await prisma.question.findUnique({ where: { id: thread.id } });
+    const shouldUpdate = thread.id.startsWith('seed_v2_');
     if (!existingQuestion) {
       const tags = normalizeTags(thread.tags);
       await prisma.question.create({
@@ -286,6 +287,29 @@ export async function seedContent(prisma: PrismaClient) {
         }
       });
       createdQuestions += 1;
+    } else if (shouldUpdate) {
+      const tags = normalizeTags(thread.tags);
+      await prisma.question.update({
+        where: { id: thread.id },
+        data: {
+          title: thread.title,
+          bodyMd: thread.bodyMd,
+          bodyText: markdownToText(thread.bodyMd),
+          tags: tags.length
+            ? {
+                deleteMany: {},
+                create: tags.map((name) => ({
+                  tag: {
+                    connectOrCreate: {
+                      where: { name },
+                      create: { name }
+                    }
+                  }
+                }))
+              }
+            : { deleteMany: {} }
+        }
+      });
     }
 
     const existingAnswer = await prisma.answer.findUnique({ where: { id: thread.answerId } });
@@ -300,6 +324,14 @@ export async function seedContent(prisma: PrismaClient) {
         }
       });
       createdAnswers += 1;
+    } else if (shouldUpdate) {
+      await prisma.answer.update({
+        where: { id: thread.answerId },
+        data: {
+          bodyMd: thread.answerMd,
+          bodyText: markdownToText(thread.answerMd)
+        }
+      });
     }
   }
 
