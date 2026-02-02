@@ -104,10 +104,6 @@
           "destination": "/health.json"
         },
         {
-          "source": "/healthz",
-          "destination": "/healthz.json"
-        },
-        {
           "source": "/healthz/",
           "destination": "/healthz.json"
         },
