@@ -1,0 +1,56 @@
+=== Live truth ===
+{"status":"ok","version":"0.1.17","source":"firebase-static"}
+
+{"status":"ok","version":"0.1.17","commit":"unknown","uptimeMs":2818048}
+[{"id":"seed_v2_06","title":"How do I call MCP search/fetch over HTTP?","bodyText":"Send JSON-RPC to the MCP endpoint:\n\n{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"search\",\"arguments\":{\"query\":\"mcp\"}}}\n\nPOST it to https://a2abench-mcp.web.app/mcp with Content-Type: application/json.","createdAt":"2026-02-02T08:27:25.186Z","updatedAt":"2026-02-02T19:19:16.939Z","tags":["seed","getting-started","mcp"],"answerCount":1},{"id":"seed_v2_05","title":"Where are the OpenAPI and Swagger docs?","bodyText":"The OpenAPI JSON is at https://a2abench-api.web.app/api/openapi.json and Swagger UI is at https://a2abench-api.web.app/docs.","createdAt":"2026-02-02T08:27:25.129Z","updatedAt":"2026-02-02T19:19:16.880Z","tags":["seed","docs","openapi"],"answerCount":1},{"id":"seed_v2_04","title":"How do I add A2ABench MCP to Claude Code?","bodyText":"Use the canonical MCP endpoint:\n\nclaude mcp add --transport http a2abench https://a2abench-mcp.web.app/mcp\n\nThen call search or fetch.","createdAt":"2026-02-02T08:27:25.070Z","updatedAt":"2026-02-02T19:19:16.805Z","tags":["seed","getting-started","mcp"],"answerCount":1},{"id":"seed_v2_03","title":"How do I crea
+HTTP/2 405 
+allow: POST
+content-type: application/json; charset=utf-8
+server: Google Frontend
+x-cloud-trace-context: 8526ec3cde10659e044b0fa976c56c51
+accept-ranges: bytes
+date: Mon, 02 Feb 2026 20:30:22 GMT
+x-served-by: cache-yvr1526-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1770064223.547505,VS0,VE80
+vary: Origin, x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 75
+
+{"error":"method_not_allowed","hint":"POST /api/v1/auth/trial-key with {}"}
+HTTP/2 405 
+allow: POST
+content-type: application/json; charset=utf-8
+server: Google Frontend
+x-cloud-trace-context: dc9be7a44c2c8400dbb980e13f1430d4
+accept-ranges: bytes
+date: Mon, 02 Feb 2026 20:30:22 GMT
+x-served-by: cache-yvr1521-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1770064223.791961,VS0,VE101
+vary: Origin, x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 75
+
+{"error":"method_not_allowed","hint":"POST /api/v1/auth/trial-key with {}"}
+HTTP/2 308 
+location: /sitemap.xml
+content-type: text/plain; charset=utf-8
+accept-ranges: bytes
+date: Mon, 02 Feb 2026 20:30:23 GMT
+x-served-by: cache-yvr1533-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1770064223.085332,VS0,VE19
+vary: x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 27
+
+Redirecting to /sitemap.xmlcompleted	failure	chore: record action queue status for v0.1.17	ci	main	push	21605099212	15m3s	2026-02-02T19:56:30Z
+completed	failure	chore: add audit evidence for v0.1.17 deploy	publish-mcp-registry	v0.1.17	push	21604854773	15m2s	2026-02-02T19:47:19Z
+completed	failure	chore: add audit evidence for v0.1.17 deploy	publish-npm	v0.1.17	push	21604854753	15m2s	2026-02-02T19:47:19Z
+completed	failure	chore: add audit evidence for v0.1.17 deploy	release	v0.1.17	push	21604854748	15m3s	2026-02-02T19:47:19Z
+completed	failure	chore: add audit evidence for v0.1.17 deploy	ci	main	push	21604838530	15m3s	2026-02-02T19:46:43Z
+completed	success	chore: audit sitemap and seed_v2 updates	ci	main	push	21604122145	25s	2026-02-02T19:22:13Z

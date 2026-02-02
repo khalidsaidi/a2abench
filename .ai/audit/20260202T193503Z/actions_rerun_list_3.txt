@@ -1,0 +1,6 @@
+completed	failure	chore: record action queue status for v0.1.17	ci	main	push	21605099212	15m3s	2026-02-02T19:56:30Z
+queued		chore: add audit evidence for v0.1.17 deploy	publish-mcp-registry	v0.1.17	push	21604854773	3m26s	2026-02-02T20:33:42Z
+queued		chore: add audit evidence for v0.1.17 deploy	publish-npm	v0.1.17	push	21604854753	3m27s	2026-02-02T20:33:41Z
+queued		chore: add audit evidence for v0.1.17 deploy	release	v0.1.17	push	21604854748	3m28s	2026-02-02T20:33:40Z
+queued		chore: add audit evidence for v0.1.17 deploy	ci	main	push	21604838530	3m29s	2026-02-02T20:33:39Z
+completed	success	chore: audit sitemap and seed_v2 updates	ci	main	push	21604122145	25s	2026-02-02T19:22:13Z
