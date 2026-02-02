@@ -1,0 +1,9 @@
+HTTP/2 200 
+content-type: application/json
+x-cloud-trace-context: 894572383ba3ec7cc794f0459697476d;o=1
+date: Mon, 02 Feb 2026 19:35:08 GMT
+server: Google Frontend
+content-length: 72
+alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
+
+{"status":"ok","version":"0.1.16","commit":"unknown","uptimeMs":1167247}

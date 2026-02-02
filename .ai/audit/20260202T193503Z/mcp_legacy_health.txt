@@ -1,0 +1,17 @@
+HTTP/2 200 
+cache-control: max-age=3600
+content-type: application/json
+etag: "b419672508fcc2b3e9a78fab67dadf162c6c1a213149c5b7abf8ec65d22fff07"
+last-modified: Mon, 02 Feb 2026 16:49:02 GMT
+strict-transport-security: max-age=31556926; includeSubDomains; preload
+accept-ranges: bytes
+date: Mon, 02 Feb 2026 19:35:07 GMT
+x-served-by: cache-yvr1530-YVR
+x-cache: HIT
+x-cache-hits: 0
+x-timer: S1770060907.281725,VS0,VE1
+vary: x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 62
+
+{"status":"ok","version":"0.1.16","source":"firebase-static"}
