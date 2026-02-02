@@ -1,0 +1,140 @@
+----------------------------- REMOTE BUILD OUTPUT ------------------------------
+starting build "92fba4e4-a146-4628-80b4-65dd38200bc3"
+
+FETCHSOURCE
+Fetching storage object: gs://a2abench-prod_cloudbuild/source/1769991029.260326-c1feccd9eafa4a8f81a2858e4ee6edc1.tgz#1769991030318080
+Copying gs://a2abench-prod_cloudbuild/source/1769991029.260326-c1feccd9eafa4a8f81a2858e4ee6edc1.tgz#1769991030318080...
+/ [0 files][    0.0 B/111.5 KiB]                                                / [1 files][111.5 KiB/111.5 KiB]                                                
+Operation completed over 1 objects/111.5 KiB.
+BUILD
+Already have image (with digest): gcr.io/cloud-builders/docker
+Sending build context to Docker daemon  466.9kB
+Step 1/19 : FROM node:20-bookworm-slim AS base
+20-bookworm-slim: Pulling from library/node
+c02d17997ce3: Pulling fs layer
+024b9523dc7f: Pulling fs layer
+ebe53019ce11: Pulling fs layer
+a98168ca575a: Pulling fs layer
+7d393bf487b0: Pulling fs layer
+024b9523dc7f: Download complete
+7d393bf487b0: Verifying Checksum
+7d393bf487b0: Download complete
+a98168ca575a: Verifying Checksum
+a98168ca575a: Download complete
+c02d17997ce3: Verifying Checksum
+c02d17997ce3: Download complete
+ebe53019ce11: Verifying Checksum
+ebe53019ce11: Download complete
+c02d17997ce3: Pull complete
+024b9523dc7f: Pull complete
+ebe53019ce11: Pull complete
+a98168ca575a: Pull complete
+7d393bf487b0: Pull complete
+Digest: sha256:6c51af7dc83f4708aaac35991306bca8f478351cfd2bda35750a62d7efcf05bb
+Status: Downloaded newer image for node:20-bookworm-slim
+ ---> 7bd7304bb010
+Step 2/19 : WORKDIR /repo
+ ---> Running in bd89d4b36a61
+Removing intermediate container bd89d4b36a61
+ ---> fa36d7128543
+Step 3/19 : RUN corepack enable
+ ---> Running in 81a6483df288
+Removing intermediate container 81a6483df288
+ ---> 65522184821c
+Step 4/19 : FROM base AS deps
+ ---> 65522184821c
+Step 5/19 : COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
+ ---> 1baa68c41c3b
+Step 6/19 : COPY apps/mcp-remote/package.json apps/mcp-remote/tsconfig.json ./apps/mcp-remote/
+ ---> 3701b08aa3de
+Step 7/19 : RUN pnpm install --filter @a2abench/mcp-remote...
+ ---> Running in b65dc284ce8d
+[91m! Corepack is about to download https://registry.npmjs.org/pnpm/-/pnpm-9.15.0.tgz
+[0mProgress: resolved 1, reused 0, downloaded 0, added 0
+
+   ╭───────────────────────────────────────────────────────────────────╮
+   │                                                                   │
+   │                Update available! 9.15.0 → 10.28.2.                │
+   │   Changelog: https://github.com/pnpm/pnpm/releases/tag/v10.28.2   │
+   │         Run "corepack install -g pnpm@10.28.2" to update.         │
+   │                                                                   │
+   ╰───────────────────────────────────────────────────────────────────╯
+Progress: resolved 12, reused 0, downloaded 4, added 0
+Progress: resolved 96, reused 0, downloaded 52, added 0
+.                                        |  +99 ++++++++++
+Progress: resolved 125, reused 0, downloaded 99, added 99, done
+.../esbuild@0.27.2/node_modules/esbuild postinstall$ node install.js
+.../esbuild@0.27.2/node_modules/esbuild postinstall: Done
+Done in 4.1s
+Removing intermediate container b65dc284ce8d
+ ---> 4a7d7e0ca1c8
+Step 8/19 : FROM deps AS build
+ ---> 4a7d7e0ca1c8
+Step 9/19 : COPY apps/mcp-remote/src ./apps/mcp-remote/src
+ ---> bc8662e885ad
+Step 10/19 : RUN pnpm --filter @a2abench/mcp-remote build
+ ---> Running in e8e068971760
+
+> @a2abench/mcp-remote@0.1.13 build /repo/apps/mcp-remote
+> tsc -p tsconfig.json
+Removing intermediate container e8e068971760
+ ---> f8b162b615d7
+Step 11/19 : FROM base AS runtime
+ ---> 65522184821c
+Step 12/19 : ENV NODE_ENV=production
+ ---> Running in b020bc2e2de6
+Removing intermediate container b020bc2e2de6
+ ---> 833298c17681
+Step 13/19 : COPY --from=build /repo/apps/mcp-remote/dist /repo/apps/mcp-remote/dist
+ ---> 5fe7fabc9d7a
+Step 14/19 : COPY --from=build /repo/apps/mcp-remote/node_modules /repo/apps/mcp-remote/node_modules
+ ---> 3900a5fb26ac
+Step 15/19 : COPY --from=build /repo/node_modules /repo/node_modules
+ ---> 856a1bd97536
+Step 16/19 : COPY apps/mcp-remote/package.json /repo/apps/mcp-remote/package.json
+ ---> 297831623853
+Step 17/19 : WORKDIR /repo/apps/mcp-remote
+ ---> Running in 9c464b72e616
+Removing intermediate container 9c464b72e616
+ ---> bfd8770883d8
+Step 18/19 : EXPOSE 4000
+ ---> Running in 55efc852246b
+Removing intermediate container 55efc852246b
+ ---> 9884b54c8e2e
+Step 19/19 : CMD ["node", "dist/index.js"]
+ ---> Running in efb39ea86aaa
+Removing intermediate container efb39ea86aaa
+ ---> e918a738c33e
+Successfully built e918a738c33e
+Successfully tagged us-central1-docker.pkg.dev/a2abench-prod/a2abench/mcp-remote:04e8bd9
+PUSH
+Pushing us-central1-docker.pkg.dev/a2abench-prod/a2abench/mcp-remote:04e8bd9
+The push refers to repository [us-central1-docker.pkg.dev/a2abench-prod/a2abench/mcp-remote]
+43fb1bdd89a9: Preparing
+6bcca75418e6: Preparing
+cf408eea77f8: Preparing
+868d2fbfd8df: Preparing
+410b10bdc236: Preparing
+58a4cf71e462: Preparing
+7492c31043fa: Preparing
+00bf21304c8c: Preparing
+b051c96fe9e7: Preparing
+6de3bf4d809c: Preparing
+e0e600257047: Preparing
+e0e600257047: Waiting
+6de3bf4d809c: Layer already exists
+00bf21304c8c: Layer already exists
+b051c96fe9e7: Layer already exists
+7492c31043fa: Layer already exists
+43fb1bdd89a9: Pushed
+cf408eea77f8: Pushed
+58a4cf71e462: Pushed
+410b10bdc236: Pushed
+868d2fbfd8df: Pushed
+6bcca75418e6: Pushed
+e0e600257047: Pushed
+04e8bd9: digest: sha256:169fc976bf676cb4cf7a2bfbac294a6433e683c011397a3a8210883204e4b0d8 size: 2615
+DONE
+--------------------------------------------------------------------------------
+ID                                    CREATE_TIME                DURATION  SOURCE                                                                                       IMAGES                                                                STATUS
+92fba4e4-a146-4628-80b4-65dd38200bc3  2026-02-02T00:10:30+00:00  45S       gs://a2abench-prod_cloudbuild/source/1769991029.260326-c1feccd9eafa4a8f81a2858e4ee6edc1.tgz  us-central1-docker.pkg.dev/a2abench-prod/a2abench/mcp-remote:04e8bd9  SUCCESS

@@ -1,0 +1,83 @@
+Mon Feb  2 12:12:42 AM UTC 2026
+
+HTTP/2 200 
+cache-control: max-age=3600
+content-type: application/json
+etag: "47500c4b8b715e1c49a2c540a2d303654db33ac4ecfa8d93d597a099d2e93065"
+last-modified: Mon, 02 Feb 2026 00:12:23 GMT
+strict-transport-security: max-age=31556926; includeSubDomains; preload
+accept-ranges: bytes
+date: Mon, 02 Feb 2026 00:12:43 GMT
+x-served-by: cache-yvr1522-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1769991164.668543,VS0,VE91
+vary: x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 62
+
+{"status":"ok","version":"0.1.13","source":"firebase-static"}
+
+HTTP/2 200 
+cache-control: max-age=3600
+content-type: application/json
+etag: "47500c4b8b715e1c49a2c540a2d303654db33ac4ecfa8d93d597a099d2e93065"
+last-modified: Mon, 02 Feb 2026 00:12:23 GMT
+strict-transport-security: max-age=31556926; includeSubDomains; preload
+accept-ranges: bytes
+date: Mon, 02 Feb 2026 00:12:43 GMT
+x-served-by: cache-yvr1532-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1769991164.888594,VS0,VE32
+vary: x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 62
+
+{"status":"ok","version":"0.1.13","source":"firebase-static"}
+
+HTTP/2 200 
+cache-control: private
+content-type: application/json
+server: Google Frontend
+strict-transport-security: max-age=31556926; includeSubDomains; preload
+x-cloud-trace-context: 83788ec938585db8e0d183f2fcf6a37b;o=1
+x-country-code: CA
+accept-ranges: bytes
+date: Mon, 02 Feb 2026 00:12:44 GMT
+x-served-by: cache-yvr1525-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1769991164.034441,VS0,VE249
+vary: cookie,need-authorization, x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 15
+
+{"status":"ok"}
+HTTP/2 200 
+content-type: application/json
+x-cloud-trace-context: fa5290a5fc54f760673bb9028ecba04b
+date: Mon, 02 Feb 2026 00:12:44 GMT
+server: Google Frontend
+content-length: 103
+alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
+
+{"status":"ok","version":"0.1.13","commit":"04e8bd93e2d58e5450711a6b432c035e8b629b71","uptimeMs":48966}
+HTTP/2 200 
+content-type: application/json
+x-cloud-trace-context: fa77f6a198eebd681e72b1fda0a65bf2
+date: Mon, 02 Feb 2026 00:12:44 GMT
+server: Google Frontend
+content-length: 103
+alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
+
+{"status":"ok","version":"0.1.13","commit":"04e8bd93e2d58e5450711a6b432c035e8b629b71","uptimeMs":49160}
+HTTP/2 200 
+content-type: application/json
+x-cloud-trace-context: 15f712cdda2e17f4629f0670bde4c39d
+date: Mon, 02 Feb 2026 00:12:44 GMT
+server: Google Frontend
+content-length: 15
+alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
+
+{"status":"ok"}

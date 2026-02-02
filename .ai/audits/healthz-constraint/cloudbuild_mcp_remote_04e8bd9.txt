@@ -1,0 +1,51 @@
+----------------------------- REMOTE BUILD OUTPUT ------------------------------
+starting build "730f388b-4844-4391-803c-dd8faa2bb440"
+
+FETCHSOURCE
+Fetching storage object: gs://a2abench-prod_cloudbuild/source/1769990949.23927-ffb377e38e74446793e00b01924e4545.tgz#1769990949759408
+Copying gs://a2abench-prod_cloudbuild/source/1769990949.23927-ffb377e38e74446793e00b01924e4545.tgz#1769990949759408...
+/ [0 files][    0.0 B/  5.8 KiB]                                                / [1 files][  5.8 KiB/  5.8 KiB]                                                
+Operation completed over 1 objects/5.8 KiB.
+BUILD
+Already have image (with digest): gcr.io/cloud-builders/gcb-internal
+Sending build context to Docker daemon  33.79kB
+Step 1/19 : FROM node:20-bookworm-slim AS base
+20-bookworm-slim: Pulling from library/node
+c02d17997ce3: Pulling fs layer
+024b9523dc7f: Pulling fs layer
+ebe53019ce11: Pulling fs layer
+a98168ca575a: Pulling fs layer
+7d393bf487b0: Pulling fs layer
+024b9523dc7f: Verifying Checksum
+024b9523dc7f: Download complete
+a98168ca575a: Verifying Checksum
+a98168ca575a: Download complete
+7d393bf487b0: Verifying Checksum
+7d393bf487b0: Download complete
+c02d17997ce3: Verifying Checksum
+c02d17997ce3: Download complete
+ebe53019ce11: Verifying Checksum
+ebe53019ce11: Download complete
+c02d17997ce3: Pull complete
+024b9523dc7f: Pull complete
+ebe53019ce11: Pull complete
+a98168ca575a: Pull complete
+7d393bf487b0: Pull complete
+Digest: sha256:6c51af7dc83f4708aaac35991306bca8f478351cfd2bda35750a62d7efcf05bb
+Status: Downloaded newer image for node:20-bookworm-slim
+ ---> 7bd7304bb010
+Step 2/19 : WORKDIR /repo
+ ---> Running in b0b5f828b517
+Removing intermediate container b0b5f828b517
+ ---> bb16262a29c4
+Step 3/19 : RUN corepack enable
+ ---> Running in 0a613906a863
+Removing intermediate container 0a613906a863
+ ---> bafcdb0e14f5
+Step 4/19 : FROM base AS deps
+ ---> bafcdb0e14f5
+Step 5/19 : COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
+COPY failed: file not found in build context or excluded by .dockerignore: stat pnpm-workspace.yaml: file does not exist
+ERROR
+ERROR: build step 0 "gcr.io/cloud-builders/gcb-internal" failed: step exited with non-zero status: 1
+--------------------------------------------------------------------------------
