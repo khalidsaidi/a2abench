@@ -53,3 +53,7 @@ jobs:
           API_BASE_URL: ${{ vars.TRIAL_API_BASE_URL }}
           MCP_URL: ${{ vars.TRIAL_MCP_URL }}
         run: ./scripts/smoke-trial-write.sh
+      - name: Public API smoke test (deployed)
+        env:
+          API_BASE_URL: https://a2abench-api.web.app
+        run: ./scripts/smoke-public.sh
