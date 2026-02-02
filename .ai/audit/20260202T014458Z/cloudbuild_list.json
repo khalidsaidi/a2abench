@@ -1,0 +1,220 @@
+[
+  {
+    "artifacts": {
+      "images": [
+        "us-central1-docker.pkg.dev/a2abench-prod/a2abench/mcp-remote:d6f6161"
+      ]
+    },
+    "createTime": "2026-02-02T01:45:02.479188240Z",
+    "finishTime": "2026-02-02T01:45:52.922241Z",
+    "id": "be3b8814-a531-4551-a9b3-f280004bc840",
+    "images": [
+      "us-central1-docker.pkg.dev/a2abench-prod/a2abench/mcp-remote:d6f6161"
+    ],
+    "logUrl": "https://console.cloud.google.com/cloud-build/builds/be3b8814-a531-4551-a9b3-f280004bc840?project=405318049509",
+    "logsBucket": "gs://405318049509.cloudbuild-logs.googleusercontent.com",
+    "name": "projects/405318049509/locations/global/builds/be3b8814-a531-4551-a9b3-f280004bc840",
+    "options": {
+      "logging": "LEGACY",
+      "pool": {}
+    },
+    "projectId": "a2abench-prod",
+    "queueTtl": "3600s",
+    "results": {
+      "buildStepImages": [
+        "sha256:a44c27d353305e518949db2d299d409743d2b4517bdbc6a6bbc9be0c80423902"
+      ],
+      "buildStepOutputs": [
+        ""
+      ],
+      "images": [
+        {
+          "artifactRegistryPackage": "projects/a2abench-prod/locations/us-central1/repositories/a2abench/packages/mcp-remote/versions/sha256:bdb35d8ed40e48dee0098b8a78e03109b8d6c6685a33464db55f3f5d7db44363",
+          "digest": "sha256:bdb35d8ed40e48dee0098b8a78e03109b8d6c6685a33464db55f3f5d7db44363",
+          "name": "us-central1-docker.pkg.dev/a2abench-prod/a2abench/mcp-remote:d6f6161",
+          "pushTiming": {
+            "endTime": "2026-02-02T01:45:53.214189119Z",
+            "startTime": "2026-02-02T01:45:43.183812857Z"
+          }
+        }
+      ]
+    },
+    "serviceAccount": "projects/a2abench-prod/serviceAccounts/405318049509-compute@developer.gserviceaccount.com",
+    "source": {
+      "storageSource": {
+        "bucket": "a2abench-prod_cloudbuild",
+        "generation": "1769996702185073",
+        "object": "source/1769996701.39025-d5348b7e6f974463ae974111ace4bc1d.tgz"
+      }
+    },
+    "sourceProvenance": {
+      "fileHashes": {
+        "gs://a2abench-prod_cloudbuild/source/1769996701.39025-d5348b7e6f974463ae974111ace4bc1d.tgz#1769996702185073": {
+          "fileHash": [
+            {
+              "type": "MD5",
+              "value": "TOCGQcAHHEmn7obfBzll5w=="
+            }
+          ]
+        }
+      },
+      "resolvedStorageSource": {
+        "bucket": "a2abench-prod_cloudbuild",
+        "generation": "1769996702185073",
+        "object": "source/1769996701.39025-d5348b7e6f974463ae974111ace4bc1d.tgz"
+      }
+    },
+    "startTime": "2026-02-02T01:45:03.511399074Z",
+    "status": "SUCCESS",
+    "steps": [
+      {
+        "args": [
+          "build",
+          "-t",
+          "us-central1-docker.pkg.dev/a2abench-prod/a2abench/mcp-remote:d6f6161",
+          "-f",
+          "apps/mcp-remote/Dockerfile",
+          "."
+        ],
+        "name": "gcr.io/cloud-builders/docker",
+        "pullTiming": {
+          "endTime": "2026-02-02T01:45:09.965617186Z",
+          "startTime": "2026-02-02T01:45:09.956229556Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-02T01:45:43.145215817Z",
+          "startTime": "2026-02-02T01:45:09.956229556Z"
+        }
+      }
+    ],
+    "timeout": "3600s",
+    "timing": {
+      "BUILD": {
+        "endTime": "2026-02-02T01:45:43.183732962Z",
+        "startTime": "2026-02-02T01:45:09.275564284Z"
+      },
+      "FETCHSOURCE": {
+        "endTime": "2026-02-02T01:45:09.274278844Z",
+        "startTime": "2026-02-02T01:45:06.271502837Z"
+      },
+      "PUSH": {
+        "endTime": "2026-02-02T01:45:53.216169111Z",
+        "startTime": "2026-02-02T01:45:43.183811480Z"
+      },
+      "STORAGE_SOURCE": {
+        "endTime": "2026-02-02T01:45:09.274278844Z",
+        "startTime": "2026-02-02T01:45:06.271502837Z"
+      }
+    }
+  },
+  {
+    "artifacts": {
+      "images": [
+        "us-central1-docker.pkg.dev/a2abench-prod/a2abench/mcp-remote:04e8bd9"
+      ]
+    },
+    "createTime": "2026-02-02T00:10:30.574076843Z",
+    "finishTime": "2026-02-02T00:11:16.718141Z",
+    "id": "92fba4e4-a146-4628-80b4-65dd38200bc3",
+    "images": [
+      "us-central1-docker.pkg.dev/a2abench-prod/a2abench/mcp-remote:04e8bd9"
+    ],
+    "logUrl": "https://console.cloud.google.com/cloud-build/builds/92fba4e4-a146-4628-80b4-65dd38200bc3?project=405318049509",
+    "logsBucket": "gs://405318049509.cloudbuild-logs.googleusercontent.com",
+    "name": "projects/405318049509/locations/global/builds/92fba4e4-a146-4628-80b4-65dd38200bc3",
+    "options": {
+      "logging": "LEGACY",
+      "pool": {}
+    },
+    "projectId": "a2abench-prod",
+    "queueTtl": "3600s",
+    "results": {
+      "buildStepImages": [
+        "sha256:a44c27d353305e518949db2d299d409743d2b4517bdbc6a6bbc9be0c80423902"
+      ],
+      "buildStepOutputs": [
+        ""
+      ],
+      "images": [
+        {
+          "artifactRegistryPackage": "projects/a2abench-prod/locations/us-central1/repositories/a2abench/packages/mcp-remote/versions/sha256:169fc976bf676cb4cf7a2bfbac294a6433e683c011397a3a8210883204e4b0d8",
+          "digest": "sha256:169fc976bf676cb4cf7a2bfbac294a6433e683c011397a3a8210883204e4b0d8",
+          "name": "us-central1-docker.pkg.dev/a2abench-prod/a2abench/mcp-remote:04e8bd9",
+          "pushTiming": {
+            "endTime": "2026-02-02T00:11:15.925126293Z",
+            "startTime": "2026-02-02T00:11:06.309190482Z"
+          }
+        }
+      ]
+    },
+    "serviceAccount": "projects/a2abench-prod/serviceAccounts/405318049509-compute@developer.gserviceaccount.com",
+    "source": {
+      "storageSource": {
+        "bucket": "a2abench-prod_cloudbuild",
+        "generation": "1769991030318080",
+        "object": "source/1769991029.260326-c1feccd9eafa4a8f81a2858e4ee6edc1.tgz"
+      }
+    },
+    "sourceProvenance": {
+      "fileHashes": {
+        "gs://a2abench-prod_cloudbuild/source/1769991029.260326-c1feccd9eafa4a8f81a2858e4ee6edc1.tgz#1769991030318080": {
+          "fileHash": [
+            {
+              "type": "MD5",
+              "value": "d6Bk3OM6Vct-y7oln8exvQ=="
+            }
+          ]
+        }
+      },
+      "resolvedStorageSource": {
+        "bucket": "a2abench-prod_cloudbuild",
+        "generation": "1769991030318080",
+        "object": "source/1769991029.260326-c1feccd9eafa4a8f81a2858e4ee6edc1.tgz"
+      }
+    },
+    "startTime": "2026-02-02T00:10:31.412675640Z",
+    "status": "SUCCESS",
+    "steps": [
+      {
+        "args": [
+          "build",
+          "-t",
+          "us-central1-docker.pkg.dev/a2abench-prod/a2abench/mcp-remote:04e8bd9",
+          "-f",
+          "apps/mcp-remote/Dockerfile",
+          "."
+        ],
+        "name": "gcr.io/cloud-builders/docker",
+        "pullTiming": {
+          "endTime": "2026-02-02T00:10:37.735563405Z",
+          "startTime": "2026-02-02T00:10:37.727273421Z"
+        },
+        "status": "SUCCESS",
+        "timing": {
+          "endTime": "2026-02-02T00:11:06.279095808Z",
+          "startTime": "2026-02-02T00:10:37.727273421Z"
+        }
+      }
+    ],
+    "timeout": "3600s",
+    "timing": {
+      "BUILD": {
+        "endTime": "2026-02-02T00:11:06.309116692Z",
+        "startTime": "2026-02-02T00:10:37.127564441Z"
+      },
+      "FETCHSOURCE": {
+        "endTime": "2026-02-02T00:10:37.126729088Z",
+        "startTime": "2026-02-02T00:10:34.273049364Z"
+      },
+      "PUSH": {
+        "endTime": "2026-02-02T00:11:15.926708970Z",
+        "startTime": "2026-02-02T00:11:06.309189292Z"
+      },
+      "STORAGE_SOURCE": {
+        "endTime": "2026-02-02T00:10:37.126729088Z",
+        "startTime": "2026-02-02T00:10:34.273049364Z"
+      }
+    }
+  }
+]

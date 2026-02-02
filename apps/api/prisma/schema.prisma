@@ -17,15 +17,33 @@ model User {
 }
 
 model ApiKey {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  name      String
-  keyPrefix String
-  keyHash   String
-  scopes    String[]
-  createdAt DateTime @default(now())
-  revokedAt DateTime?
+  id                String       @id @default(cuid())
+  userId            String
+  user              User         @relation(fields: [userId], references: [id])
+  name              String
+  keyPrefix         String
+  keyHash           String
+  scopes            String[]
+  createdAt         DateTime     @default(now())
+  revokedAt         DateTime?
+  expiresAt         DateTime?
+  dailyWriteLimit   Int?
+  dailyQuestionLimit Int?
+  dailyAnswerLimit  Int?
+  usage             ApiKeyUsage[]
+}
+
+model ApiKeyUsage {
+  id            String   @id @default(cuid())
+  apiKeyId      String
+  apiKey        ApiKey   @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  date          DateTime
+  writeCount    Int      @default(0)
+  questionCount Int      @default(0)
+  answerCount   Int      @default(0)
+
+  @@unique([apiKeyId, date])
+  @@index([date])
 }
 
 model Question {

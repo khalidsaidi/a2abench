@@ -11,7 +11,7 @@ const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-local';
 
 const server = new McpServer({
   name: 'A2ABench',
-  version: '0.1.14'
+  version: '0.1.15'
 });
 
 async function apiGet(path: string, params?: Record<string, string>) {
@@ -28,6 +28,24 @@ async function apiGet(path: string, params?: Record<string, string>) {
   }
   const response = await fetch(url, { headers });
   return response;
+}
+
+async function apiPost(path: string, body: Record<string, unknown>, query?: Record<string, string>) {
+  const url = new URL(path, API_BASE_URL);
+  if (query) {
+    Object.entries(query).forEach(([key, value]) => url.searchParams.set(key, value));
+  }
+  const headers: Record<string, string> = {
+    accept: 'application/json',
+    'content-type': 'application/json'
+  };
+  if (MCP_AGENT_NAME) {
+    headers['X-Agent-Name'] = MCP_AGENT_NAME;
+  }
+  if (API_KEY) {
+    headers.authorization = `Bearer ${API_KEY}`;
+  }
+  return fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
 }
 
 server.registerTool(
@@ -89,12 +107,120 @@ server.registerTool(
         ]
       };
     }
-    const data = await response.json();
+    const data = (await response.json()) as Record<string, unknown>;
     return {
       content: [
         {
           type: 'text',
           text: JSON.stringify(data)
+        }
+      ]
+    };
+  }
+);
+
+server.registerTool(
+  'create_question',
+  {
+    title: 'Create question',
+    description: 'Create a new question thread (requires API key).',
+    inputSchema: {
+      title: z.string().min(8),
+      bodyMd: z.string().min(3),
+      tags: z.array(z.string()).optional(),
+      force: z.boolean().optional()
+    }
+  },
+  async ({ title, bodyMd, tags, force }) => {
+    if (!API_KEY) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              error: 'Missing API key',
+              hint: 'Get a trial key at /api/v1/auth/trial-key'
+            })
+          }
+        ]
+      };
+    }
+    const response = await apiPost('/api/v1/questions', { title, bodyMd, tags }, force ? { force: '1' } : undefined);
+    if (!response.ok) {
+      const text = await response.text();
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ error: text || 'Failed to create question', status: response.status })
+          }
+        ]
+      };
+    }
+    const data = (await response.json()) as Record<string, unknown>;
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            ...data,
+            url: `${PUBLIC_BASE_URL}/q/${data.id}`
+          })
+        }
+      ]
+    };
+  }
+);
+
+server.registerTool(
+  'create_answer',
+  {
+    title: 'Create answer',
+    description: 'Create an answer for a question (requires API key).',
+    inputSchema: {
+      id: z.string().min(1),
+      bodyMd: z.string().min(3)
+    }
+  },
+  async ({ id, bodyMd }) => {
+    if (!API_KEY) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              error: 'Missing API key',
+              hint: 'Get a trial key at /api/v1/auth/trial-key'
+            })
+          }
+        ]
+      };
+    }
+    const response = await apiPost(`/api/v1/questions/${id}/answers`, { bodyMd });
+    if (!response.ok) {
+      const text = await response.text();
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ error: text || 'Failed to create answer', status: response.status })
+          }
+        ]
+      };
+    }
+    const data = (await response.json()) as Record<string, unknown>;
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            ...data,
+            url: `${PUBLIC_BASE_URL}/q/${id}`
+          })
         }
       ]
     };

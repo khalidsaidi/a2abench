@@ -1,0 +1,281 @@
+publish	Set up job	﻿2026-02-02T02:03:09.4078427Z Current runner version: '2.331.0'
+publish	Set up job	2026-02-02T02:03:09.4113483Z ##[group]Runner Image Provisioner
+publish	Set up job	2026-02-02T02:03:09.4114853Z Hosted Compute Agent
+publish	Set up job	2026-02-02T02:03:09.4115755Z Version: 20260123.484
+publish	Set up job	2026-02-02T02:03:09.4116872Z Commit: 6bd6555ca37d84114959e1c76d2c01448ff61c5d
+publish	Set up job	2026-02-02T02:03:09.4118084Z Build Date: 2026-01-23T19:41:17Z
+publish	Set up job	2026-02-02T02:03:09.4119412Z Worker ID: {439bbea8-8fbc-407a-bc54-33a6e23f5bdc}
+publish	Set up job	2026-02-02T02:03:09.4120821Z Azure Region: northcentralus
+publish	Set up job	2026-02-02T02:03:09.4121874Z ##[endgroup]
+publish	Set up job	2026-02-02T02:03:09.4123958Z ##[group]Operating System
+publish	Set up job	2026-02-02T02:03:09.4125114Z Ubuntu
+publish	Set up job	2026-02-02T02:03:09.4125886Z 24.04.3
+publish	Set up job	2026-02-02T02:03:09.4126842Z LTS
+publish	Set up job	2026-02-02T02:03:09.4127720Z ##[endgroup]
+publish	Set up job	2026-02-02T02:03:09.4128507Z ##[group]Runner Image
+publish	Set up job	2026-02-02T02:03:09.4129767Z Image: ubuntu-24.04
+publish	Set up job	2026-02-02T02:03:09.4130688Z Version: 20260126.10.1
+publish	Set up job	2026-02-02T02:03:09.4132392Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260126.10/images/ubuntu/Ubuntu2404-Readme.md
+publish	Set up job	2026-02-02T02:03:09.4135450Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260126.10
+publish	Set up job	2026-02-02T02:03:09.4137086Z ##[endgroup]
+publish	Set up job	2026-02-02T02:03:09.4139279Z ##[group]GITHUB_TOKEN Permissions
+publish	Set up job	2026-02-02T02:03:09.4142202Z Contents: read
+publish	Set up job	2026-02-02T02:03:09.4143250Z Metadata: read
+publish	Set up job	2026-02-02T02:03:09.4144035Z Packages: read
+publish	Set up job	2026-02-02T02:03:09.4144963Z ##[endgroup]
+publish	Set up job	2026-02-02T02:03:09.4147800Z Secret source: Actions
+publish	Set up job	2026-02-02T02:03:09.4149210Z Prepare workflow directory
+publish	Set up job	2026-02-02T02:03:09.4897165Z Prepare all required actions
+publish	Set up job	2026-02-02T02:03:09.4955914Z Getting action download info
+publish	Set up job	2026-02-02T02:03:09.7719116Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+publish	Set up job	2026-02-02T02:03:09.8734072Z Download action repository 'pnpm/action-setup@v3' (SHA:a3252b78c470c02df07e9d59298aecedc3ccdd6d)
+publish	Set up job	2026-02-02T02:03:10.3153729Z Download action repository 'actions/setup-node@v4' (SHA:49933ea5288caeca8642d1e84afbd3f7d6820020)
+publish	Set up job	2026-02-02T02:03:10.5025062Z Complete job name: publish
+publish	Run actions/checkout@v4	﻿2026-02-02T02:03:10.5650903Z ##[group]Run actions/checkout@v4
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5651719Z with:
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5652129Z   repository: khalidsaidi/a2abench
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5652765Z   token: ***
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5653151Z   ssh-strict: true
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5653533Z   ssh-user: git
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5653925Z   persist-credentials: true
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5654354Z   clean: true
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5654738Z   sparse-checkout-cone-mode: true
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5655202Z   fetch-depth: 1
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5655581Z   fetch-tags: false
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5655975Z   show-progress: true
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5656361Z   lfs: false
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5656710Z   submodules: false
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5657103Z   set-safe-directory: true
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5657702Z env:
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5658242Z   NODE_AUTH_TOKEN: ***
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5658808Z ##[endgroup]
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6724185Z Syncing repository: khalidsaidi/a2abench
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6726093Z ##[group]Getting Git version info
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6726811Z Working directory is '/home/runner/work/a2abench/a2abench'
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6727793Z [command]/usr/bin/git version
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6842397Z git version 2.52.0
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6867960Z ##[endgroup]
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6882133Z Temporarily overriding HOME='/home/runner/work/_temp/bbd2ea0a-5b65-452a-813e-f3769d67effb' before making global git config changes
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6883548Z Adding repository directory to the temporary git global config as a safe directory
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6894270Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/a2abench/a2abench
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6937081Z Deleting the contents of '/home/runner/work/a2abench/a2abench'
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6941114Z ##[group]Initializing the repository
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6944867Z [command]/usr/bin/git init /home/runner/work/a2abench/a2abench
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7090801Z hint: Using 'master' as the name for the initial branch. This default branch name
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7092776Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7094756Z hint: to use in all of your new repositories, which will suppress this warning,
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7096003Z hint: call:
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7096913Z hint:
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7098119Z hint: 	git config --global init.defaultBranch <name>
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7099570Z hint:
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7100693Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7102489Z hint: 'development'. The just-created branch can be renamed via this command:
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7104097Z hint:
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7104915Z hint: 	git branch -m <name>
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7105789Z hint:
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7106949Z hint: Disable this message with "git config set advice.defaultBranchName false"
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7109135Z Initialized empty Git repository in /home/runner/work/a2abench/a2abench/.git/
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7111800Z [command]/usr/bin/git remote add origin https://github.com/khalidsaidi/a2abench
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7153418Z ##[endgroup]
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7154628Z ##[group]Disabling automatic garbage collection
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7158469Z [command]/usr/bin/git config --local gc.auto 0
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7187591Z ##[endgroup]
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7189010Z ##[group]Setting up auth
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7195181Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7225822Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7584019Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7614089Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7829321Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7859134Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.8084547Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.8117431Z ##[endgroup]
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.8118934Z ##[group]Fetching the repository
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.8127022Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +d6f616173b27a8d2dcc1a19d6f81a7b7fe6695f6:refs/tags/v0.1.14
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1132884Z From https://github.com/khalidsaidi/a2abench
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1134637Z  * [new ref]         d6f616173b27a8d2dcc1a19d6f81a7b7fe6695f6 -> v0.1.14
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1170758Z ##[endgroup]
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1172043Z ##[group]Determining the checkout info
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1173858Z ##[endgroup]
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1178850Z [command]/usr/bin/git sparse-checkout disable
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1224931Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1255062Z ##[group]Checking out the ref
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1259538Z [command]/usr/bin/git checkout --progress --force refs/tags/v0.1.14
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1381478Z Note: switching to 'refs/tags/v0.1.14'.
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1382735Z 
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1383574Z You are in 'detached HEAD' state. You can look around, make experimental
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1385747Z changes and commit them, and you can discard any commits you make in this
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1387879Z state without impacting any branches by switching back to a branch.
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1389406Z 
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1390246Z If you want to create a new branch to retain commits you create, you may
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1392189Z do so (now or later) by using -c with the switch command. Example:
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1393310Z 
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1394185Z   git switch -c <new-branch-name>
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1395075Z 
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1395571Z Or undo this operation with:
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1396428Z 
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1396874Z   git switch -
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1397482Z 
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1398538Z Turn off this advice by setting config variable advice.detachedHead to false
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1400227Z 
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1400860Z HEAD is now at d6f6161 chore: bump version to 0.1.14
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1404459Z ##[endgroup]
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1433073Z [command]/usr/bin/git log -1 --format=%H
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1456499Z d6f616173b27a8d2dcc1a19d6f81a7b7fe6695f6
+publish	Run pnpm/action-setup@v3	﻿2026-02-02T02:03:11.1711784Z ##[group]Run pnpm/action-setup@v3
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:11.1712851Z with:
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:11.1713546Z   version: 9
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:11.1714269Z   dest: ~/setup-pnpm
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:11.1715127Z   run_install: null
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:11.1715959Z   package_json_file: package.json
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:11.1716937Z   standalone: false
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:11.1717728Z env:
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:11.1719170Z   NODE_AUTH_TOKEN: ***
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:11.1720010Z ##[endgroup]
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:11.2618522Z ##[group]Running self-installer...
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:11.8044487Z Progress: resolved 1, reused 0, downloaded 0, added 0
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:11.8210348Z Packages: +1
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:11.8212279Z +
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:12.2271979Z Progress: resolved 1, reused 0, downloaded 1, added 1, done
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:12.2525750Z 
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:12.2526162Z dependencies:
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:12.2555621Z + pnpm 9.15.9 (10.28.2 is available)
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:12.2556088Z 
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:12.2556278Z Done in 821ms
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:12.2738847Z ##[endgroup]
+publish	Run pnpm/action-setup@v3	2026-02-02T02:03:12.2742008Z Installation Completed!
+publish	Run actions/setup-node@v4	﻿2026-02-02T02:03:12.2899163Z ##[group]Run actions/setup-node@v4
+publish	Run actions/setup-node@v4	2026-02-02T02:03:12.2899527Z with:
+publish	Run actions/setup-node@v4	2026-02-02T02:03:12.2899754Z   node-version: 20
+publish	Run actions/setup-node@v4	2026-02-02T02:03:12.2899993Z   cache: pnpm
+publish	Run actions/setup-node@v4	2026-02-02T02:03:12.2900254Z   registry-url: https://registry.npmjs.org
+publish	Run actions/setup-node@v4	2026-02-02T02:03:12.2900579Z   always-auth: false
+publish	Run actions/setup-node@v4	2026-02-02T02:03:12.2900841Z   check-latest: false
+publish	Run actions/setup-node@v4	2026-02-02T02:03:12.2901258Z   token: ***
+publish	Run actions/setup-node@v4	2026-02-02T02:03:12.2901478Z env:
+publish	Run actions/setup-node@v4	2026-02-02T02:03:12.2901789Z   NODE_AUTH_TOKEN: ***
+publish	Run actions/setup-node@v4	2026-02-02T02:03:12.2902113Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+publish	Run actions/setup-node@v4	2026-02-02T02:03:12.2902462Z ##[endgroup]
+publish	Run actions/setup-node@v4	2026-02-02T02:03:12.4776107Z Found in cache @ /opt/hostedtoolcache/node/20.20.0/x64
+publish	Run actions/setup-node@v4	2026-02-02T02:03:12.4781644Z ##[group]Environment details
+publish	Run actions/setup-node@v4	2026-02-02T02:03:12.8622922Z node: v20.20.0
+publish	Run actions/setup-node@v4	2026-02-02T02:03:12.8623303Z npm: 10.8.2
+publish	Run actions/setup-node@v4	2026-02-02T02:03:12.8623676Z yarn: 1.22.22
+publish	Run actions/setup-node@v4	2026-02-02T02:03:12.8624277Z ##[endgroup]
+publish	Run actions/setup-node@v4	2026-02-02T02:03:12.8656161Z [command]/home/runner/setup-pnpm/node_modules/.bin/pnpm store path --silent
+publish	Run actions/setup-node@v4	2026-02-02T02:03:13.2569795Z /home/runner/setup-pnpm/node_modules/.bin/store/v3
+publish	Run actions/setup-node@v4	2026-02-02T02:03:13.4105967Z Cache hit for: node-cache-Linux-x64-pnpm-9764bf00f8aafa66f0ae95ea79dc0b6ab4dc2f8ee540a72aad4c4dd3bddd1997
+publish	Run actions/setup-node@v4	2026-02-02T02:03:13.9679324Z Received 38956474 of 38956474 (100.0%), 83.3 MBs/sec
+publish	Run actions/setup-node@v4	2026-02-02T02:03:13.9680513Z Cache Size: ~37 MB (38956474 B)
+publish	Run actions/setup-node@v4	2026-02-02T02:03:13.9710783Z [command]/usr/bin/tar -xf /home/runner/work/_temp/bad3904f-6305-495a-807f-709371035f32/cache.tzst -P -C /home/runner/work/a2abench/a2abench --use-compress-program unzstd
+publish	Run actions/setup-node@v4	2026-02-02T02:03:14.3335249Z Cache restored successfully
+publish	Run actions/setup-node@v4	2026-02-02T02:03:14.3442628Z Cache restored from key: node-cache-Linux-x64-pnpm-9764bf00f8aafa66f0ae95ea79dc0b6ab4dc2f8ee540a72aad4c4dd3bddd1997
+publish	Run pnpm -r install	﻿2026-02-02T02:03:14.3600289Z ##[group]Run pnpm -r install
+publish	Run pnpm -r install	2026-02-02T02:03:14.3600679Z [36;1mpnpm -r install[0m
+publish	Run pnpm -r install	2026-02-02T02:03:14.3660270Z shell: /usr/bin/bash -e {0}
+publish	Run pnpm -r install	2026-02-02T02:03:14.3660544Z env:
+publish	Run pnpm -r install	2026-02-02T02:03:14.3660963Z   NODE_AUTH_TOKEN: ***
+publish	Run pnpm -r install	2026-02-02T02:03:14.3661255Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+publish	Run pnpm -r install	2026-02-02T02:03:14.3661635Z   NPM_CONFIG_USERCONFIG: /home/runner/work/_temp/.npmrc
+publish	Run pnpm -r install	2026-02-02T02:03:14.3661946Z ##[endgroup]
+publish	Run pnpm -r install	2026-02-02T02:03:14.7730190Z Scope: all 4 workspace projects
+publish	Run pnpm -r install	2026-02-02T02:03:14.8153705Z Lockfile is up to date, resolution step is skipped
+publish	Run pnpm -r install	2026-02-02T02:03:14.8378502Z Progress: resolved 1, reused 0, downloaded 0, added 0
+publish	Run pnpm -r install	2026-02-02T02:03:14.8897086Z .                                        | +173 +++++++++++++++++
+publish	Run pnpm -r install	2026-02-02T02:03:15.1709599Z Progress: resolved 173, reused 173, downloaded 0, added 173, done
+publish	Run pnpm -r install	2026-02-02T02:03:15.4830774Z Done in 1s using pnpm v9.15.9
+publish	Run pnpm --filter @a2abench/api prisma generate	﻿2026-02-02T02:03:15.4982272Z ##[group]Run pnpm --filter @a2abench/api prisma generate
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:15.4982712Z [36;1mpnpm --filter @a2abench/api prisma generate[0m
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:15.5015564Z shell: /usr/bin/bash -e {0}
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:15.5015809Z env:
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:15.5016200Z   NODE_AUTH_TOKEN: ***
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:15.5016471Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:15.5016828Z   NPM_CONFIG_USERCONFIG: /home/runner/work/_temp/.npmrc
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:15.5017126Z ##[endgroup]
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:15.9160209Z 
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:15.9161196Z > @a2abench/api@0.1.14 prisma /home/runner/work/a2abench/a2abench/apps/api
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:15.9161818Z > prisma generate
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:15.9161987Z 
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:16.2372668Z Prisma schema loaded from prisma/schema.prisma
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:16.8552849Z 
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:16.8556542Z ✔ Generated Prisma Client (v5.22.0) to ./../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client in 87ms
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:16.8557478Z 
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:16.8558162Z Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:16.8559559Z 
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:16.8564052Z Tip: Want to turn off tips and other hints? https://pris.ly/tip-4-nohints
+publish	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:16.8564655Z 
+publish	Run pnpm -r build	﻿2026-02-02T02:03:17.0794175Z ##[group]Run pnpm -r build
+publish	Run pnpm -r build	2026-02-02T02:03:17.0794472Z [36;1mpnpm -r build[0m
+publish	Run pnpm -r build	2026-02-02T02:03:17.0827089Z shell: /usr/bin/bash -e {0}
+publish	Run pnpm -r build	2026-02-02T02:03:17.0827339Z env:
+publish	Run pnpm -r build	2026-02-02T02:03:17.0827719Z   NODE_AUTH_TOKEN: ***
+publish	Run pnpm -r build	2026-02-02T02:03:17.0827999Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+publish	Run pnpm -r build	2026-02-02T02:03:17.0828360Z   NPM_CONFIG_USERCONFIG: /home/runner/work/_temp/.npmrc
+publish	Run pnpm -r build	2026-02-02T02:03:17.0828802Z ##[endgroup]
+publish	Run pnpm -r build	2026-02-02T02:03:17.4919550Z Scope: 3 of 4 workspace projects
+publish	Run pnpm -r build	2026-02-02T02:03:17.4945646Z apps/api build$ tsc -p tsconfig.json
+publish	Run pnpm -r build	2026-02-02T02:03:17.4953186Z apps/mcp-remote build$ tsc -p tsconfig.json
+publish	Run pnpm -r build	2026-02-02T02:03:17.4957516Z packages/mcp-local build$ tsc -p tsconfig.json
+publish	Run pnpm -r build	2026-02-02T02:03:20.5004926Z packages/mcp-local build: Done
+publish	Run pnpm -r build	2026-02-02T02:03:20.5008116Z packages/mcp-local postbuild$ node -e "const fs=require('fs');const p='dist/cli.js';const c=fs.readFileSync(p,'utf8');if(!c.startsWith('#!')){fs.writeFileSync(p,'#!/usr/bin/env node\n'+c);}"
+publish	Run pnpm -r build	2026-02-02T02:03:20.5426375Z packages/mcp-local postbuild: Done
+publish	Run pnpm -r build	2026-02-02T02:03:20.7925612Z apps/mcp-remote build: Done
+publish	Run pnpm -r build	2026-02-02T02:03:21.6027057Z apps/api build: Done
+publish	Publish MCP local package	﻿2026-02-02T02:03:21.6146995Z ##[group]Run cd packages/mcp-local
+publish	Publish MCP local package	2026-02-02T02:03:21.6147325Z [36;1mcd packages/mcp-local[0m
+publish	Publish MCP local package	2026-02-02T02:03:21.6147584Z [36;1mnpm publish --access public[0m
+publish	Publish MCP local package	2026-02-02T02:03:21.6180142Z shell: /usr/bin/bash -e {0}
+publish	Publish MCP local package	2026-02-02T02:03:21.6180430Z env:
+publish	Publish MCP local package	2026-02-02T02:03:21.6180761Z   NODE_AUTH_TOKEN: ***
+publish	Publish MCP local package	2026-02-02T02:03:21.6181036Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+publish	Publish MCP local package	2026-02-02T02:03:21.6181392Z   NPM_CONFIG_USERCONFIG: /home/runner/work/_temp/.npmrc
+publish	Publish MCP local package	2026-02-02T02:03:21.6181678Z ##[endgroup]
+publish	Publish MCP local package	2026-02-02T02:03:22.3487445Z 
+publish	Publish MCP local package	2026-02-02T02:03:22.3487972Z > @khalidsaidi/a2abench-mcp@0.1.14 prepublishOnly
+publish	Publish MCP local package	2026-02-02T02:03:22.3488538Z > pnpm build
+publish	Publish MCP local package	2026-02-02T02:03:22.3488914Z 
+publish	Publish MCP local package	2026-02-02T02:03:22.7302277Z 
+publish	Publish MCP local package	2026-02-02T02:03:22.7303735Z > @khalidsaidi/a2abench-mcp@0.1.14 build /home/runner/work/a2abench/a2abench/packages/mcp-local
+publish	Publish MCP local package	2026-02-02T02:03:22.7304540Z > tsc -p tsconfig.json
+publish	Publish MCP local package	2026-02-02T02:03:22.7304790Z 
+publish	Publish MCP local package	2026-02-02T02:03:24.1554920Z 
+publish	Publish MCP local package	2026-02-02T02:03:24.1556355Z > @khalidsaidi/a2abench-mcp@0.1.14 postbuild /home/runner/work/a2abench/a2abench/packages/mcp-local
+publish	Publish MCP local package	2026-02-02T02:03:24.1558473Z > node -e "const fs=require('fs');const p='dist/cli.js';const c=fs.readFileSync(p,'utf8');if(!c.startsWith('#!')){fs.writeFileSync(p,'#!/usr/bin/env node\n'+c);}"
+publish	Publish MCP local package	2026-02-02T02:03:24.1559924Z 
+publish	Publish MCP local package	2026-02-02T02:03:24.4442037Z npm notice
+publish	Publish MCP local package	2026-02-02T02:03:24.4443172Z npm notice 📦  @khalidsaidi/a2abench-mcp@0.1.14
+publish	Publish MCP local package	2026-02-02T02:03:24.4444251Z npm notice Tarball Contents
+publish	Publish MCP local package	2026-02-02T02:03:24.4444960Z npm notice 646B README.md
+publish	Publish MCP local package	2026-02-02T02:03:24.4445477Z npm notice 44B dist/cli.d.ts
+publish	Publish MCP local package	2026-02-02T02:03:24.4445989Z npm notice 3.3kB dist/cli.js
+publish	Publish MCP local package	2026-02-02T02:03:24.4446673Z npm notice 945B package.json
+publish	Publish MCP local package	2026-02-02T02:03:24.4447198Z npm notice Tarball Details
+publish	Publish MCP local package	2026-02-02T02:03:24.4447899Z npm notice name: @khalidsaidi/a2abench-mcp
+publish	Publish MCP local package	2026-02-02T02:03:24.4448525Z npm notice version: 0.1.14
+publish	Publish MCP local package	2026-02-02T02:03:24.4449463Z npm notice filename: khalidsaidi-a2abench-mcp-0.1.14.tgz
+publish	Publish MCP local package	2026-02-02T02:03:24.4450235Z npm notice package size: 2.0 kB
+publish	Publish MCP local package	2026-02-02T02:03:24.4450874Z npm notice unpacked size: 4.9 kB
+publish	Publish MCP local package	2026-02-02T02:03:24.4451655Z npm notice shasum: d2f3160fb87c4dedefa9178af34f29c12f1ae582
+publish	Publish MCP local package	2026-02-02T02:03:24.4452658Z npm notice integrity: sha512-eB301/PtsNa95[...]GvUOZkI9zoH6Q==
+publish	Publish MCP local package	2026-02-02T02:03:24.4453374Z npm notice total files: 4
+publish	Publish MCP local package	2026-02-02T02:03:24.4453756Z npm notice
+publish	Publish MCP local package	2026-02-02T02:03:24.4459188Z npm notice Publishing to https://registry.npmjs.org/ with tag latest and public access
+publish	Publish MCP local package	2026-02-02T02:03:26.1452430Z + @khalidsaidi/a2abench-mcp@0.1.14
+publish	Post Run actions/setup-node@v4	﻿2026-02-02T02:03:26.1608944Z Post job cleanup.
+publish	Post Run actions/setup-node@v4	2026-02-02T02:03:26.3146536Z Cache hit occurred on the primary key node-cache-Linux-x64-pnpm-9764bf00f8aafa66f0ae95ea79dc0b6ab4dc2f8ee540a72aad4c4dd3bddd1997, not saving cache.
+publish	Post Run pnpm/action-setup@v3	﻿2026-02-02T02:03:26.3247442Z Post job cleanup.
+publish	Post Run pnpm/action-setup@v3	2026-02-02T02:03:26.4123549Z Pruning is unnecessary.
+publish	Post Run actions/checkout@v4	﻿2026-02-02T02:03:26.4299389Z Post job cleanup.
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:26.5317269Z [command]/usr/bin/git version
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:26.5357979Z git version 2.52.0
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:26.5402770Z Temporarily overriding HOME='/home/runner/work/_temp/145557f8-e8b5-4239-972f-9ecc82ee6e3b' before making global git config changes
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:26.5404257Z Adding repository directory to the temporary git global config as a safe directory
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:26.5409612Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/a2abench/a2abench
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:26.5448492Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:26.5488330Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:26.5735422Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:26.5761669Z http.https://github.com/.extraheader
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:26.5775892Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:26.5810848Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:26.6053011Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:26.6089993Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+publish	Complete job	﻿2026-02-02T02:03:26.6474054Z Cleaning up orphan processes

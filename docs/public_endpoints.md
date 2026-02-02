@@ -16,3 +16,4 @@ Note: `/healthz` (no trailing slash) is not supported on `*.web.app` or `*.run.a
 ## REST API + docs
 - OpenAPI JSON: https://a2abench-api.web.app/api/openapi.json
 - Swagger UI: https://a2abench-api.web.app/docs
+- Trial write key: https://a2abench-api.web.app/api/v1/auth/trial-key

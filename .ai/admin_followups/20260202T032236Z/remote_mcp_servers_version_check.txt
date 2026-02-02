@@ -1,0 +1,2 @@
+remote-mcp-servers latest_version: 0.1.13
+remote-mcp-servers remote url: https://a2abench-mcp.web.app/mcp

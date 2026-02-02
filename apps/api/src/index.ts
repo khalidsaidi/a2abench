@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { PrismaClient } from '@prisma/client';
@@ -8,15 +9,20 @@ import { z } from 'zod';
 import crypto from 'crypto';
 
 const prisma = new PrismaClient();
-const fastify = Fastify({ logger: true });
+const fastify = Fastify({ logger: true, trustProxy: true });
 
 const PORT = Number(process.env.PORT ?? 3000);
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL ?? '';
 const ADMIN_DASH_USER = process.env.ADMIN_DASH_USER ?? '';
 const ADMIN_DASH_PASS = process.env.ADMIN_DASH_PASS ?? '';
+const TRIAL_KEY_TTL_HOURS = Number(process.env.TRIAL_KEY_TTL_HOURS ?? 24);
+const TRIAL_DAILY_WRITE_LIMIT = Number(process.env.TRIAL_DAILY_WRITE_LIMIT ?? 20);
+const TRIAL_DAILY_QUESTION_LIMIT = Number(process.env.TRIAL_DAILY_QUESTION_LIMIT ?? 5);
+const TRIAL_DAILY_ANSWER_LIMIT = Number(process.env.TRIAL_DAILY_ANSWER_LIMIT ?? 20);
 
 await fastify.register(cors, { origin: true });
+await fastify.register(rateLimit, { global: false });
 
 await fastify.register(swagger, {
   mode: 'dynamic',
@@ -24,7 +30,7 @@ await fastify.register(swagger, {
     info: {
       title: 'A2ABench API',
       description: 'Agent-native developer Q&A service',
-      version: '0.1.14'
+      version: '0.1.15'
     },
     components: {
       securitySchemes: {
@@ -32,6 +38,10 @@ await fastify.register(swagger, {
           type: 'apiKey',
           in: 'header',
           name: 'X-Admin-Token'
+        },
+        ApiKeyAuth: {
+          type: 'http',
+          scheme: 'bearer'
         }
       }
     }
@@ -55,6 +65,7 @@ type RouteRequest = {
   raw: { url?: string };
   url: string;
   method: string;
+  ip?: string;
   headers: Record<string, string | string[] | undefined>;
 };
 
@@ -67,6 +78,34 @@ function markdownToText(markdown: string) {
     .replace(/[#>*_~]/g, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
+}
+
+function normalizeTags(tags?: string[]) {
+  if (!tags) return [];
+  const cleaned = tags
+    .map((tag) => tag.trim().toLowerCase())
+    .filter(Boolean)
+    .filter((tag) => tag.length <= 24);
+  return Array.from(new Set(cleaned)).slice(0, 5);
+}
+
+const SENSITIVE_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/i, label: 'private-key' },
+  { pattern: /\bsk-[A-Za-z0-9]{16,}\b/, label: 'openai-key' },
+  { pattern: /\bAIza[0-9A-Za-z\-_]{20,}\b/, label: 'google-api-key' },
+  { pattern: /\bAKIA[0-9A-Z]{16}\b/, label: 'aws-access-key' },
+  { pattern: /\bASIA[0-9A-Z]{16}\b/, label: 'aws-temp-key' },
+  { pattern: /\bghp_[A-Za-z0-9]{20,}\b/, label: 'github-token' },
+  { pattern: /\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/, label: 'phone' },
+  { pattern: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i, label: 'email' }
+];
+
+function containsSensitive(text: string) {
+  return SENSITIVE_PATTERNS.some((entry) => entry.pattern.test(text));
+}
+
+function startOfUtcDay(now = new Date()) {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
 function getBaseUrl(request: { headers: Record<string, string | string[] | undefined>; protocol?: string }) {
@@ -169,7 +208,7 @@ function agentCard(baseUrl: string) {
     name: 'A2ABench',
     description: 'Agent-native developer Q&A with REST + MCP + A2A discovery. Read-only endpoints do not require auth.',
     url: baseUrl,
-    version: '0.1.14',
+    version: '0.1.15',
     protocolVersion: '0.1',
     skills: [
       {
@@ -181,6 +220,16 @@ function agentCard(baseUrl: string) {
         id: 'fetch',
         name: 'Fetch',
         description: 'Fetch a question thread by id.'
+      },
+      {
+        id: 'create_question',
+        name: 'Create Question',
+        description: 'Create a new question thread (requires API key).'
+      },
+      {
+        id: 'create_answer',
+        name: 'Create Answer',
+        description: 'Create an answer for a question (requires API key).'
       }
     ],
     auth: {
@@ -241,11 +290,77 @@ async function requireApiKey(request: { headers: Record<string, string | string[
     reply.code(401).send({ error: 'Invalid API key' });
     return null;
   }
-  if (scope && apiKey.scopes.length > 0 && !apiKey.scopes.includes(scope)) {
-    reply.code(403).send({ error: 'Insufficient scope' });
+  if (apiKey.expiresAt && apiKey.expiresAt.getTime() < Date.now()) {
+    reply.code(401).send({ error: 'API key expired' });
     return null;
   }
+  if (scope && apiKey.scopes.length > 0) {
+    const aliases: Record<string, string[]> = {
+      'write:questions': ['write:questions', 'write:question'],
+      'write:answers': ['write:answers', 'write:answer']
+    };
+    const allowed = aliases[scope] ?? [scope];
+    const hasScope = apiKey.scopes.some((value) => allowed.includes(value));
+    if (!hasScope) {
+      reply.code(403).send({ error: 'Insufficient scope' });
+      return null;
+    }
+  }
   return apiKey;
+}
+
+async function enforceWriteLimits(
+  apiKey: { id: string; dailyWriteLimit: number | null; dailyQuestionLimit: number | null; dailyAnswerLimit: number | null },
+  kind: 'question' | 'answer',
+  reply: any
+) {
+  const limits = {
+    dailyWrites: apiKey.dailyWriteLimit ?? null,
+    dailyQuestions: apiKey.dailyQuestionLimit ?? null,
+    dailyAnswers: apiKey.dailyAnswerLimit ?? null
+  };
+  if (!limits.dailyWrites && !limits.dailyQuestions && !limits.dailyAnswers) return true;
+  const bucket = startOfUtcDay();
+  const existing = await prisma.apiKeyUsage.findUnique({
+    where: { apiKeyId_date: { apiKeyId: apiKey.id, date: bucket } }
+  });
+  const writeCount = existing?.writeCount ?? 0;
+  const questionCount = existing?.questionCount ?? 0;
+  const answerCount = existing?.answerCount ?? 0;
+  const wouldWrite = writeCount + 1;
+  const wouldQuestion = questionCount + (kind === 'question' ? 1 : 0);
+  const wouldAnswer = answerCount + (kind === 'answer' ? 1 : 0);
+
+  if (limits.dailyWrites !== null && wouldWrite > limits.dailyWrites) {
+    reply.code(429).send({ error: 'Daily write limit reached', limits, resetAt: bucket.toISOString() });
+    return false;
+  }
+  if (limits.dailyQuestions !== null && wouldQuestion > limits.dailyQuestions) {
+    reply.code(429).send({ error: 'Daily question limit reached', limits, resetAt: bucket.toISOString() });
+    return false;
+  }
+  if (limits.dailyAnswers !== null && wouldAnswer > limits.dailyAnswers) {
+    reply.code(429).send({ error: 'Daily answer limit reached', limits, resetAt: bucket.toISOString() });
+    return false;
+  }
+
+  await prisma.apiKeyUsage.upsert({
+    where: { apiKeyId_date: { apiKeyId: apiKey.id, date: bucket } },
+    update: {
+      writeCount: { increment: 1 },
+      questionCount: { increment: kind === 'question' ? 1 : 0 },
+      answerCount: { increment: kind === 'answer' ? 1 : 0 }
+    },
+    create: {
+      apiKeyId: apiKey.id,
+      date: bucket,
+      writeCount: 1,
+      questionCount: kind === 'question' ? 1 : 0,
+      answerCount: kind === 'answer' ? 1 : 0
+    }
+  });
+
+  return true;
 }
 
 fastify.addHook('onRequest', async (request, reply) => {
@@ -758,6 +873,77 @@ fastify.get('/api/v1/questions', {
   }));
 });
 
+fastify.post('/api/v1/auth/trial-key', {
+  schema: {
+    tags: ['auth'],
+    body: {
+      type: 'object',
+      properties: {
+        handle: { type: 'string' }
+      }
+    }
+  },
+  config: {
+    rateLimit: {
+      max: 3,
+      timeWindow: '1 day',
+      keyGenerator: (request: RouteRequest) => {
+        const ua = normalizeHeader(request.headers['user-agent']) ?? 'unknown';
+        return `${request.ip ?? 'unknown'}:${ua}`;
+      }
+    }
+  }
+}, async (request, reply) => {
+  const body = parse(
+    z.object({
+      handle: z.string().min(3).max(32).regex(/^[a-z0-9][a-z0-9-]+$/i).optional()
+    }),
+    request.body,
+    reply
+  );
+  if (!body) return;
+
+  const handle = (body.handle ?? `trial-${crypto.randomBytes(4).toString('hex')}`)
+    .trim()
+    .toLowerCase()
+    .slice(0, 32);
+
+  const user = await prisma.user.upsert({
+    where: { handle },
+    update: {},
+    create: { handle }
+  });
+
+  const key = `a2a_${crypto.randomBytes(24).toString('hex')}`;
+  const keyPrefix = key.slice(0, 8);
+  const keyHash = sha256(key);
+  const expiresAt = new Date(Date.now() + TRIAL_KEY_TTL_HOURS * 60 * 60 * 1000);
+
+  const apiKey = await prisma.apiKey.create({
+    data: {
+      userId: user.id,
+      name: 'trial',
+      keyPrefix,
+      keyHash,
+      scopes: ['write:questions', 'write:answers'],
+      expiresAt,
+      dailyWriteLimit: TRIAL_DAILY_WRITE_LIMIT,
+      dailyQuestionLimit: TRIAL_DAILY_QUESTION_LIMIT,
+      dailyAnswerLimit: TRIAL_DAILY_ANSWER_LIMIT
+    }
+  });
+
+  reply.code(201).send({
+    apiKey: key,
+    expiresAt: apiKey.expiresAt,
+    limits: {
+      dailyWrites: apiKey.dailyWriteLimit,
+      dailyQuestions: apiKey.dailyQuestionLimit,
+      dailyAnswers: apiKey.dailyAnswerLimit
+    }
+  });
+});
+
 fastify.get('/api/v1/questions/:id', {
   schema: {
     tags: ['questions'],
@@ -807,37 +993,93 @@ fastify.get('/api/v1/questions/:id', {
 fastify.post('/api/v1/questions', {
   schema: {
     tags: ['questions'],
+    security: [{ ApiKeyAuth: [] }],
+    querystring: {
+      type: 'object',
+      properties: {
+        force: { type: 'string' }
+      }
+    },
     body: {
       type: 'object',
       required: ['title', 'bodyMd'],
       properties: {
         title: { type: 'string' },
         bodyMd: { type: 'string' },
-        tags: { type: 'array', items: { type: 'string' } }
+        tags: { type: 'array', items: { type: 'string' } },
+        force: { type: 'boolean' }
       }
+    }
+  },
+  config: {
+    rateLimit: {
+      max: 60,
+      timeWindow: '1 minute',
+      keyGenerator: (request: RouteRequest) => extractApiKeyPrefix(request.headers) ?? request.ip ?? 'unknown'
     }
   }
 }, async (request, reply) => {
-  const apiKey = await requireApiKey(request, reply, 'write:question');
+  const apiKey = await requireApiKey(request, reply, 'write:questions');
   if (!apiKey) return;
 
   const body = parse(
     z.object({
-      title: z.string().min(3),
-      bodyMd: z.string().min(3),
-      tags: z.array(z.string().min(1)).optional()
+      title: z.string().min(8).max(140),
+      bodyMd: z.string().min(3).max(20000),
+      tags: z.array(z.string().min(1).max(24)).max(5).optional(),
+      force: z.boolean().optional()
     }),
     request.body,
     reply
   );
   if (!body) return;
 
-  const bodyText = markdownToText(body.bodyMd);
-  const tags = body.tags?.map((tag) => tag.trim()).filter(Boolean);
+  const query = request.query as { force?: string };
+  const force = body.force === true || query.force === '1' || query.force === 'true';
 
+  const title = body.title.trim();
+  if (title.length < 8 || title.length > 140) {
+    reply.code(400).send({ error: 'Title must be between 8 and 140 characters.' });
+    return;
+  }
+  if (containsSensitive(title) || containsSensitive(body.bodyMd)) {
+    reply.code(400).send({ error: 'Content appears to include secrets or personal data.' });
+    return;
+  }
+
+  const tags = normalizeTags(body.tags);
+
+  if (!force) {
+    const suggestions = await prisma.question.findMany({
+      where: {
+        OR: [
+          { title: { contains: title, mode: 'insensitive' } },
+          { bodyText: { contains: title, mode: 'insensitive' } }
+        ]
+      },
+      take: 3,
+      orderBy: { createdAt: 'desc' }
+    });
+    if (suggestions.length >= 2) {
+      const baseUrl = getBaseUrl(request);
+      reply.code(409).send({
+        message: 'Similar questions already exist.',
+        suggestions: suggestions.map((item) => ({
+          id: item.id,
+          title: item.title,
+          url: `${baseUrl}/q/${item.id}`
+        }))
+      });
+      return;
+    }
+  }
+
+  if (!(await enforceWriteLimits(apiKey, 'question', reply))) return;
+
+  const bodyText = markdownToText(body.bodyMd);
   const question = await prisma.question.create({
     data: {
-      title: body.title,
+      title,
       bodyMd: body.bodyMd,
       bodyText,
       userId: apiKey.userId,
@@ -871,6 +1113,7 @@ fastify.post('/api/v1/questions', {
 fastify.post('/api/v1/questions/:id/answers', {
   schema: {
     tags: ['answers'],
+    security: [{ ApiKeyAuth: [] }],
     params: {
       type: 'object',
       properties: { id: { type: 'string' } },
@@ -883,20 +1126,34 @@ fastify.post('/api/v1/questions/:id/answers', {
         bodyMd: { type: 'string' }
       }
     }
+  },
+  config: {
+    rateLimit: {
+      max: 120,
+      timeWindow: '1 minute',
+      keyGenerator: (request: RouteRequest) => extractApiKeyPrefix(request.headers) ?? request.ip ?? 'unknown'
+    }
   }
 }, async (request, reply) => {
-  const apiKey = await requireApiKey(request, reply, 'write:answer');
+  const apiKey = await requireApiKey(request, reply, 'write:answers');
   if (!apiKey) return;
 
   const { id } = request.params as { id: string };
   const body = parse(
     z.object({
-      bodyMd: z.string().min(3)
+      bodyMd: z.string().min(3).max(20000)
     }),
     request.body,
     reply
   );
   if (!body) return;
+
+  if (containsSensitive(body.bodyMd)) {
+    reply.code(400).send({ error: 'Content appears to include secrets or personal data.' });
+    return;
+  }
+
+  if (!(await enforceWriteLimits(apiKey, 'answer', reply))) return;
 
   const question = await prisma.question.findUnique({ where: { id } });
   if (!question) {
@@ -961,7 +1218,11 @@ fastify.post('/api/v1/admin/api-keys', {
       properties: {
         userId: { type: 'string' },
         name: { type: 'string' },
-        scopes: { type: 'array', items: { type: 'string' } }
+        scopes: { type: 'array', items: { type: 'string' } },
+        expiresAt: { type: 'string' },
+        dailyWriteLimit: { type: 'integer' },
+        dailyQuestionLimit: { type: 'integer' },
+        dailyAnswerLimit: { type: 'integer' }
       }
     }
   }
@@ -972,7 +1233,11 @@ fastify.post('/api/v1/admin/api-keys', {
     z.object({
       userId: z.string(),
       name: z.string().min(2),
-      scopes: z.array(z.string()).optional()
+      scopes: z.array(z.string()).optional(),
+      expiresAt: z.string().datetime().optional(),
+      dailyWriteLimit: z.number().int().min(1).optional(),
+      dailyQuestionLimit: z.number().int().min(1).optional(),
+      dailyAnswerLimit: z.number().int().min(1).optional()
     }),
     request.body,
     reply
@@ -982,7 +1247,7 @@ fastify.post('/api/v1/admin/api-keys', {
   const key = `a2a_${crypto.randomBytes(24).toString('hex')}`;
   const keyPrefix = key.slice(0, 8);
   const keyHash = sha256(key);
-  const scopes = body.scopes?.length ? body.scopes : ['write:question', 'write:answer'];
+  const scopes = body.scopes?.length ? body.scopes : ['write:questions', 'write:answers'];
 
   const apiKey = await prisma.apiKey.create({
     data: {
@@ -990,7 +1255,11 @@ fastify.post('/api/v1/admin/api-keys', {
       name: body.name,
       keyPrefix,
       keyHash,
-      scopes
+      scopes,
+      expiresAt: body.expiresAt ? new Date(body.expiresAt) : undefined,
+      dailyWriteLimit: body.dailyWriteLimit,
+      dailyQuestionLimit: body.dailyQuestionLimit,
+      dailyAnswerLimit: body.dailyAnswerLimit
     }
   });
 
@@ -1002,6 +1271,18 @@ fastify.post('/api/v1/admin/api-keys', {
     keyPrefix: apiKey.keyPrefix,
     apiKey: key
   });
+});
+
+fastify.post('/api/v1/admin/seed', {
+  schema: {
+    tags: ['admin'],
+    security: [{ AdminToken: [] }]
+  }
+}, async (request, reply) => {
+  if (!(await requireAdmin(request, reply))) return;
+  const { seedContent } = await import('./seedData.js');
+  const result = await seedContent(prisma);
+  reply.send(result);
 });
 
 fastify.post('/api/v1/admin/api-keys/:id/revoke', {

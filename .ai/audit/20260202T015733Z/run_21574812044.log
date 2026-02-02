@@ -1,0 +1,241 @@
+release	Set up job	﻿2026-02-02T02:03:09.8313075Z Current runner version: '2.331.0'
+release	Set up job	2026-02-02T02:03:09.8335991Z ##[group]Runner Image Provisioner
+release	Set up job	2026-02-02T02:03:09.8336773Z Hosted Compute Agent
+release	Set up job	2026-02-02T02:03:09.8337324Z Version: 20260123.484
+release	Set up job	2026-02-02T02:03:09.8337994Z Commit: 6bd6555ca37d84114959e1c76d2c01448ff61c5d
+release	Set up job	2026-02-02T02:03:09.8338631Z Build Date: 2026-01-23T19:41:17Z
+release	Set up job	2026-02-02T02:03:09.8339216Z Worker ID: {2a12e475-325b-49ce-8d84-e371be15d315}
+release	Set up job	2026-02-02T02:03:09.8339863Z Azure Region: westus3
+release	Set up job	2026-02-02T02:03:09.8340319Z ##[endgroup]
+release	Set up job	2026-02-02T02:03:09.8341628Z ##[group]Operating System
+release	Set up job	2026-02-02T02:03:09.8342125Z Ubuntu
+release	Set up job	2026-02-02T02:03:09.8342540Z 24.04.3
+release	Set up job	2026-02-02T02:03:09.8342971Z LTS
+release	Set up job	2026-02-02T02:03:09.8343390Z ##[endgroup]
+release	Set up job	2026-02-02T02:03:09.8343831Z ##[group]Runner Image
+release	Set up job	2026-02-02T02:03:09.8344268Z Image: ubuntu-24.04
+release	Set up job	2026-02-02T02:03:09.8344764Z Version: 20260126.10.1
+release	Set up job	2026-02-02T02:03:09.8345609Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260126.10/images/ubuntu/Ubuntu2404-Readme.md
+release	Set up job	2026-02-02T02:03:09.8347078Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260126.10
+release	Set up job	2026-02-02T02:03:09.8348150Z ##[endgroup]
+release	Set up job	2026-02-02T02:03:09.8349050Z ##[group]GITHUB_TOKEN Permissions
+release	Set up job	2026-02-02T02:03:09.8351047Z Contents: write
+release	Set up job	2026-02-02T02:03:09.8351509Z Metadata: read
+release	Set up job	2026-02-02T02:03:09.8351990Z ##[endgroup]
+release	Set up job	2026-02-02T02:03:09.8353913Z Secret source: Actions
+release	Set up job	2026-02-02T02:03:09.8354509Z Prepare workflow directory
+release	Set up job	2026-02-02T02:03:09.8651822Z Prepare all required actions
+release	Set up job	2026-02-02T02:03:09.8692738Z Getting action download info
+release	Set up job	2026-02-02T02:03:10.3716834Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+release	Set up job	2026-02-02T02:03:10.4632021Z Download action repository 'pnpm/action-setup@v3' (SHA:a3252b78c470c02df07e9d59298aecedc3ccdd6d)
+release	Set up job	2026-02-02T02:03:11.3663680Z Download action repository 'actions/setup-node@v4' (SHA:49933ea5288caeca8642d1e84afbd3f7d6820020)
+release	Set up job	2026-02-02T02:03:11.4393115Z Download action repository 'softprops/action-gh-release@v2' (SHA:a06a81a03ee405af7f2048a818ed3f03bbf83c7b)
+release	Set up job	2026-02-02T02:03:12.3101413Z Complete job name: release
+release	Run actions/checkout@v4	﻿2026-02-02T02:03:12.3956946Z ##[group]Run actions/checkout@v4
+release	Run actions/checkout@v4	2026-02-02T02:03:12.3958582Z with:
+release	Run actions/checkout@v4	2026-02-02T02:03:12.3959323Z   repository: khalidsaidi/a2abench
+release	Run actions/checkout@v4	2026-02-02T02:03:12.3960557Z   token: ***
+release	Run actions/checkout@v4	2026-02-02T02:03:12.3961246Z   ssh-strict: true
+release	Run actions/checkout@v4	2026-02-02T02:03:12.3961963Z   ssh-user: git
+release	Run actions/checkout@v4	2026-02-02T02:03:12.3962695Z   persist-credentials: true
+release	Run actions/checkout@v4	2026-02-02T02:03:12.3963513Z   clean: true
+release	Run actions/checkout@v4	2026-02-02T02:03:12.3964245Z   sparse-checkout-cone-mode: true
+release	Run actions/checkout@v4	2026-02-02T02:03:12.3965131Z   fetch-depth: 1
+release	Run actions/checkout@v4	2026-02-02T02:03:12.3965852Z   fetch-tags: false
+release	Run actions/checkout@v4	2026-02-02T02:03:12.3966576Z   show-progress: true
+release	Run actions/checkout@v4	2026-02-02T02:03:12.3967303Z   lfs: false
+release	Run actions/checkout@v4	2026-02-02T02:03:12.3968263Z   submodules: false
+release	Run actions/checkout@v4	2026-02-02T02:03:12.3969008Z   set-safe-directory: true
+release	Run actions/checkout@v4	2026-02-02T02:03:12.3970092Z ##[endgroup]
+release	Run actions/checkout@v4	2026-02-02T02:03:12.4987430Z Syncing repository: khalidsaidi/a2abench
+release	Run actions/checkout@v4	2026-02-02T02:03:12.4990141Z ##[group]Getting Git version info
+release	Run actions/checkout@v4	2026-02-02T02:03:12.4991378Z Working directory is '/home/runner/work/a2abench/a2abench'
+release	Run actions/checkout@v4	2026-02-02T02:03:12.4993081Z [command]/usr/bin/git version
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5035042Z git version 2.52.0
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5057806Z ##[endgroup]
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5078535Z Temporarily overriding HOME='/home/runner/work/_temp/06b8a027-e73d-4fc6-9d81-1a119b6b3d72' before making global git config changes
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5080949Z Adding repository directory to the temporary git global config as a safe directory
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5083146Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/a2abench/a2abench
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5120898Z Deleting the contents of '/home/runner/work/a2abench/a2abench'
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5123895Z ##[group]Initializing the repository
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5127716Z [command]/usr/bin/git init /home/runner/work/a2abench/a2abench
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5224637Z hint: Using 'master' as the name for the initial branch. This default branch name
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5228123Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5230796Z hint: to use in all of your new repositories, which will suppress this warning,
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5232948Z hint: call:
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5233987Z hint:
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5235343Z hint: 	git config --global init.defaultBranch <name>
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5236890Z hint:
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5238596Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5241316Z hint: 'development'. The just-created branch can be renamed via this command:
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5243309Z hint:
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5244370Z hint: 	git branch -m <name>
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5245536Z hint:
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5246752Z hint: Disable this message with "git config set advice.defaultBranchName false"
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5248707Z Initialized empty Git repository in /home/runner/work/a2abench/a2abench/.git/
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5252674Z [command]/usr/bin/git remote add origin https://github.com/khalidsaidi/a2abench
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5270014Z ##[endgroup]
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5271764Z ##[group]Disabling automatic garbage collection
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5274342Z [command]/usr/bin/git config --local gc.auto 0
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5301352Z ##[endgroup]
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5303279Z ##[group]Setting up auth
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5309930Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5337181Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5624243Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5652564Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5818202Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+release	Run actions/checkout@v4	2026-02-02T02:03:12.5845189Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+release	Run actions/checkout@v4	2026-02-02T02:03:12.6018761Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+release	Run actions/checkout@v4	2026-02-02T02:03:12.6049585Z ##[endgroup]
+release	Run actions/checkout@v4	2026-02-02T02:03:12.6050967Z ##[group]Fetching the repository
+release	Run actions/checkout@v4	2026-02-02T02:03:12.6056783Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +d6f616173b27a8d2dcc1a19d6f81a7b7fe6695f6:refs/tags/v0.1.14
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0744505Z From https://github.com/khalidsaidi/a2abench
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0745900Z  * [new ref]         d6f616173b27a8d2dcc1a19d6f81a7b7fe6695f6 -> v0.1.14
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0771480Z ##[endgroup]
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0773720Z ##[group]Determining the checkout info
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0776152Z ##[endgroup]
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0777404Z [command]/usr/bin/git sparse-checkout disable
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0814352Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0842907Z ##[group]Checking out the ref
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0846073Z [command]/usr/bin/git checkout --progress --force refs/tags/v0.1.14
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0927165Z Note: switching to 'refs/tags/v0.1.14'.
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0928460Z 
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0929112Z You are in 'detached HEAD' state. You can look around, make experimental
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0930650Z changes and commit them, and you can discard any commits you make in this
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0932293Z state without impacting any branches by switching back to a branch.
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0933423Z 
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0934012Z If you want to create a new branch to retain commits you create, you may
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0935420Z do so (now or later) by using -c with the switch command. Example:
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0936213Z 
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0936769Z   git switch -c <new-branch-name>
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0937339Z 
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0937836Z Or undo this operation with:
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0938370Z 
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0938665Z   git switch -
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0939115Z 
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0939761Z Turn off this advice by setting config variable advice.detachedHead to false
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0940717Z 
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0941136Z HEAD is now at d6f6161 chore: bump version to 0.1.14
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0943610Z ##[endgroup]
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0966022Z [command]/usr/bin/git log -1 --format=%H
+release	Run actions/checkout@v4	2026-02-02T02:03:13.0985378Z d6f616173b27a8d2dcc1a19d6f81a7b7fe6695f6
+release	Run pnpm/action-setup@v3	﻿2026-02-02T02:03:13.1204603Z ##[group]Run pnpm/action-setup@v3
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:13.1205498Z with:
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:13.1206099Z   version: 9
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:13.1206737Z   dest: ~/setup-pnpm
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:13.1207553Z   run_install: null
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:13.1208277Z   package_json_file: package.json
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:13.1209111Z   standalone: false
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:13.1209770Z ##[endgroup]
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:13.2004319Z ##[group]Running self-installer...
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:13.7681405Z Progress: resolved 1, reused 0, downloaded 0, added 0
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:13.7759428Z Packages: +1
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:13.7759942Z +
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:14.1761683Z Progress: resolved 1, reused 0, downloaded 1, added 1, done
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:14.2045234Z 
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:14.2045779Z dependencies:
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:14.2046196Z + pnpm 9.15.9 (10.28.2 is available)
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:14.2046494Z 
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:14.2080993Z Done in 845ms
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:14.2243445Z ##[endgroup]
+release	Run pnpm/action-setup@v3	2026-02-02T02:03:14.2245557Z Installation Completed!
+release	Run actions/setup-node@v4	﻿2026-02-02T02:03:14.2375440Z ##[group]Run actions/setup-node@v4
+release	Run actions/setup-node@v4	2026-02-02T02:03:14.2375746Z with:
+release	Run actions/setup-node@v4	2026-02-02T02:03:14.2375945Z   node-version: 20
+release	Run actions/setup-node@v4	2026-02-02T02:03:14.2376168Z   cache: pnpm
+release	Run actions/setup-node@v4	2026-02-02T02:03:14.2376360Z   always-auth: false
+release	Run actions/setup-node@v4	2026-02-02T02:03:14.2376554Z   check-latest: false
+release	Run actions/setup-node@v4	2026-02-02T02:03:14.2376910Z   token: ***
+release	Run actions/setup-node@v4	2026-02-02T02:03:14.2377094Z env:
+release	Run actions/setup-node@v4	2026-02-02T02:03:14.2377328Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+release	Run actions/setup-node@v4	2026-02-02T02:03:14.2377870Z ##[endgroup]
+release	Run actions/setup-node@v4	2026-02-02T02:03:14.4022704Z Found in cache @ /opt/hostedtoolcache/node/20.20.0/x64
+release	Run actions/setup-node@v4	2026-02-02T02:03:14.4029380Z ##[group]Environment details
+release	Run actions/setup-node@v4	2026-02-02T02:03:14.7439541Z node: v20.20.0
+release	Run actions/setup-node@v4	2026-02-02T02:03:14.7439999Z npm: 10.8.2
+release	Run actions/setup-node@v4	2026-02-02T02:03:14.7440184Z yarn: 1.22.22
+release	Run actions/setup-node@v4	2026-02-02T02:03:14.7440676Z ##[endgroup]
+release	Run actions/setup-node@v4	2026-02-02T02:03:14.7461735Z [command]/home/runner/setup-pnpm/node_modules/.bin/pnpm store path --silent
+release	Run actions/setup-node@v4	2026-02-02T02:03:15.1056942Z /home/runner/setup-pnpm/node_modules/.bin/store/v3
+release	Run actions/setup-node@v4	2026-02-02T02:03:15.3611649Z Cache hit for: node-cache-Linux-x64-pnpm-9764bf00f8aafa66f0ae95ea79dc0b6ab4dc2f8ee540a72aad4c4dd3bddd1997
+release	Run actions/setup-node@v4	2026-02-02T02:03:16.6220504Z Received 34762170 of 38956474 (89.2%), 33.2 MBs/sec
+release	Run actions/setup-node@v4	2026-02-02T02:03:16.7350449Z Received 38956474 of 38956474 (100.0%), 33.4 MBs/sec
+release	Run actions/setup-node@v4	2026-02-02T02:03:16.7351228Z Cache Size: ~37 MB (38956474 B)
+release	Run actions/setup-node@v4	2026-02-02T02:03:16.7377250Z [command]/usr/bin/tar -xf /home/runner/work/_temp/6fffbda3-f128-4e00-bc22-bdee7eeaedb5/cache.tzst -P -C /home/runner/work/a2abench/a2abench --use-compress-program unzstd
+release	Run actions/setup-node@v4	2026-02-02T02:03:16.9584320Z Cache restored successfully
+release	Run actions/setup-node@v4	2026-02-02T02:03:16.9633743Z Cache restored from key: node-cache-Linux-x64-pnpm-9764bf00f8aafa66f0ae95ea79dc0b6ab4dc2f8ee540a72aad4c4dd3bddd1997
+release	Run pnpm -r install	﻿2026-02-02T02:03:16.9746273Z ##[group]Run pnpm -r install
+release	Run pnpm -r install	2026-02-02T02:03:16.9746658Z [36;1mpnpm -r install[0m
+release	Run pnpm -r install	2026-02-02T02:03:16.9773645Z shell: /usr/bin/bash -e {0}
+release	Run pnpm -r install	2026-02-02T02:03:16.9773926Z env:
+release	Run pnpm -r install	2026-02-02T02:03:16.9774178Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+release	Run pnpm -r install	2026-02-02T02:03:16.9774458Z ##[endgroup]
+release	Run pnpm -r install	2026-02-02T02:03:17.3570138Z Scope: all 4 workspace projects
+release	Run pnpm -r install	2026-02-02T02:03:17.3972942Z Lockfile is up to date, resolution step is skipped
+release	Run pnpm -r install	2026-02-02T02:03:17.4167045Z Progress: resolved 1, reused 0, downloaded 0, added 0
+release	Run pnpm -r install	2026-02-02T02:03:17.4519892Z .                                        | +173 +++++++++++++++++
+release	Run pnpm -r install	2026-02-02T02:03:17.7107120Z Progress: resolved 173, reused 173, downloaded 0, added 173, done
+release	Run pnpm -r install	2026-02-02T02:03:18.0190527Z Done in 1s using pnpm v9.15.9
+release	Run pnpm --filter @a2abench/api prisma generate	﻿2026-02-02T02:03:18.0295184Z ##[group]Run pnpm --filter @a2abench/api prisma generate
+release	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:18.0295596Z [36;1mpnpm --filter @a2abench/api prisma generate[0m
+release	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:18.0314216Z shell: /usr/bin/bash -e {0}
+release	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:18.0314477Z env:
+release	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:18.0314729Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+release	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:18.0315055Z ##[endgroup]
+release	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:18.4130747Z 
+release	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:18.4131830Z > @a2abench/api@0.1.14 prisma /home/runner/work/a2abench/a2abench/apps/api
+release	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:18.4132691Z > prisma generate
+release	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:18.4132935Z 
+release	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:18.7028611Z Prisma schema loaded from prisma/schema.prisma
+release	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:19.3840348Z 
+release	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:19.3842840Z ✔ Generated Prisma Client (v5.22.0) to ./../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client in 73ms
+release	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:19.3843704Z 
+release	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:19.3844341Z Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+release	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:19.3844874Z 
+release	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:19.3845825Z Help us improve the Prisma ORM for everyone. Share your feedback in a short 2-min survey: https://pris.ly/orm/survey/release-5-22
+release	Run pnpm --filter @a2abench/api prisma generate	2026-02-02T02:03:19.3846611Z 
+release	Run pnpm -r build	﻿2026-02-02T02:03:19.5998991Z ##[group]Run pnpm -r build
+release	Run pnpm -r build	2026-02-02T02:03:19.5999266Z [36;1mpnpm -r build[0m
+release	Run pnpm -r build	2026-02-02T02:03:19.6017341Z shell: /usr/bin/bash -e {0}
+release	Run pnpm -r build	2026-02-02T02:03:19.6017935Z env:
+release	Run pnpm -r build	2026-02-02T02:03:19.6018200Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+release	Run pnpm -r build	2026-02-02T02:03:19.6018493Z ##[endgroup]
+release	Run pnpm -r build	2026-02-02T02:03:19.9725493Z Scope: 3 of 4 workspace projects
+release	Run pnpm -r build	2026-02-02T02:03:19.9749826Z apps/api build$ tsc -p tsconfig.json
+release	Run pnpm -r build	2026-02-02T02:03:19.9756350Z apps/mcp-remote build$ tsc -p tsconfig.json
+release	Run pnpm -r build	2026-02-02T02:03:19.9760166Z packages/mcp-local build$ tsc -p tsconfig.json
+release	Run pnpm -r build	2026-02-02T02:03:22.6539105Z packages/mcp-local build: Done
+release	Run pnpm -r build	2026-02-02T02:03:22.6585745Z packages/mcp-local postbuild$ node -e "const fs=require('fs');const p='dist/cli.js';const c=fs.readFileSync(p,'utf8');if(!c.startsWith('#!')){fs.writeFileSync(p,'#!/usr/bin/env node\n'+c);}"
+release	Run pnpm -r build	2026-02-02T02:03:22.7076031Z packages/mcp-local postbuild: Done
+release	Run pnpm -r build	2026-02-02T02:03:23.0381826Z apps/mcp-remote build: Done
+release	Run pnpm -r build	2026-02-02T02:03:24.1655531Z apps/api build: Done
+release	Create GitHub release	﻿2026-02-02T02:03:24.1822414Z ##[group]Run softprops/action-gh-release@v2
+release	Create GitHub release	2026-02-02T02:03:24.1822923Z with:
+release	Create GitHub release	2026-02-02T02:03:24.1823244Z   generate_release_notes: true
+release	Create GitHub release	2026-02-02T02:03:24.1823659Z   overwrite_files: true
+release	Create GitHub release	2026-02-02T02:03:24.1824227Z   token: ***
+release	Create GitHub release	2026-02-02T02:03:24.1824528Z env:
+release	Create GitHub release	2026-02-02T02:03:24.1824909Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+release	Create GitHub release	2026-02-02T02:03:24.1825430Z ##[endgroup]
+release	Create GitHub release	2026-02-02T02:03:24.7453703Z 👩‍🏭 Creating new GitHub release for tag v0.1.14...
+release	Create GitHub release	2026-02-02T02:03:25.4258764Z Finalizing release...
+release	Create GitHub release	2026-02-02T02:03:26.0530985Z 🎉 Release ready at https://github.com/khalidsaidi/a2abench/releases/tag/v0.1.14
+release	Post Run actions/setup-node@v4	﻿2026-02-02T02:03:26.0617700Z Post job cleanup.
+release	Post Run actions/setup-node@v4	2026-02-02T02:03:26.2054205Z Cache hit occurred on the primary key node-cache-Linux-x64-pnpm-9764bf00f8aafa66f0ae95ea79dc0b6ab4dc2f8ee540a72aad4c4dd3bddd1997, not saving cache.
+release	Post Run pnpm/action-setup@v3	﻿2026-02-02T02:03:26.2114900Z Post job cleanup.
+release	Post Run pnpm/action-setup@v3	2026-02-02T02:03:26.2899398Z Pruning is unnecessary.
+release	Post Run actions/checkout@v4	﻿2026-02-02T02:03:26.3090869Z Post job cleanup.
+release	Post Run actions/checkout@v4	2026-02-02T02:03:26.3959464Z [command]/usr/bin/git version
+release	Post Run actions/checkout@v4	2026-02-02T02:03:26.3991946Z git version 2.52.0
+release	Post Run actions/checkout@v4	2026-02-02T02:03:26.4030282Z Temporarily overriding HOME='/home/runner/work/_temp/341e1c1d-90bb-4601-9687-b6b97b4e7000' before making global git config changes
+release	Post Run actions/checkout@v4	2026-02-02T02:03:26.4031643Z Adding repository directory to the temporary git global config as a safe directory
+release	Post Run actions/checkout@v4	2026-02-02T02:03:26.4036538Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/a2abench/a2abench
+release	Post Run actions/checkout@v4	2026-02-02T02:03:26.4074592Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+release	Post Run actions/checkout@v4	2026-02-02T02:03:26.4102443Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+release	Post Run actions/checkout@v4	2026-02-02T02:03:26.4278514Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+release	Post Run actions/checkout@v4	2026-02-02T02:03:26.4295288Z http.https://github.com/.extraheader
+release	Post Run actions/checkout@v4	2026-02-02T02:03:26.4306418Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+release	Post Run actions/checkout@v4	2026-02-02T02:03:26.4331316Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+release	Post Run actions/checkout@v4	2026-02-02T02:03:26.4500343Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+release	Post Run actions/checkout@v4	2026-02-02T02:03:26.4526930Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+release	Complete job	﻿2026-02-02T02:03:26.4793652Z Cleaning up orphan processes

@@ -1,0 +1,10 @@
+
+✓ v0.1.14 publish-mcp-registry · 21574812056
+Triggered via push less than a minute ago
+
+JOBS
+✓ publish in 39s (ID 62160087805)
+
+For more information about the job, try: gh run view --job=62160087805
+View this run on GitHub: https://github.com/khalidsaidi/a2abench/actions/runs/21574812056
+---

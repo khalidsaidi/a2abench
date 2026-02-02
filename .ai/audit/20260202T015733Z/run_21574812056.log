@@ -1,0 +1,195 @@
+publish	Set up job	﻿2026-02-02T02:03:09.7896967Z Current runner version: '2.331.0'
+publish	Set up job	2026-02-02T02:03:09.7929026Z ##[group]Runner Image Provisioner
+publish	Set up job	2026-02-02T02:03:09.7929932Z Hosted Compute Agent
+publish	Set up job	2026-02-02T02:03:09.7930442Z Version: 20260123.484
+publish	Set up job	2026-02-02T02:03:09.7931292Z Commit: 6bd6555ca37d84114959e1c76d2c01448ff61c5d
+publish	Set up job	2026-02-02T02:03:09.7932048Z Build Date: 2026-01-23T19:41:17Z
+publish	Set up job	2026-02-02T02:03:09.7932704Z Worker ID: {c52e5221-a5bd-4cfc-bdd9-be79992a90d3}
+publish	Set up job	2026-02-02T02:03:09.7933384Z Azure Region: centralus
+publish	Set up job	2026-02-02T02:03:09.7933971Z ##[endgroup]
+publish	Set up job	2026-02-02T02:03:09.7935429Z ##[group]Operating System
+publish	Set up job	2026-02-02T02:03:09.7935981Z Ubuntu
+publish	Set up job	2026-02-02T02:03:09.7936523Z 24.04.3
+publish	Set up job	2026-02-02T02:03:09.7936931Z LTS
+publish	Set up job	2026-02-02T02:03:09.7937410Z ##[endgroup]
+publish	Set up job	2026-02-02T02:03:09.7937893Z ##[group]Runner Image
+publish	Set up job	2026-02-02T02:03:09.7938439Z Image: ubuntu-24.04
+publish	Set up job	2026-02-02T02:03:09.7938893Z Version: 20260126.10.1
+publish	Set up job	2026-02-02T02:03:09.7939886Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260126.10/images/ubuntu/Ubuntu2404-Readme.md
+publish	Set up job	2026-02-02T02:03:09.7941792Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260126.10
+publish	Set up job	2026-02-02T02:03:09.7942760Z ##[endgroup]
+publish	Set up job	2026-02-02T02:03:09.7943706Z ##[group]GITHUB_TOKEN Permissions
+publish	Set up job	2026-02-02T02:03:09.7945703Z Contents: read
+publish	Set up job	2026-02-02T02:03:09.7946364Z Metadata: read
+publish	Set up job	2026-02-02T02:03:09.7946922Z ##[endgroup]
+publish	Set up job	2026-02-02T02:03:09.7948797Z Secret source: Actions
+publish	Set up job	2026-02-02T02:03:09.7949832Z Prepare workflow directory
+publish	Set up job	2026-02-02T02:03:09.8318069Z Prepare all required actions
+publish	Set up job	2026-02-02T02:03:09.8373737Z Getting action download info
+publish	Set up job	2026-02-02T02:03:10.1545022Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+publish	Set up job	2026-02-02T02:03:10.2587067Z Download action repository 'actions/setup-node@v4' (SHA:49933ea5288caeca8642d1e84afbd3f7d6820020)
+publish	Set up job	2026-02-02T02:03:10.4499631Z Complete job name: publish
+publish	Run actions/checkout@v4	﻿2026-02-02T02:03:10.5167606Z ##[group]Run actions/checkout@v4
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5168418Z with:
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5168816Z   repository: khalidsaidi/a2abench
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5169500Z   token: ***
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5169882Z   ssh-strict: true
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5170260Z   ssh-user: git
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5170813Z   persist-credentials: true
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5171245Z   clean: true
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5171643Z   sparse-checkout-cone-mode: true
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5172104Z   fetch-depth: 1
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5172477Z   fetch-tags: false
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5172858Z   show-progress: true
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5173247Z   lfs: false
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5173595Z   submodules: false
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5173987Z   set-safe-directory: true
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.5174645Z ##[endgroup]
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6266858Z Syncing repository: khalidsaidi/a2abench
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6269521Z ##[group]Getting Git version info
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6270935Z Working directory is '/home/runner/work/a2abench/a2abench'
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6272573Z [command]/usr/bin/git version
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6349470Z git version 2.52.0
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6375732Z ##[endgroup]
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6397368Z Temporarily overriding HOME='/home/runner/work/_temp/76ba0ecf-6ae2-4ead-abb2-11291b2c15fb' before making global git config changes
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6399785Z Adding repository directory to the temporary git global config as a safe directory
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6404062Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/a2abench/a2abench
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6443788Z Deleting the contents of '/home/runner/work/a2abench/a2abench'
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6447619Z ##[group]Initializing the repository
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6452866Z [command]/usr/bin/git init /home/runner/work/a2abench/a2abench
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6567470Z hint: Using 'master' as the name for the initial branch. This default branch name
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6569183Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6570891Z hint: to use in all of your new repositories, which will suppress this warning,
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6572123Z hint: call:
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6572934Z hint:
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6573673Z hint: 	git config --global init.defaultBranch <name>
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6574399Z hint:
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6574942Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6575813Z hint: 'development'. The just-created branch can be renamed via this command:
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6576502Z hint:
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6576871Z hint: 	git branch -m <name>
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6577296Z hint:
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6578151Z hint: Disable this message with "git config set advice.defaultBranchName false"
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6579324Z Initialized empty Git repository in /home/runner/work/a2abench/a2abench/.git/
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6583519Z [command]/usr/bin/git remote add origin https://github.com/khalidsaidi/a2abench
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6617889Z ##[endgroup]
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6618617Z ##[group]Disabling automatic garbage collection
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6621967Z [command]/usr/bin/git config --local gc.auto 0
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6649263Z ##[endgroup]
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6649945Z ##[group]Setting up auth
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6655723Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.6684397Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7043849Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7073282Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7287320Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7325998Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7545209Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7579828Z ##[endgroup]
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7581318Z ##[group]Fetching the repository
+publish	Run actions/checkout@v4	2026-02-02T02:03:10.7589638Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +d6f616173b27a8d2dcc1a19d6f81a7b7fe6695f6:refs/tags/v0.1.14
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.0917663Z From https://github.com/khalidsaidi/a2abench
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.0918981Z  * [new ref]         d6f616173b27a8d2dcc1a19d6f81a7b7fe6695f6 -> v0.1.14
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.0945424Z ##[endgroup]
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.0946273Z ##[group]Determining the checkout info
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.0947778Z ##[endgroup]
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.0953232Z [command]/usr/bin/git sparse-checkout disable
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.0994597Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1019293Z ##[group]Checking out the ref
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1022792Z [command]/usr/bin/git checkout --progress --force refs/tags/v0.1.14
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1136140Z Note: switching to 'refs/tags/v0.1.14'.
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1136624Z 
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1137013Z You are in 'detached HEAD' state. You can look around, make experimental
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1137932Z changes and commit them, and you can discard any commits you make in this
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1138831Z state without impacting any branches by switching back to a branch.
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1139358Z 
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1139707Z If you want to create a new branch to retain commits you create, you may
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1140981Z do so (now or later) by using -c with the switch command. Example:
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1141973Z 
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1142371Z   git switch -c <new-branch-name>
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1143021Z 
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1143401Z Or undo this operation with:
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1144056Z 
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1144375Z   git switch -
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1144803Z 
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1145880Z Turn off this advice by setting config variable advice.detachedHead to false
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1147143Z 
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1147674Z HEAD is now at d6f6161 chore: bump version to 0.1.14
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1150680Z ##[endgroup]
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1181872Z [command]/usr/bin/git log -1 --format=%H
+publish	Run actions/checkout@v4	2026-02-02T02:03:11.1203384Z d6f616173b27a8d2dcc1a19d6f81a7b7fe6695f6
+publish	Run actions/setup-node@v4	﻿2026-02-02T02:03:11.1441506Z ##[group]Run actions/setup-node@v4
+publish	Run actions/setup-node@v4	2026-02-02T02:03:11.1442037Z with:
+publish	Run actions/setup-node@v4	2026-02-02T02:03:11.1442380Z   node-version: 20
+publish	Run actions/setup-node@v4	2026-02-02T02:03:11.1442757Z   always-auth: false
+publish	Run actions/setup-node@v4	2026-02-02T02:03:11.1443142Z   check-latest: false
+publish	Run actions/setup-node@v4	2026-02-02T02:03:11.1443680Z   token: ***
+publish	Run actions/setup-node@v4	2026-02-02T02:03:11.1444032Z ##[endgroup]
+publish	Run actions/setup-node@v4	2026-02-02T02:03:11.3305879Z Found in cache @ /opt/hostedtoolcache/node/20.20.0/x64
+publish	Run actions/setup-node@v4	2026-02-02T02:03:11.3312236Z ##[group]Environment details
+publish	Run actions/setup-node@v4	2026-02-02T02:03:11.6925448Z node: v20.20.0
+publish	Run actions/setup-node@v4	2026-02-02T02:03:11.6926195Z npm: 10.8.2
+publish	Run actions/setup-node@v4	2026-02-02T02:03:11.6926685Z yarn: 1.22.22
+publish	Run actions/setup-node@v4	2026-02-02T02:03:11.6927697Z ##[endgroup]
+publish	Install mcp-publisher	﻿2026-02-02T02:03:11.7037556Z ##[group]Run curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+publish	Install mcp-publisher	2026-02-02T02:03:11.7039273Z [36;1mcurl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher[0m
+publish	Install mcp-publisher	2026-02-02T02:03:11.7084725Z shell: /usr/bin/bash -e {0}
+publish	Install mcp-publisher	2026-02-02T02:03:11.7085078Z ##[endgroup]
+publish	Install mcp-publisher	2026-02-02T02:03:11.7258045Z   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+publish	Install mcp-publisher	2026-02-02T02:03:11.7258797Z                                  Dload  Upload   Total   Spent    Left  Speed
+publish	Install mcp-publisher	2026-02-02T02:03:11.7259094Z 
+publish	Install mcp-publisher	2026-02-02T02:03:11.8567474Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+publish	Install mcp-publisher	2026-02-02T02:03:11.8568533Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+publish	Install mcp-publisher	2026-02-02T02:03:12.0092634Z 
+publish	Install mcp-publisher	2026-02-02T02:03:12.0093558Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+publish	Install mcp-publisher	2026-02-02T02:03:12.0094392Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+publish	Install mcp-publisher	2026-02-02T02:03:12.3036900Z 
+publish	Install mcp-publisher	2026-02-02T02:03:12.3038072Z 100 6581k  100 6581k    0     0  11.1M      0 --:--:-- --:--:-- --:--:-- 11.1M
+publish	Authenticate to MCP Registry (OIDC)	﻿2026-02-02T02:03:12.3137904Z ##[group]Run ./mcp-publisher login github-oidc
+publish	Authenticate to MCP Registry (OIDC)	2026-02-02T02:03:12.3138348Z [36;1m./mcp-publisher login github-oidc[0m
+publish	Authenticate to MCP Registry (OIDC)	2026-02-02T02:03:12.3171973Z shell: /usr/bin/bash -e {0}
+publish	Authenticate to MCP Registry (OIDC)	2026-02-02T02:03:12.3172280Z ##[endgroup]
+publish	Authenticate to MCP Registry (OIDC)	2026-02-02T02:03:12.3261932Z Logging in with github-oidc...
+publish	Authenticate to MCP Registry (OIDC)	2026-02-02T02:03:12.8215783Z ✓ Successfully logged in
+publish	Wait for npm package to be available	﻿2026-02-02T02:03:12.8322460Z ##[group]Run VERSION=$(node -p "require('./packages/mcp-local/package.json').version")
+publish	Wait for npm package to be available	2026-02-02T02:03:12.8323140Z [36;1mVERSION=$(node -p "require('./packages/mcp-local/package.json').version")[0m
+publish	Wait for npm package to be available	2026-02-02T02:03:12.8323699Z [36;1mecho "Waiting for @khalidsaidi/a2abench-mcp@${VERSION} to appear in npm..."[0m
+publish	Wait for npm package to be available	2026-02-02T02:03:12.8324158Z [36;1mfor i in $(seq 1 30); do[0m
+publish	Wait for npm package to be available	2026-02-02T02:03:12.8324525Z [36;1m  if npm view "@khalidsaidi/a2abench-mcp@${VERSION}" >/dev/null 2>&1; then[0m
+publish	Wait for npm package to be available	2026-02-02T02:03:12.8324920Z [36;1m    echo "Package is available."[0m
+publish	Wait for npm package to be available	2026-02-02T02:03:12.8325178Z [36;1m    exit 0[0m
+publish	Wait for npm package to be available	2026-02-02T02:03:12.8325394Z [36;1m  fi[0m
+publish	Wait for npm package to be available	2026-02-02T02:03:12.8325651Z [36;1m  echo "Not available yet (attempt $i). Sleeping 10s..."[0m
+publish	Wait for npm package to be available	2026-02-02T02:03:12.8325973Z [36;1m  sleep 10[0m
+publish	Wait for npm package to be available	2026-02-02T02:03:12.8326160Z [36;1mdone[0m
+publish	Wait for npm package to be available	2026-02-02T02:03:12.8326421Z [36;1mecho "Package still not available in npm; aborting."[0m
+publish	Wait for npm package to be available	2026-02-02T02:03:12.8326732Z [36;1mexit 1[0m
+publish	Wait for npm package to be available	2026-02-02T02:03:12.8359344Z shell: /usr/bin/bash -e {0}
+publish	Wait for npm package to be available	2026-02-02T02:03:12.8359635Z ##[endgroup]
+publish	Wait for npm package to be available	2026-02-02T02:03:12.8685240Z Waiting for @khalidsaidi/a2abench-mcp@0.1.14 to appear in npm...
+publish	Wait for npm package to be available	2026-02-02T02:03:13.7414813Z Not available yet (attempt 1). Sleeping 10s...
+publish	Wait for npm package to be available	2026-02-02T02:03:24.2624753Z Not available yet (attempt 2). Sleeping 10s...
+publish	Wait for npm package to be available	2026-02-02T02:03:34.6738032Z Not available yet (attempt 3). Sleeping 10s...
+publish	Wait for npm package to be available	2026-02-02T02:03:45.1155633Z Package is available.
+publish	Publish to MCP Registry	﻿2026-02-02T02:03:45.1186691Z ##[group]Run ./mcp-publisher publish docs/registry/server.json
+publish	Publish to MCP Registry	2026-02-02T02:03:45.1187172Z [36;1m./mcp-publisher publish docs/registry/server.json[0m
+publish	Publish to MCP Registry	2026-02-02T02:03:45.1218638Z shell: /usr/bin/bash -e {0}
+publish	Publish to MCP Registry	2026-02-02T02:03:45.1218894Z ##[endgroup]
+publish	Publish to MCP Registry	2026-02-02T02:03:45.1306258Z Publishing to https://registry.modelcontextprotocol.io...
+publish	Publish to MCP Registry	2026-02-02T02:03:45.4614214Z ✓ Successfully published
+publish	Publish to MCP Registry	2026-02-02T02:03:45.4615019Z ✓ Server io.github.khalidsaidi/a2abench version 0.1.14
+publish	Post Run actions/setup-node@v4	﻿2026-02-02T02:03:45.4689155Z Post job cleanup.
+publish	Post Run actions/checkout@v4	﻿2026-02-02T02:03:45.6348882Z Post job cleanup.
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:45.7266334Z [command]/usr/bin/git version
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:45.7302007Z git version 2.52.0
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:45.7344239Z Temporarily overriding HOME='/home/runner/work/_temp/06f3e7fd-edcc-4eb4-9190-8d6f4217982e' before making global git config changes
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:45.7345342Z Adding repository directory to the temporary git global config as a safe directory
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:45.7349889Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/a2abench/a2abench
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:45.7384333Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:45.7416134Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:45.7648361Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:45.7668669Z http.https://github.com/.extraheader
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:45.7682750Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:45.7714272Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:45.7931145Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+publish	Post Run actions/checkout@v4	2026-02-02T02:03:45.7960954Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+publish	Complete job	﻿2026-02-02T02:03:45.8284606Z Cleaning up orphan processes

@@ -8,12 +8,15 @@
 
 - `search(query: string)` — returns canonical citation URLs for matching questions
 - `fetch(id: string)` — returns the full thread (question + answers)
+- `create_question({ title, bodyMd, tags? })` — create a question (requires API key)
+- `create_answer({ id, bodyMd })` — create an answer (requires API key)
 
 ## Authentication
 
 - MCP remote: optional API key header (if enabled)
 - REST API write endpoints: Bearer API key
 - Admin endpoints: `X-Admin-Token`
+- Trial key endpoint: `POST /api/v1/auth/trial-key`
 
 ## Privacy Policy
 

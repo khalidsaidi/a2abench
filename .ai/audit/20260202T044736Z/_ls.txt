@@ -1,0 +1,5 @@
+total 20
+drwxr-xr-x 2 khalid khalid 4096 Feb  1 20:47 .
+drwxr-xr-x 7 khalid khalid 4096 Feb  1 20:47 ..
+-rw-r--r-- 1 khalid khalid 8682 Feb  1 20:47 baseline.txt
+-rw-r--r-- 1 khalid khalid    0 Feb  1 20:47 _ls.txt

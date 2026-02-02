@@ -13,7 +13,7 @@ const PUBLIC_MCP_URL =
 const API_KEY = process.env.API_KEY ?? '';
 const PORT = Number(process.env.PORT ?? process.env.MCP_PORT ?? 4000);
 const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-remote';
-const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.14';
+const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.15';
 const COMMIT_SHA = process.env.COMMIT_SHA ?? process.env.GIT_SHA ?? 'unknown';
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
 const ALLOWED_ORIGINS = (process.env.MCP_ALLOWED_ORIGINS ?? '')
@@ -21,7 +21,7 @@ const ALLOWED_ORIGINS = (process.env.MCP_ALLOWED_ORIGINS ?? '')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-const requestContext = new AsyncLocalStorage<{ agentName?: string; requestId?: string }>();
+const requestContext = new AsyncLocalStorage<{ agentName?: string; requestId?: string; authHeader?: string }>();
 
 const server = new McpServer({
   name: 'A2ABench',
@@ -94,11 +94,37 @@ async function apiGet(path: string, params?: Record<string, string>) {
   if (agentName) {
     headers['X-Agent-Name'] = agentName;
   }
-  if (API_KEY) {
+  const ctxAuth = requestContext.getStore()?.authHeader;
+  if (ctxAuth) {
+    headers.authorization = ctxAuth;
+  } else if (API_KEY) {
     headers.authorization = `Bearer ${API_KEY}`;
   }
   const response = await fetch(url, { headers });
   return response;
+}
+
+async function apiPost(path: string, body: Record<string, unknown>, query?: Record<string, string>) {
+  const url = new URL(path, API_BASE_URL);
+  if (query) {
+    Object.entries(query).forEach(([key, value]) => url.searchParams.set(key, value));
+  }
+  const headers: Record<string, string> = {
+    accept: 'application/json',
+    'content-type': 'application/json'
+  };
+  const ctxAgent = requestContext.getStore()?.agentName;
+  const agentName = (ctxAgent ?? MCP_AGENT_NAME).trim();
+  if (agentName) {
+    headers['X-Agent-Name'] = agentName;
+  }
+  const ctxAuth = requestContext.getStore()?.authHeader;
+  if (ctxAuth) {
+    headers.authorization = ctxAuth;
+  } else if (API_KEY) {
+    headers.authorization = `Bearer ${API_KEY}`;
+  }
+  return fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
 }
 
 server.registerTool(
@@ -195,7 +221,7 @@ server.registerTool(
         ]
       };
     }
-    const data = await response.json();
+    const data = (await response.json()) as Record<string, unknown>;
     metrics.totalToolCalls += 1;
     bumpMap(metrics.byTool, 'fetch');
     logEvent('info', {
@@ -211,6 +237,164 @@ server.registerTool(
         {
           type: 'text',
           text: JSON.stringify(data)
+        }
+      ]
+    };
+  }
+);
+
+server.registerTool(
+  'create_question',
+  {
+    title: 'Create question',
+    description: 'Create a new question thread (requires API key).',
+    inputSchema: {
+      title: z.string().min(8),
+      bodyMd: z.string().min(3),
+      tags: z.array(z.string()).optional(),
+      force: z.boolean().optional()
+    }
+  },
+  async ({ title, bodyMd, tags, force }) => {
+    const toolStart = Date.now();
+    const requestId = requestContext.getStore()?.requestId ?? null;
+    const authHeader = requestContext.getStore()?.authHeader ?? (API_KEY ? `Bearer ${API_KEY}` : '');
+    if (!authHeader) {
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, 'create_question');
+      bumpMap(metrics.toolErrors, 'create_question');
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              error: 'Missing API key',
+              hint: 'Get a trial key at /api/v1/auth/trial-key'
+            })
+          }
+        ]
+      };
+    }
+    const response = await apiPost('/api/v1/questions', { title, bodyMd, tags }, force ? { force: '1' } : undefined);
+    if (!response.ok) {
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, 'create_question');
+      bumpMap(metrics.toolErrors, 'create_question');
+      const text = await response.text();
+      logEvent('warn', {
+        kind: 'mcp_tool',
+        tool: 'create_question',
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ error: text || 'Failed to create question', status: response.status })
+          }
+        ]
+      };
+    }
+    const data = (await response.json()) as Record<string, unknown>;
+    metrics.totalToolCalls += 1;
+    bumpMap(metrics.byTool, 'create_question');
+    logEvent('info', {
+      kind: 'mcp_tool',
+      tool: 'create_question',
+      status: response.status,
+      durationMs: Date.now() - toolStart,
+      requestId
+    });
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            ...data,
+            url: `${PUBLIC_BASE_URL}/q/${data.id}`
+          })
+        }
+      ]
+    };
+  }
+);
+
+server.registerTool(
+  'create_answer',
+  {
+    title: 'Create answer',
+    description: 'Create an answer for a question (requires API key).',
+    inputSchema: {
+      id: z.string().min(1),
+      bodyMd: z.string().min(3)
+    }
+  },
+  async ({ id, bodyMd }) => {
+    const toolStart = Date.now();
+    const requestId = requestContext.getStore()?.requestId ?? null;
+    const authHeader = requestContext.getStore()?.authHeader ?? (API_KEY ? `Bearer ${API_KEY}` : '');
+    if (!authHeader) {
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, 'create_answer');
+      bumpMap(metrics.toolErrors, 'create_answer');
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              error: 'Missing API key',
+              hint: 'Get a trial key at /api/v1/auth/trial-key'
+            })
+          }
+        ]
+      };
+    }
+    const response = await apiPost(`/api/v1/questions/${id}/answers`, { bodyMd });
+    if (!response.ok) {
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, 'create_answer');
+      bumpMap(metrics.toolErrors, 'create_answer');
+      const text = await response.text();
+      logEvent('warn', {
+        kind: 'mcp_tool',
+        tool: 'create_answer',
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ error: text || 'Failed to create answer', status: response.status })
+          }
+        ]
+      };
+    }
+    const data = (await response.json()) as Record<string, unknown>;
+    metrics.totalToolCalls += 1;
+    bumpMap(metrics.byTool, 'create_answer');
+    logEvent('info', {
+      kind: 'mcp_tool',
+      tool: 'create_answer',
+      status: response.status,
+      durationMs: Date.now() - toolStart,
+      requestId
+    });
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            ...data,
+            url: `${PUBLIC_BASE_URL}/q/${id}`
+          })
         }
       ]
     };
@@ -279,6 +463,9 @@ async function main() {
 
     const agentHeader = req.headers['x-agent-name'] ?? req.headers['x-mcp-client-name'] ?? req.headers['mcp-client-name'];
     const agentName = Array.isArray(agentHeader) ? agentHeader[0] : agentHeader;
+    const authHeader = Array.isArray(req.headers.authorization)
+      ? req.headers.authorization[0]
+      : req.headers.authorization;
     const userAgent = Array.isArray(req.headers['user-agent']) ? req.headers['user-agent'][0] : req.headers['user-agent'];
     const startMs = Date.now();
     const requestId =
@@ -463,7 +650,7 @@ async function main() {
           version: SERVICE_VERSION,
           endpoint: PUBLIC_MCP_URL,
           transport: 'streamable-http',
-          tools: ['search', 'fetch'],
+          tools: ['search', 'fetch', 'create_question', 'create_answer'],
           docs: 'https://a2abench-api.web.app/docs',
           repo: 'https://github.com/khalidsaidi/a2abench'
         });
@@ -501,7 +688,7 @@ async function main() {
     req.on('end', async () => {
       try {
         const json = body.length ? JSON.parse(body) : undefined;
-        await requestContext.run({ agentName, requestId }, async () => {
+        await requestContext.run({ agentName, requestId, authHeader }, async () => {
           await transport.handleRequest(req, res, json);
         });
         metrics.totalRequests += 1;

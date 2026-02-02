@@ -1,0 +1,10 @@
+legacy_health.headers.txt	HTTP/2 200 
+legacy_health_slash.headers.txt	HTTP/2 200 
+legacy_healthz.headers.txt	HTTP/2 404 
+legacy_healthz_slash.headers.txt	HTTP/2 200 
+legacy_readyz.headers.txt	HTTP/2 200 
+run_health.headers.txt	HTTP/2 200 
+run_health_slash.headers.txt	HTTP/2 200 
+run_healthz.headers.txt	HTTP/2 404 
+run_healthz_slash.headers.txt	HTTP/2 200 
+run_readyz.headers.txt	HTTP/2 200 

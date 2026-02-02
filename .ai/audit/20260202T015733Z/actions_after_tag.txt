@@ -1,0 +1,15 @@
+in_progress		chore: bump version to 0.1.14	publish-mcp-registry	v0.1.14	push	21574812056	18s	2026-02-02T02:03:06Z
+in_progress		chore: bump version to 0.1.14	release	v0.1.14	push	21574812044	18s	2026-02-02T02:03:06Z
+in_progress		chore: bump version to 0.1.14	publish-npm	v0.1.14	push	21574812040	18s	2026-02-02T02:03:06Z
+completed	success	chore: bump version to 0.1.14	ci	main	push	21574483307	19s	2026-02-02T01:44:27Z
+completed	success	docs: standardize monitoring on /health and /readyz	ci	main	push	21574419356	25s	2026-02-02T01:40:42Z
+completed	success	chore(audit): record final health checks	ci	main	push	21573019693	25s	2026-02-02T00:17:18Z
+completed	success	chore: drop /healthz (no slash) rewrite	ci	main	push	21572987785	24s	2026-02-02T00:15:23Z
+completed	success	chore(audit): record /health rollout evidence	ci	main	push	21572965422	22s	2026-02-02T00:14:04Z
+completed	success	merge: add /health endpoint	ci	main	push	21572861966	24s	2026-02-02T00:07:49Z
+completed	success	chore(audit): log healthz attempts	ci	main	push	21572289262	19s	2026-02-01T23:28:15Z
+completed	success	fix: serve /healthz via static json on legacy host	ci	main	push	21572243434	21s	2026-02-01T23:24:57Z
+completed	success	chore(audit): record healthz retest outputs	ci	main	push	21570582004	18s	2026-02-01T21:29:36Z
+completed	success	fix: serve /healthz and /healthz/ from static file	ci	main	push	21570552561	25s	2026-02-01T21:27:25Z
+completed	success	fix: map /healthz to static health file	ci	main	push	21570497907	26s	2026-02-01T21:23:46Z
+completed	success	fix: serve legacy /healthz via static file	ci	main	push	21570473030	27s	2026-02-01T21:21:52Z

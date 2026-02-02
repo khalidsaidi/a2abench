@@ -1,0 +1,20 @@
+total 68
+drwxr-xr-x 2 khalid khalid 4096 Feb  1 19:23 .
+drwxr-xr-x 3 khalid khalid 4096 Feb  1 19:22 ..
+-rw-r--r-- 1 khalid khalid  180 Feb  1 19:22 cline_issue_582_close.md
+-rw-r--r-- 1 khalid khalid    0 Feb  1 19:22 cline_issue_582_close_result.txt
+-rw-r--r-- 1 khalid khalid   76 Feb  1 19:22 cline_issue_582_comment_result.txt
+-rw-r--r-- 1 khalid khalid  790 Feb  1 19:22 cline_issue_582.json
+-rw-r--r-- 1 khalid khalid  526 Feb  1 19:22 cline_issue_587_comment.md
+-rw-r--r-- 1 khalid khalid   76 Feb  1 19:22 cline_issue_587_comment_result.txt
+-rw-r--r-- 1 khalid khalid  824 Feb  1 19:22 cline_issue_587.json
+-rw-r--r-- 1 khalid khalid   62 Feb  1 19:22 health.json
+-rw-r--r-- 1 khalid khalid   62 Feb  1 19:22 health_slash.json
+-rw-r--r-- 1 khalid khalid    0 Feb  1 19:23 _ls.txt
+-rw-r--r-- 1 khalid khalid  562 Feb  1 19:23 mcpserverspot_correction.md
+-rw-r--r-- 1 khalid khalid  746 Feb  1 19:22 official_registry_latest.json
+-rw-r--r-- 1 khalid khalid   15 Feb  1 19:22 readyz.json
+-rw-r--r-- 1 khalid khalid 1203 Feb  1 19:22 remote_mcp_servers_api.json
+-rw-r--r-- 1 khalid khalid  337 Feb  1 19:23 remote_mcp_servers_issue_template.md
+-rw-r--r-- 1 khalid khalid  106 Feb  1 19:23 remote_mcp_servers_version_check.txt
+-rw-r--r-- 1 khalid khalid  569 Feb  1 19:23 submissions_payload.md
