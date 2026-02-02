@@ -1,0 +1,2 @@
+projectId,status,message
+topoloom-prod-20260202-kh,failed,ERROR: (gcloud.billing.projects.link) FAILED_PRECONDITION: Precondition check failed.
