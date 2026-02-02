@@ -1,0 +1,223 @@
+----------------------------- REMOTE BUILD OUTPUT ------------------------------
+starting build "f9533ea6-04c0-443e-941e-5b3a67f31250"
+
+FETCHSOURCE
+Fetching storage object: gs://a2abench-prod_cloudbuild/source/1770065359.448429-4e1486d7cb1241ae87d3358ab991d0fb.tgz#1770065361553910
+Copying gs://a2abench-prod_cloudbuild/source/1770065359.448429-4e1486d7cb1241ae87d3358ab991d0fb.tgz#1770065361553910...
+/ [0 files][    0.0 B/269.3 KiB]                                                / [1 files][269.3 KiB/269.3 KiB]                                                
+Operation completed over 1 objects/269.3 KiB.
+BUILD
+Already have image (with digest): gcr.io/cloud-builders/docker
+Sending build context to Docker daemon  1.419MB
+Step 1/24 : FROM node:20-bookworm-slim AS base
+20-bookworm-slim: Pulling from library/node
+c02d17997ce3: Pulling fs layer
+024b9523dc7f: Pulling fs layer
+ebe53019ce11: Pulling fs layer
+a98168ca575a: Pulling fs layer
+7d393bf487b0: Pulling fs layer
+7d393bf487b0: Verifying Checksum
+7d393bf487b0: Download complete
+024b9523dc7f: Verifying Checksum
+024b9523dc7f: Download complete
+a98168ca575a: Verifying Checksum
+a98168ca575a: Download complete
+c02d17997ce3: Verifying Checksum
+c02d17997ce3: Download complete
+ebe53019ce11: Verifying Checksum
+ebe53019ce11: Download complete
+c02d17997ce3: Pull complete
+024b9523dc7f: Pull complete
+ebe53019ce11: Pull complete
+a98168ca575a: Pull complete
+7d393bf487b0: Pull complete
+Digest: sha256:6c51af7dc83f4708aaac35991306bca8f478351cfd2bda35750a62d7efcf05bb
+Status: Downloaded newer image for node:20-bookworm-slim
+ ---> 7bd7304bb010
+Step 2/24 : WORKDIR /repo
+ ---> Running in ff58941d9a26
+Removing intermediate container ff58941d9a26
+ ---> 9167e10c903a
+Step 3/24 : RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+ ---> Running in 6e8e6e729c2b
+Get:1 http://deb.debian.org/debian bookworm InRelease [151 kB]
+Get:2 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
+Get:3 http://deb.debian.org/debian-security bookworm-security InRelease [48.0 kB]
+Get:4 http://deb.debian.org/debian bookworm/main amd64 Packages [8792 kB]
+Get:5 http://deb.debian.org/debian bookworm-updates/main amd64 Packages [6924 B]
+Get:6 http://deb.debian.org/debian-security bookworm-security/main amd64 Packages [293 kB]
+Fetched 9346 kB in 2s (6108 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following additional packages will be installed:
+  libssl3
+Suggested packages:
+  ca-certificates
+The following NEW packages will be installed:
+  libssl3 openssl
+0 upgraded, 2 newly installed, 0 to remove and 0 not upgraded.
+Need to get 3462 kB of archives.
+After this operation, 8532 kB of additional disk space will be used.
+Get:1 http://deb.debian.org/debian-security bookworm-security/main amd64 libssl3 amd64 3.0.18-1~deb12u2 [2030 kB]
+Get:2 http://deb.debian.org/debian-security bookworm-security/main amd64 openssl amd64 3.0.18-1~deb12u2 [1433 kB]
+[91mdebconf: delaying package configuration, since apt-utils is not installed
+[0mFetched 3462 kB in 0s (72.3 MB/s)
+Selecting previously unselected package libssl3:amd64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 6096 files and directories currently installed.)
+Preparing to unpack .../libssl3_3.0.18-1~deb12u2_amd64.deb ...
+Unpacking libssl3:amd64 (3.0.18-1~deb12u2) ...
+Selecting previously unselected package openssl.
+Preparing to unpack .../openssl_3.0.18-1~deb12u2_amd64.deb ...
+Unpacking openssl (3.0.18-1~deb12u2) ...
+Setting up libssl3:amd64 (3.0.18-1~deb12u2) ...
+Setting up openssl (3.0.18-1~deb12u2) ...
+Processing triggers for libc-bin (2.36-9+deb12u13) ...
+Removing intermediate container 6e8e6e729c2b
+ ---> ae0d31e82c22
+Step 4/24 : RUN corepack enable
+ ---> Running in 7afc5dbde1ae
+Removing intermediate container 7afc5dbde1ae
+ ---> 38e84c72c822
+Step 5/24 : FROM base AS deps
+ ---> 38e84c72c822
+Step 6/24 : COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
+ ---> 6280d29fe584
+Step 7/24 : COPY apps/api/package.json apps/api/tsconfig.json ./apps/api/
+ ---> c88d3e7b45f7
+Step 8/24 : COPY apps/api/prisma ./apps/api/prisma
+ ---> 6f45d12bff57
+Step 9/24 : RUN pnpm install --filter @a2abench/api...
+ ---> Running in 30868210143a
+[91m! Corepack is about to download https://registry.npmjs.org/pnpm/-/pnpm-9.15.0.tgz
+[0mProgress: resolved 1, reused 0, downloaded 0, added 0
+
+   ╭───────────────────────────────────────────────────────────────────╮
+   │                                                                   │
+   │                Update available! 9.15.0 → 10.28.2.                │
+   │   Changelog: https://github.com/pnpm/pnpm/releases/tag/v10.28.2   │
+   │         Run "corepack install -g pnpm@10.28.2" to update.         │
+   │                                                                   │
+   ╰───────────────────────────────────────────────────────────────────╯
+
+Progress: resolved 12, reused 0, downloaded 9, added 0
+Progress: resolved 14, reused 0, downloaded 12, added 0
+Progress: resolved 74, reused 0, downloaded 34, added 0
+Progress: resolved 136, reused 0, downloaded 96, added 0
+Progress: resolved 158, reused 0, downloaded 132, added 0
+.                                        | +133 +++++++++++++
+Progress: resolved 159, reused 0, downloaded 133, added 133, done
+.../node_modules/@prisma/engines postinstall$ node scripts/postinstall.js
+.../esbuild@0.27.2/node_modules/esbuild postinstall$ node install.js
+.../esbuild@0.27.2/node_modules/esbuild postinstall: Done
+.../node_modules/@prisma/engines postinstall: Done
+.../prisma@5.22.0/node_modules/prisma preinstall$ node scripts/preinstall-entry.js
+.../prisma@5.22.0/node_modules/prisma preinstall: Done
+.../node_modules/@prisma/client postinstall$ node scripts/postinstall.js
+.../node_modules/@prisma/client postinstall: prisma:warn We could not find your Prisma schema in the default locations (see: https://pris.ly/d/prisma-schema-location).
+.../node_modules/@prisma/client postinstall: If you have a Prisma schema file in a custom path, you will need to run
+.../node_modules/@prisma/client postinstall: `prisma generate --schema=./path/to/your/schema.prisma` to generate Prisma Client.
+.../node_modules/@prisma/client postinstall: If you do not have a Prisma schema file yet, you can ignore this message.
+.../node_modules/@prisma/client postinstall: Done
+Done in 9.9s
+Removing intermediate container 30868210143a
+ ---> f6b5062de7ce
+Step 10/24 : FROM deps AS build
+ ---> f6b5062de7ce
+Step 11/24 : COPY apps/api/src ./apps/api/src
+ ---> afccb83be60b
+Step 12/24 : RUN pnpm --filter @a2abench/api prisma generate
+ ---> Running in 5871bd211297
+
+> @a2abench/api@0.1.17 prisma /repo/apps/api
+> prisma "generate"
+
+Prisma schema loaded from prisma/schema.prisma
+
+✔ Generated Prisma Client (v5.22.0) to ./../../node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/@prisma/client in 185ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Want real-time updates to your database without manual polling? Discover how with Pulse: https://pris.ly/tip-0-pulse
+Removing intermediate container 5871bd211297
+ ---> fd975ff07bec
+Step 13/24 : RUN pnpm --filter @a2abench/api build
+ ---> Running in 73cf61e65c9c
+
+> @a2abench/api@0.1.17 build /repo/apps/api
+> tsc -p tsconfig.json
+Removing intermediate container 73cf61e65c9c
+ ---> ac0535361052
+Step 14/24 : FROM base AS runtime
+ ---> 38e84c72c822
+Step 15/24 : ENV NODE_ENV=production
+ ---> Running in c56a0e855be7
+Removing intermediate container c56a0e855be7
+ ---> b00997486de6
+Step 16/24 : COPY --from=build /repo/apps/api/dist /repo/apps/api/dist
+ ---> 80b510b5a82b
+Step 17/24 : COPY --from=build /repo/apps/api/node_modules /repo/apps/api/node_modules
+ ---> d1035d9ae90d
+Step 18/24 : COPY --from=build /repo/node_modules /repo/node_modules
+ ---> 9f09c30452dd
+Step 19/24 : COPY apps/api/package.json /repo/apps/api/package.json
+ ---> a390340f8fa7
+Step 20/24 : COPY apps/api/prisma /repo/apps/api/prisma
+ ---> 347eb5d4d9d8
+Step 21/24 : COPY apps/api/scripts /repo/apps/api/scripts
+ ---> 34dff5e809d0
+Step 22/24 : WORKDIR /repo/apps/api
+ ---> Running in 76104db7abff
+Removing intermediate container 76104db7abff
+ ---> fc54736e5cd1
+Step 23/24 : EXPOSE 3000
+ ---> Running in 61717dd9fa50
+Removing intermediate container 61717dd9fa50
+ ---> 386a1f421c56
+Step 24/24 : CMD ["node", "dist/index.js"]
+ ---> Running in fcfa2303519c
+Removing intermediate container fcfa2303519c
+ ---> 49cbb5b12116
+Successfully built 49cbb5b12116
+Successfully tagged us-central1-docker.pkg.dev/a2abench-prod/a2abench/api:80ee9a6
+PUSH
+Pushing us-central1-docker.pkg.dev/a2abench-prod/a2abench/api:80ee9a6
+The push refers to repository [us-central1-docker.pkg.dev/a2abench-prod/a2abench/api]
+8b0f6c1a0422: Preparing
+426bbcf643b0: Preparing
+10150e120528: Preparing
+61508e5c6fd6: Preparing
+49e18cdc68a7: Preparing
+d935e7b104a8: Preparing
+2108f33129f7: Preparing
+3efe6a655291: Preparing
+ee9c93218fc7: Preparing
+7492c31043fa: Preparing
+00bf21304c8c: Preparing
+b051c96fe9e7: Preparing
+6de3bf4d809c: Preparing
+e0e600257047: Preparing
+00bf21304c8c: Waiting
+b051c96fe9e7: Waiting
+6de3bf4d809c: Waiting
+e0e600257047: Waiting
+7492c31043fa: Layer already exists
+00bf21304c8c: Layer already exists
+b051c96fe9e7: Layer already exists
+426bbcf643b0: Pushed
+2108f33129f7: Pushed
+6de3bf4d809c: Layer already exists
+49e18cdc68a7: Pushed
+ee9c93218fc7: Pushed
+8b0f6c1a0422: Pushed
+d935e7b104a8: Pushed
+10150e120528: Pushed
+3efe6a655291: Pushed
+e0e600257047: Pushed
+61508e5c6fd6: Pushed
+80ee9a6: digest: sha256:c635aa4afa51fe1bd9014554e42181a3634db63903bd702c5e0bd1dfda4654f4 size: 3244
+DONE
+--------------------------------------------------------------------------------
+ID                                    CREATE_TIME                DURATION  SOURCE                                                                                       IMAGES                                                         STATUS
+f9533ea6-04c0-443e-941e-5b3a67f31250  2026-02-02T20:49:21+00:00  1M13S     gs://a2abench-prod_cloudbuild/source/1770065359.448429-4e1486d7cb1241ae87d3358ab991d0fb.tgz  us-central1-docker.pkg.dev/a2abench-prod/a2abench/api:80ee9a6  SUCCESS
