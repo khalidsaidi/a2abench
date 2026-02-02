@@ -1,0 +1,4 @@
+2026-02-02 08:26:25 [backfill] start 2026-02-02T08:26:25.054Z dryRun=false batchSize=100
+2026-02-02 08:26:25 [backfill] questions { scanned: 19, updated: 10 }
+2026-02-02 08:26:25 [backfill] answers { scanned: 17, updated: 14 }
+2026-02-02 08:26:25 [backfill] done 2026-02-02T08:26:25.744Z

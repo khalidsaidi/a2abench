@@ -1,0 +1,36 @@
+2026-02-02 08:13:50 node:internal/modules/run_main:123
+2026-02-02 08:13:50     triggerUncaughtException(
+2026-02-02 08:13:50     ^
+2026-02-02 08:13:50 Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/repo/apps/api/src/markdown.js' imported from /repo/apps/api/scripts/backfill_bodytext.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:283:11)
+    at moduleResolve (node:internal/modules/esm/resolve:952:10)
+    at defaultResolve (node:internal/modules/esm/resolve:1188:11)
+    at nextResolve (node:internal/modules/esm/hooks:864:28)
+    at resolveBase (file:///repo/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/esm/index.mjs?1770020029680:2:3744)
+    at async resolveDirectory (file:///repo/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/esm/index.mjs?1770020029680:2:4237)
+    at async resolve (file:///repo/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/esm/index.mjs?1770020029680:2:5355)
+    at async nextResolve (node:internal/modules/esm/hooks:864:22)
+    at async Hooks.resolve (node:internal/modules/esm/hooks:306:24)
+    at async handleMessage (node:internal/modules/esm/worker:196:18) {
+2026-02-02 08:13:50   code: 'ERR_MODULE_NOT_FOUND',
+2026-02-02 08:13:50   url: 'file:///repo/apps/api/src/markdown.js'
+2026-02-02 08:13:50 }
+2026-02-02 08:13:50 Node.js v20.20.0
+2026-02-02 08:14:53 node:internal/modules/run_main:123
+2026-02-02 08:14:53     triggerUncaughtException(
+2026-02-02 08:14:53     ^
+2026-02-02 08:14:53 Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/repo/apps/api/src/markdown.js' imported from /repo/apps/api/scripts/backfill_bodytext.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:283:11)
+    at moduleResolve (node:internal/modules/esm/resolve:952:10)
+    at defaultResolve (node:internal/modules/esm/resolve:1188:11)
+    at nextResolve (node:internal/modules/esm/hooks:864:28)
+    at resolveBase (file:///repo/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/esm/index.mjs?1770020092973:2:3744)
+    at async resolveDirectory (file:///repo/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/esm/index.mjs?1770020092973:2:4237)
+    at async resolve (file:///repo/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/esm/index.mjs?1770020092973:2:5355)
+    at async nextResolve (node:internal/modules/esm/hooks:864:22)
+    at async Hooks.resolve (node:internal/modules/esm/hooks:306:24)
+    at async handleMessage (node:internal/modules/esm/worker:196:18) {
+2026-02-02 08:14:53   code: 'ERR_MODULE_NOT_FOUND',
+2026-02-02 08:14:53   url: 'file:///repo/apps/api/src/markdown.js'
+2026-02-02 08:14:53 }
+2026-02-02 08:14:53 Node.js v20.20.0

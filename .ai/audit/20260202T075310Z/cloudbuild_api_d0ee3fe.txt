@@ -1,0 +1,88 @@
+----------------------------- REMOTE BUILD OUTPUT ------------------------------
+starting build "fef3e95c-105a-4e89-87a9-8c139862d83d"
+
+FETCHSOURCE
+Fetching storage object: gs://langley-hub-prod_cloudbuild/source/1770018918.507905-63a63db43b744d0c9f988488db259cbd.tgz#1770018919323170
+Copying gs://langley-hub-prod_cloudbuild/source/1770018918.507905-63a63db43b744d0c9f988488db259cbd.tgz#1770018919323170...
+/ [0 files][    0.0 B/ 19.7 KiB]                                                / [1 files][ 19.7 KiB/ 19.7 KiB]                                                
+Operation completed over 1 objects/19.7 KiB.
+BUILD
+Already have image (with digest): gcr.io/cloud-builders/gcb-internal
+Sending build context to Docker daemon  106.5kB
+Step 1/24 : FROM node:20-bookworm-slim AS base
+20-bookworm-slim: Pulling from library/node
+c02d17997ce3: Pulling fs layer
+024b9523dc7f: Pulling fs layer
+ebe53019ce11: Pulling fs layer
+a98168ca575a: Pulling fs layer
+7d393bf487b0: Pulling fs layer
+7d393bf487b0: Verifying Checksum
+7d393bf487b0: Download complete
+024b9523dc7f: Verifying Checksum
+024b9523dc7f: Download complete
+a98168ca575a: Verifying Checksum
+a98168ca575a: Download complete
+c02d17997ce3: Verifying Checksum
+c02d17997ce3: Download complete
+ebe53019ce11: Download complete
+c02d17997ce3: Pull complete
+024b9523dc7f: Pull complete
+ebe53019ce11: Pull complete
+a98168ca575a: Pull complete
+7d393bf487b0: Pull complete
+Digest: sha256:6c51af7dc83f4708aaac35991306bca8f478351cfd2bda35750a62d7efcf05bb
+Status: Downloaded newer image for node:20-bookworm-slim
+ ---> 7bd7304bb010
+Step 2/24 : WORKDIR /repo
+ ---> Running in 9c18c2ec6146
+Removing intermediate container 9c18c2ec6146
+ ---> 043daf2d1245
+Step 3/24 : RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+ ---> Running in 6a1ea56b704a
+Get:1 http://deb.debian.org/debian bookworm InRelease [151 kB]
+Get:2 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
+Get:3 http://deb.debian.org/debian-security bookworm-security InRelease [48.0 kB]
+Get:4 http://deb.debian.org/debian bookworm/main amd64 Packages [8792 kB]
+Get:5 http://deb.debian.org/debian bookworm-updates/main amd64 Packages [6924 B]
+Get:6 http://deb.debian.org/debian-security bookworm-security/main amd64 Packages [293 kB]
+Fetched 9346 kB in 2s (5668 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following additional packages will be installed:
+  libssl3
+Suggested packages:
+  ca-certificates
+The following NEW packages will be installed:
+  libssl3 openssl
+0 upgraded, 2 newly installed, 0 to remove and 0 not upgraded.
+Need to get 3462 kB of archives.
+After this operation, 8532 kB of additional disk space will be used.
+Get:1 http://deb.debian.org/debian-security bookworm-security/main amd64 libssl3 amd64 3.0.18-1~deb12u2 [2030 kB]
+Get:2 http://deb.debian.org/debian-security bookworm-security/main amd64 openssl amd64 3.0.18-1~deb12u2 [1433 kB]
+[91mdebconf: delaying package configuration, since apt-utils is not installed
+[0mFetched 3462 kB in 0s (38.0 MB/s)
+Selecting previously unselected package libssl3:amd64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 6096 files and directories currently installed.)
+Preparing to unpack .../libssl3_3.0.18-1~deb12u2_amd64.deb ...
+Unpacking libssl3:amd64 (3.0.18-1~deb12u2) ...
+Selecting previously unselected package openssl.
+Preparing to unpack .../openssl_3.0.18-1~deb12u2_amd64.deb ...
+Unpacking openssl (3.0.18-1~deb12u2) ...
+Setting up libssl3:amd64 (3.0.18-1~deb12u2) ...
+Setting up openssl (3.0.18-1~deb12u2) ...
+Processing triggers for libc-bin (2.36-9+deb12u13) ...
+Removing intermediate container 6a1ea56b704a
+ ---> 0987defe4b22
+Step 4/24 : RUN corepack enable
+ ---> Running in 5e518767026c
+Removing intermediate container 5e518767026c
+ ---> 19e503486b9a
+Step 5/24 : FROM base AS deps
+ ---> 19e503486b9a
+Step 6/24 : COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
+COPY failed: file not found in build context or excluded by .dockerignore: stat pnpm-workspace.yaml: file does not exist
+ERROR
+ERROR: build step 0 "gcr.io/cloud-builders/gcb-internal" failed: step exited with non-zero status: 1
+--------------------------------------------------------------------------------
