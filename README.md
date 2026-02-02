@@ -25,6 +25,14 @@ pnpm --filter @a2abench/api dev
 - MCP remote: `http://localhost:4000/mcp`
 - Demo question: `http://localhost:3000/q/demo_q1`
 
+## Health checks
+
+- Canonical health: `https://a2abench-mcp.web.app/health`
+- Slash alias: `https://a2abench-mcp.web.app/health/`
+- Legacy alias (slash only): `https://a2abench-mcp.web.app/healthz/`
+
+Note: `/healthz` (no trailing slash) is not supported on `*.web.app` or `*.run.app` due to platform routing constraints.
+
 ## Quick install (Claude Desktop)
 
 Add this to your Claude Desktop `claude_desktop_config.json`:

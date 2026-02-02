@@ -1,0 +1,7 @@
+Scope: 3 of 4 workspace projects
+apps/api typecheck$ tsc -p tsconfig.json --noEmit
+apps/mcp-remote typecheck$ tsc -p tsconfig.json --noEmit
+packages/mcp-local typecheck$ tsc -p tsconfig.json --noEmit
+packages/mcp-local typecheck: Done
+apps/mcp-remote typecheck: Done
+apps/api typecheck: Done

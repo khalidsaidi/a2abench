@@ -1,0 +1,24 @@
+firebase.json:79:          "source": "/healthz{,/**}",
+firebase.json:90:          "source": "/health",
+firebase.json:91:          "destination": "/health.json"
+firebase.json:94:          "source": "/health/",
+firebase.json:95:          "destination": "/health.json"
+firebase.json:98:          "source": "/healthz",
+firebase.json:99:          "destination": "/healthz.json"
+firebase.json:102:          "source": "/healthz/",
+firebase.json:103:          "destination": "/healthz.json"
+firebase.json:120:          "source": "/readyz",
+firebase.json:127:          "source": "/readyz/**",
+apps/mcp-remote/src/index.ts:239:    const response = await fetch(new URL('/api/v1/health', API_BASE_URL), {
+apps/mcp-remote/src/index.ts:333:      rawPath === '/health' ||
+apps/mcp-remote/src/index.ts:334:      rawPath === '/health/' ||
+apps/mcp-remote/src/index.ts:335:      pathname === '/health' ||
+apps/mcp-remote/src/index.ts:336:      pathname.startsWith('/health/') ||
+apps/mcp-remote/src/index.ts:337:      rawPath === '/healthz/' ||
+apps/mcp-remote/src/index.ts:338:      pathname === '/healthz/' ||
+apps/mcp-remote/src/index.ts:339:      pathname.startsWith('/healthz/');
+apps/mcp-remote/src/index.ts:368:      rawPath === '/readyz' ||
+apps/mcp-remote/src/index.ts:369:      rawPath === '/readyz/' ||
+apps/mcp-remote/src/index.ts:370:      pathname === '/readyz' ||
+apps/mcp-remote/src/index.ts:371:      pathname.startsWith('/readyz/');
+apps/api/src/index.ts:307:fastify.get('/api/v1/health', {
