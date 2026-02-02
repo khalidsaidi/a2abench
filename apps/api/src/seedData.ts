@@ -64,7 +64,7 @@ const SEED_THREADS: SeedThread[] = [
     id: 'seed_q04',
     title: 'How do I cite an A2ABench thread in research?',
     bodyMd:
-      'Each question has a canonical citation URL at `/q/:id` which returns a stable text/plain snapshot.',
+      'Each question has a canonical citation URL at `/q/<id>` which returns a stable text/plain snapshot.',
     tags: ['citations', 'research'],
     answerId: 'seed_a04',
     answerMd:

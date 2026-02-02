@@ -10,7 +10,7 @@ import { z } from 'zod';
 import crypto from 'crypto';
 
 const prisma = new PrismaClient();
-const fastify = Fastify({ logger: true, trustProxy: true });
+const fastify = Fastify({ logger: true, trustProxy: true, ignoreTrailingSlash: true });
 
 const PORT = Number(process.env.PORT ?? 3000);
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
@@ -112,6 +112,17 @@ function getBaseUrl(request: { headers: Record<string, string | string[] | undef
 function normalizeHeader(value: string | string[] | undefined) {
   if (!value) return '';
   return Array.isArray(value) ? value[0] : value;
+}
+
+function isPlaceholderId(id: string) {
+  const trimmed = id.trim();
+  if (!trimmed) return true;
+  const lower = trimmed.toLowerCase();
+  if (lower === ':id' || lower === '{id}' || lower === '<id>' || lower === 'id') return true;
+  if (trimmed.includes(':')) return true;
+  if (trimmed.includes('{') || trimmed.includes('}')) return true;
+  if (trimmed.includes('<') || trimmed.includes('>')) return true;
+  return false;
 }
 
 function stripQuery(value: string) {
@@ -428,6 +439,8 @@ fastify.get('/robots.txt', async (request, reply) => {
   const lines = [
     'User-agent: *',
     'Disallow: /admin/',
+    'Disallow: /api/v1/admin',
+    'Disallow: /api/v1/usage',
     'Disallow: /docs/',
     'Allow: /q/',
     'Allow: /.well-known/',
@@ -863,6 +876,13 @@ fastify.get('/api/v1/questions', {
   }));
 });
 
+fastify.get('/api/v1/auth/trial-key', async (request, reply) => {
+  reply
+    .header('Allow', 'POST')
+    .code(405)
+    .send({ error: 'method_not_allowed', hint: 'Use POST /api/v1/auth/trial-key to mint a trial key.' });
+});
+
 fastify.post('/api/v1/auth/trial-key', {
   schema: {
     tags: ['auth'],
@@ -945,6 +965,10 @@ fastify.get('/api/v1/questions/:id', {
   }
 }, async (request, reply) => {
   const { id } = request.params as { id: string };
+  if (isPlaceholderId(id)) {
+    reply.code(400).send({ error: 'Replace :id with a real id (try demo_q1).' });
+    return;
+  }
   const question = await prisma.question.findUnique({
     where: { id },
     include: {
@@ -1098,6 +1122,18 @@ fastify.post('/api/v1/questions', {
     createdAt: question.createdAt,
     updatedAt: question.updatedAt
   });
+});
+
+fastify.get('/api/v1/questions/:id/answers', async (request, reply) => {
+  const { id } = request.params as { id: string };
+  if (isPlaceholderId(id)) {
+    reply.code(400).send({ error: 'Replace :id with a real id (try demo_q1).' });
+    return;
+  }
+  reply
+    .header('Allow', 'POST')
+    .code(405)
+    .send({ error: 'method_not_allowed', hint: 'Use POST /api/v1/questions/:id/answers to create an answer.' });
 });
 
 fastify.post('/api/v1/questions/:id/answers', {
@@ -1298,8 +1334,8 @@ fastify.post('/api/v1/admin/api-keys/:id/revoke', {
 
 fastify.get('/q/:id', async (request, reply) => {
   const { id } = request.params as { id: string };
-  if (id === ':id') {
-    reply.type('text/plain').send('Template URL: replace :id with a real question id.');
+  if (isPlaceholderId(id)) {
+    reply.code(400).type('text/plain').send('Replace :id with a real id (try demo_q1).');
     return;
   }
   const question = await prisma.question.findUnique({
