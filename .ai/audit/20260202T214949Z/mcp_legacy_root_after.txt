@@ -1,0 +1,14 @@
+HTTP/2 301 
+location: /mcp
+content-type: text/plain; charset=utf-8
+accept-ranges: bytes
+date: Mon, 02 Feb 2026 21:50:22 GMT
+x-served-by: cache-yvr1528-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1770069022.381270,VS0,VE18
+vary: x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 19
+
+Redirecting to /mcp
