@@ -138,6 +138,29 @@ function resolveRoute(request: RouteRequest) {
   );
 }
 
+function isNoiseEvent(entry: { method: string; route: string; status: number }) {
+  const method = entry.method.toUpperCase();
+  if (method !== 'GET' && method !== 'HEAD') return false;
+
+  if (entry.status === 405) {
+    if (entry.route === '/api/v1/auth/trial-key') return true;
+    if (entry.route === '/api/v1/questions/:id/answers') return true;
+  }
+
+  if (entry.status === 400) {
+    if (entry.route === '/q/:id') return true;
+    if (entry.route === '/api/v1/questions/:id') return true;
+  }
+
+  if (entry.status === 404) {
+    if (entry.route === '/') return true;
+    if (entry.route === '/api/v1/fetch') return true;
+    if (entry.route === '/docs/.well-known/agent.json') return true;
+  }
+
+  return false;
+}
+
 function extractApiKeyPrefix(headers: Record<string, string | string[] | undefined>) {
   const auth = normalizeHeader(headers.authorization);
   if (!auth) return null;
@@ -385,6 +408,10 @@ fastify.addHook('onResponse', async (request, reply) => {
   const startNs = (request as { startTimeNs?: bigint }).startTimeNs;
   const durationMs = startNs ? Math.max(0, Number(process.hrtime.bigint() - startNs) / 1_000_000) : 0;
   const route = resolveRoute(request as RouteRequest);
+  const logNoise = normalizeHeader(process.env.LOG_NOISE) === 'true';
+  if (!logNoise && isNoiseEvent({ method: request.method, route, status: reply.statusCode })) {
+    return;
+  }
   const apiKeyPrefix = extractApiKeyPrefix(request.headers);
   const userAgent = normalizeHeader(request.headers['user-agent']).slice(0, 256) || null;
   const ip = getClientIp(request as RouteRequest & { ip?: string; socket?: { remoteAddress?: string } });
