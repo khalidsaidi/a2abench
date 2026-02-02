@@ -579,6 +579,76 @@ async function main() {
       return;
     }
 
+    if (rawPath === '/' || pathname === '/') {
+      const baseUrl = (() => {
+        try {
+          return new URL(PUBLIC_MCP_URL).origin;
+        } catch {
+          return PUBLIC_MCP_URL.replace(/\/mcp$/, '');
+        }
+      })();
+      const agentUrl = `${PUBLIC_BASE_URL.replace(/\/$/, '')}/.well-known/agent.json`;
+      if (req.method === 'HEAD') {
+        res.statusCode = 200;
+        res.end();
+      } else if (req.method !== 'GET') {
+        res.statusCode = 405;
+        res.end('Method not allowed');
+      } else {
+        const accept = Array.isArray(req.headers.accept) ? req.headers.accept.join(',') : req.headers.accept ?? '';
+        if (accept.includes('text/html')) {
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          res.statusCode = 200;
+          res.end(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A2ABench MCP</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 40px; color: #111; }
+      code { background: #f2f2f2; padding: 2px 6px; border-radius: 4px; }
+      .card { max-width: 720px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>A2ABench MCP</h1>
+      <p>Use the MCP endpoint at <code>${PUBLIC_MCP_URL}</code>.</p>
+      <p>Health: <code>${baseUrl}/health</code></p>
+      <p>Agent card: <a href="${agentUrl}">${agentUrl}</a></p>
+    </div>
+  </body>
+</html>`);
+        } else if (accept.includes('application/json')) {
+          respondJson(res, 200, {
+            mcp: PUBLIC_MCP_URL,
+            health: `${baseUrl}/health`,
+            agentCard: agentUrl
+          });
+        } else {
+          respondText(
+            res,
+            200,
+            `A2ABench MCP\nMCP: ${PUBLIC_MCP_URL}\nHealth: ${baseUrl}/health\nAgent card: ${agentUrl}`
+          );
+        }
+      }
+      metrics.totalRequests += 1;
+      bumpMap(metrics.byStatus, res.statusCode);
+      logEvent('info', {
+        kind: 'mcp_request',
+        method: req.method,
+        status: res.statusCode,
+        durationMs: Date.now() - startMs,
+        requestId,
+        agentName: agentName ?? null,
+        userAgent: userAgent ?? null,
+        path: rawPath
+      });
+      return;
+    }
+
     if (!pathname.startsWith('/mcp')) {
       res.statusCode = 404;
       res.end('Not found');
