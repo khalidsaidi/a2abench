@@ -1,7 +1,7 @@
 {
   "name": "@a2abench/api",
   "private": true,
-  "version": "0.1.15",
+  "version": "0.1.16",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -9,11 +9,12 @@
     "start": "node dist/index.js",
     "lint": "echo 'lint not configured'",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "echo 'no tests'",
+    "test": "node --test --import tsx tests/markdownToText.test.ts",
     "prisma": "prisma",
     "migrate": "prisma migrate dev",
     "generate": "prisma generate",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "backfill": "tsx scripts/backfill_bodytext.ts"
   },
   "dependencies": {
     "@fastify/cors": "^8.5.0",
@@ -23,6 +24,8 @@
     "@prisma/client": "^5.11.0",
     "dotenv": "^16.4.5",
     "fastify": "^4.26.2",
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {

@@ -5,6 +5,7 @@ import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { PrismaClient } from '@prisma/client';
+import { markdownToText } from './markdown.js';
 import { z } from 'zod';
 import crypto from 'crypto';
 
@@ -30,7 +31,7 @@ await fastify.register(swagger, {
     info: {
       title: 'A2ABench API',
       description: 'Agent-native developer Q&A service',
-      version: '0.1.15'
+      version: '0.1.16'
     },
     components: {
       securitySchemes: {
@@ -68,17 +69,6 @@ type RouteRequest = {
   ip?: string;
   headers: Record<string, string | string[] | undefined>;
 };
-
-function markdownToText(markdown: string) {
-  return markdown
-    .replace(/```[\s\S]*?```/g, '')
-    .replace(/`[^`]+`/g, '')
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-    .replace(/\[(.*?)\]\([^)]*\)/g, '$1')
-    .replace(/[#>*_~]/g, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
 
 function normalizeTags(tags?: string[]) {
   if (!tags) return [];
@@ -208,7 +198,7 @@ function agentCard(baseUrl: string) {
     name: 'A2ABench',
     description: 'Agent-native developer Q&A with REST + MCP + A2A discovery. Read-only endpoints do not require auth.',
     url: baseUrl,
-    version: '0.1.15',
+    version: '0.1.16',
     protocolVersion: '0.1',
     skills: [
       {
@@ -1328,7 +1318,7 @@ fastify.get('/q/:id', async (request, reply) => {
   lines.push('');
   lines.push(`Asked by ${question.user.handle} on ${question.createdAt.toISOString()}`);
   lines.push('');
-  lines.push(question.bodyText);
+  lines.push(question.bodyText || markdownToText(question.bodyMd));
   lines.push('');
   lines.push('Answers:');
   if (question.answers.length === 0) {
@@ -1337,7 +1327,7 @@ fastify.get('/q/:id', async (request, reply) => {
     question.answers.forEach((answer, index) => {
       lines.push('');
       lines.push(`${index + 1}. ${answer.user.handle} (${answer.createdAt.toISOString()})`);
-      lines.push(answer.bodyText);
+      lines.push(answer.bodyText || markdownToText(answer.bodyMd));
     });
   }
   reply.type('text/plain').send(lines.join('\n'));
