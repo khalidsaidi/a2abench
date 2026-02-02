@@ -1,0 +1,14 @@
+HTTP/2 308 
+location: /sitemap.xml
+content-type: text/plain; charset=utf-8
+accept-ranges: bytes
+date: Mon, 02 Feb 2026 19:09:05 GMT
+x-served-by: cache-yvr1521-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1770059345.445015,VS0,VE112
+vary: x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 27
+
+Redirecting to /sitemap.xml

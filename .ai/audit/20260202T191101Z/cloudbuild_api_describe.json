@@ -1,0 +1,109 @@
+{
+  "artifacts": {
+    "images": [
+      "us-central1-docker.pkg.dev/a2abench-prod/a2abench/api:6d633c5"
+    ]
+  },
+  "createTime": "2026-02-02T19:12:08.265039714Z",
+  "finishTime": "2026-02-02T19:13:28.802082Z",
+  "id": "29369e4f-5c28-46f6-abdb-527cba88163e",
+  "images": [
+    "us-central1-docker.pkg.dev/a2abench-prod/a2abench/api:6d633c5"
+  ],
+  "logUrl": "https://console.cloud.google.com/cloud-build/builds/29369e4f-5c28-46f6-abdb-527cba88163e?project=405318049509",
+  "logsBucket": "gs://405318049509.cloudbuild-logs.googleusercontent.com",
+  "name": "projects/405318049509/locations/global/builds/29369e4f-5c28-46f6-abdb-527cba88163e",
+  "options": {
+    "logging": "LEGACY",
+    "pool": {}
+  },
+  "projectId": "a2abench-prod",
+  "queueTtl": "3600s",
+  "results": {
+    "buildStepImages": [
+      "sha256:a44c27d353305e518949db2d299d409743d2b4517bdbc6a6bbc9be0c80423902"
+    ],
+    "buildStepOutputs": [
+      ""
+    ],
+    "images": [
+      {
+        "artifactRegistryPackage": "projects/a2abench-prod/locations/us-central1/repositories/a2abench/packages/api/versions/sha256:69485f601603d5a3314b377fbbaa9ed4e73a88a5c41541e98d8aa3bc19c60d81",
+        "digest": "sha256:69485f601603d5a3314b377fbbaa9ed4e73a88a5c41541e98d8aa3bc19c60d81",
+        "name": "us-central1-docker.pkg.dev/a2abench-prod/a2abench/api:6d633c5",
+        "pushTiming": {
+          "endTime": "2026-02-02T19:13:28.969304529Z",
+          "startTime": "2026-02-02T19:13:14.119017049Z"
+        }
+      }
+    ]
+  },
+  "serviceAccount": "projects/a2abench-prod/serviceAccounts/405318049509-compute@developer.gserviceaccount.com",
+  "source": {
+    "storageSource": {
+      "bucket": "a2abench-prod_cloudbuild",
+      "generation": "1770059527865361",
+      "object": "source/1770059524.674085-e5689a1273924b909eb5199ab73f04fb.tgz"
+    }
+  },
+  "sourceProvenance": {
+    "fileHashes": {
+      "gs://a2abench-prod_cloudbuild/source/1770059524.674085-e5689a1273924b909eb5199ab73f04fb.tgz#1770059527865361": {
+        "fileHash": [
+          {
+            "type": "MD5",
+            "value": "7a3hzCfSzx9OyA2inyTgzA=="
+          }
+        ]
+      }
+    },
+    "resolvedStorageSource": {
+      "bucket": "a2abench-prod_cloudbuild",
+      "generation": "1770059527865361",
+      "object": "source/1770059524.674085-e5689a1273924b909eb5199ab73f04fb.tgz"
+    }
+  },
+  "startTime": "2026-02-02T19:12:10.376721639Z",
+  "status": "SUCCESS",
+  "steps": [
+    {
+      "args": [
+        "build",
+        "-t",
+        "us-central1-docker.pkg.dev/a2abench-prod/a2abench/api:6d633c5",
+        "-f",
+        "apps/api/Dockerfile",
+        "."
+      ],
+      "name": "gcr.io/cloud-builders/docker",
+      "pullTiming": {
+        "endTime": "2026-02-02T19:12:16.846993608Z",
+        "startTime": "2026-02-02T19:12:16.838833655Z"
+      },
+      "status": "SUCCESS",
+      "timing": {
+        "endTime": "2026-02-02T19:13:14.083689170Z",
+        "startTime": "2026-02-02T19:12:16.838833655Z"
+      }
+    }
+  ],
+  "timeout": "3600s",
+  "timing": {
+    "BUILD": {
+      "endTime": "2026-02-02T19:13:14.118959453Z",
+      "startTime": "2026-02-02T19:12:16.246177233Z"
+    },
+    "FETCHSOURCE": {
+      "endTime": "2026-02-02T19:12:16.245224376Z",
+      "startTime": "2026-02-02T19:12:13.368286239Z"
+    },
+    "PUSH": {
+      "endTime": "2026-02-02T19:13:28.971021537Z",
+      "startTime": "2026-02-02T19:13:14.119016394Z"
+    },
+    "STORAGE_SOURCE": {
+      "endTime": "2026-02-02T19:12:16.245224376Z",
+      "startTime": "2026-02-02T19:12:13.368286239Z"
+    }
+  }
+}

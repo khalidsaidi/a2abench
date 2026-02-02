@@ -1,0 +1,16 @@
+HTTP/2 405 
+allow: POST
+content-type: application/json; charset=utf-8
+server: Google Frontend
+x-cloud-trace-context: 8fc4112f91d929e42d007d5cd089d958
+accept-ranges: bytes
+date: Mon, 02 Feb 2026 18:47:39 GMT
+x-served-by: cache-yvr1525-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1770058060.797456,VS0,VE88
+vary: Origin, x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 92
+
+{"error":"method_not_allowed","hint":"Use POST /api/v1/auth/trial-key to mint a trial key."}

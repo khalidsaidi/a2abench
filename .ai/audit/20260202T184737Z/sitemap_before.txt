@@ -1,0 +1,23 @@
+HTTP/2 200 
+cache-control: private
+content-type: application/xml
+server: Google Frontend
+strict-transport-security: max-age=31556926; includeSubDomains; preload
+x-cloud-trace-context: be325a1dc3b5d777f3aa6919e3f0087a;o=1
+x-country-code: CA
+accept-ranges: bytes
+date: Mon, 02 Feb 2026 18:47:38 GMT
+x-served-by: cache-yvr1529-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1770058059.896417,VS0,VE102
+vary: Origin,cookie,need-authorization, x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 324
+
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://a2abench-api.web.app/.well-known/agent.json</loc></url>
+  <url><loc>https://a2abench-api.web.app/.well-known/agent-card.json</loc></url>
+  <url><loc>https://a2abench-api.web.app/docs</loc></url>
+</urlset>

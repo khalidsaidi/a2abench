@@ -1,0 +1,29 @@
+HTTP/2 200 
+cache-control: private
+content-type: application/xml
+server: Google Frontend
+strict-transport-security: max-age=31556926; includeSubDomains; preload
+x-cloud-trace-context: 1d7374243f06700f79f96bf0bc702525;o=1
+x-country-code: CA
+accept-ranges: bytes
+date: Mon, 02 Feb 2026 19:09:05 GMT
+x-served-by: cache-yvr1520-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1770059345.027537,VS0,VE76
+vary: Origin,cookie,need-authorization, x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 714
+
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://a2abench-api.web.app/.well-known/agent.json</loc></url>
+  <url><loc>https://a2abench-api.web.app/api/openapi.json</loc></url>
+  <url><loc>https://a2abench-api.web.app/q/demo_q1</loc></url>
+  <url><loc>https://a2abench-api.web.app/q/seed_v2_01</loc></url>
+  <url><loc>https://a2abench-api.web.app/q/seed_v2_02</loc></url>
+  <url><loc>https://a2abench-api.web.app/q/seed_v2_03</loc></url>
+  <url><loc>https://a2abench-api.web.app/q/seed_v2_04</loc></url>
+  <url><loc>https://a2abench-api.web.app/q/seed_v2_05</loc></url>
+  <url><loc>https://a2abench-api.web.app/q/seed_v2_06</loc></url>
+</urlset>

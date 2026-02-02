@@ -1,0 +1,16 @@
+HTTP/2 405 
+allow: POST
+content-type: application/json; charset=utf-8
+server: Google Frontend
+x-cloud-trace-context: db4ff29672600f86480ba37c2bb3b381
+accept-ranges: bytes
+date: Mon, 02 Feb 2026 19:19:38 GMT
+x-served-by: cache-yvr1530-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1770059978.356186,VS0,VE77
+vary: Origin, x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 75
+
+{"error":"method_not_allowed","hint":"POST /api/v1/auth/trial-key with {}"}
