@@ -1,0 +1,10 @@
+queued		chore: add audit evidence for v0.1.17 deploy	publish-mcp-registry	v0.1.17	push	21604854773	18s	2026-02-02T19:47:19Z
+queued		chore: add audit evidence for v0.1.17 deploy	publish-npm	v0.1.17	push	21604854753	18s	2026-02-02T19:47:19Z
+queued		chore: add audit evidence for v0.1.17 deploy	release	v0.1.17	push	21604854748	18s	2026-02-02T19:47:19Z
+queued		chore: add audit evidence for v0.1.17 deploy	ci	main	push	21604838530	54s	2026-02-02T19:46:43Z
+completed	success	chore: audit sitemap and seed_v2 updates	ci	main	push	21604122145	25s	2026-02-02T19:22:13Z
+completed	success	test: add public smoke checks for trial-key and sitemap	ci	main	push	21602690148	27s	2026-02-02T18:37:54Z
+completed	success	chore: audit 404 noise checks	ci	main	push	21602001356	23s	2026-02-02T18:16:28Z
+completed	success	chore: audit seed_v2 updates and deploy logs	ci	main	push	21601883603	23s	2026-02-02T18:12:59Z
+completed	failure	chore: record audit for 404 normalization	ci	main	push	21600580536	22s	2026-02-02T17:32:41Z
+completed	failure	chore(deps): bump @fastify/swagger from 8.15.0 to 9.6.1	ci	dependabot/npm_and_yarn/fastify/swagger-9.6.1	pull_request	21600154468	23s	2026-02-02T17:19:52Z
