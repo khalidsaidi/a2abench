@@ -1,0 +1,15 @@
+HTTP/2 400 
+content-type: application/json; charset=utf-8
+server: Google Frontend
+x-cloud-trace-context: 58a980f3a952dea1e782499af8db19c2;o=1
+accept-ranges: bytes
+date: Mon, 02 Feb 2026 17:30:16 GMT
+x-served-by: cache-yvr1524-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1770053417.696965,VS0,VE108
+vary: Origin, x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 53
+
+{"error":"Replace :id with a real id (try demo_q1)."}

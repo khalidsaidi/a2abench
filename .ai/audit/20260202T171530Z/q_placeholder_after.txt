@@ -1,0 +1,15 @@
+HTTP/2 400 
+content-type: text/plain
+server: Google Frontend
+x-cloud-trace-context: fc1e8efbd7928fd16592a33d53b8fcff
+accept-ranges: bytes
+date: Mon, 02 Feb 2026 17:30:16 GMT
+x-served-by: cache-yvr1532-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1770053417.908593,VS0,VE89
+vary: Origin, x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 41
+
+Replace :id with a real id (try demo_q1).

@@ -1,0 +1,16 @@
+HTTP/2 404 
+cache-control: max-age=600
+content-type: application/json; charset=utf-8
+server: Google Frontend
+x-cloud-trace-context: 15d6f19e132184ccbbcc774701cc62ce
+accept-ranges: bytes
+date: Mon, 02 Feb 2026 17:16:10 GMT
+x-served-by: cache-yvr1535-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1770052571.598893,VS0,VE134
+vary: Origin, x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 84
+
+{"message":"Route GET:/sitemap.xml/ not found","error":"Not Found","statusCode":404}
