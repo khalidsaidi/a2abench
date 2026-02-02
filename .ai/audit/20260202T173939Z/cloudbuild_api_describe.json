@@ -1,0 +1,99 @@
+{
+  "artifacts": {
+    "images": [
+      "us-central1-docker.pkg.dev/a2abench-prod/a2abench/api:b17a613"
+    ]
+  },
+  "createTime": "2026-02-02T17:40:54.542489021Z",
+  "failureInfo": {
+    "detail": "Build step failure: build step 0 \"gcr.io/cloud-builders/docker\" failed: step exited with non-zero status: 2",
+    "type": "USER_BUILD_STEP"
+  },
+  "finishTime": "2026-02-02T17:42:02.934882Z",
+  "id": "dc1b6c6e-aafe-4c62-9d5b-e7aa8dcbdbad",
+  "images": [
+    "us-central1-docker.pkg.dev/a2abench-prod/a2abench/api:b17a613"
+  ],
+  "logUrl": "https://console.cloud.google.com/cloud-build/builds/dc1b6c6e-aafe-4c62-9d5b-e7aa8dcbdbad?project=405318049509",
+  "logsBucket": "gs://405318049509.cloudbuild-logs.googleusercontent.com",
+  "name": "projects/405318049509/locations/global/builds/dc1b6c6e-aafe-4c62-9d5b-e7aa8dcbdbad",
+  "options": {
+    "logging": "LEGACY",
+    "pool": {}
+  },
+  "projectId": "a2abench-prod",
+  "queueTtl": "3600s",
+  "results": {
+    "buildStepImages": [
+      "sha256:a44c27d353305e518949db2d299d409743d2b4517bdbc6a6bbc9be0c80423902"
+    ],
+    "buildStepOutputs": [
+      ""
+    ]
+  },
+  "serviceAccount": "projects/a2abench-prod/serviceAccounts/405318049509-compute@developer.gserviceaccount.com",
+  "source": {
+    "storageSource": {
+      "bucket": "a2abench-prod_cloudbuild",
+      "generation": "1770054054179023",
+      "object": "source/1770054051.643474-36514c3704b745538b00a2e380973fc3.tgz"
+    }
+  },
+  "sourceProvenance": {
+    "fileHashes": {
+      "gs://a2abench-prod_cloudbuild/source/1770054051.643474-36514c3704b745538b00a2e380973fc3.tgz#1770054054179023": {
+        "fileHash": [
+          {
+            "type": "MD5",
+            "value": "xsWbM6XZibb59UHvx-BNQQ=="
+          }
+        ]
+      }
+    },
+    "resolvedStorageSource": {
+      "bucket": "a2abench-prod_cloudbuild",
+      "generation": "1770054054179023",
+      "object": "source/1770054051.643474-36514c3704b745538b00a2e380973fc3.tgz"
+    }
+  },
+  "startTime": "2026-02-02T17:40:55.515906295Z",
+  "status": "FAILURE",
+  "steps": [
+    {
+      "args": [
+        "build",
+        "-t",
+        "us-central1-docker.pkg.dev/a2abench-prod/a2abench/api:b17a613",
+        "-f",
+        "apps/api/Dockerfile",
+        "."
+      ],
+      "exitCode": 2,
+      "name": "gcr.io/cloud-builders/docker",
+      "pullTiming": {
+        "endTime": "2026-02-02T17:41:00.654005070Z",
+        "startTime": "2026-02-02T17:41:00.645524705Z"
+      },
+      "status": "FAILURE",
+      "timing": {
+        "endTime": "2026-02-02T17:41:51.513615649Z",
+        "startTime": "2026-02-02T17:41:00.645524705Z"
+      }
+    }
+  ],
+  "timeout": "3600s",
+  "timing": {
+    "BUILD": {
+      "endTime": "2026-02-02T17:41:51.513784646Z",
+      "startTime": "2026-02-02T17:41:00.022824986Z"
+    },
+    "FETCHSOURCE": {
+      "endTime": "2026-02-02T17:41:00.021590995Z",
+      "startTime": "2026-02-02T17:40:57.102903687Z"
+    },
+    "STORAGE_SOURCE": {
+      "endTime": "2026-02-02T17:41:00.021590995Z",
+      "startTime": "2026-02-02T17:40:57.102903687Z"
+    }
+  }
+}

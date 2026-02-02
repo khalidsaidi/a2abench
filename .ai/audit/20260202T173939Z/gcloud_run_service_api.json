@@ -1,0 +1,161 @@
+{
+  "apiVersion": "serving.knative.dev/v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "run.googleapis.com/client-name": "gcloud",
+      "run.googleapis.com/client-version": "554.0.0",
+      "run.googleapis.com/ingress": "all",
+      "run.googleapis.com/ingress-status": "all",
+      "run.googleapis.com/maxScale": "20",
+      "run.googleapis.com/operation-id": "bbdbda6f-50bf-43f5-a3bf-9b15d55b01ea",
+      "run.googleapis.com/urls": "[\"https://a2abench-api-405318049509.us-central1.run.app\",\"https://a2abench-api-7mymv6hkwa-uc.a.run.app\"]",
+      "serving.knative.dev/creator": "khalidsaidi66@gmail.com",
+      "serving.knative.dev/lastModifier": "khalidsaidi66@gmail.com"
+    },
+    "creationTimestamp": "2026-01-30T20:52:26.979410Z",
+    "generation": 29,
+    "labels": {
+      "cloud.googleapis.com/location": "us-central1"
+    },
+    "name": "a2abench-api",
+    "namespace": "405318049509",
+    "resourceVersion": "AAZJ2vDiYSw",
+    "selfLink": "/apis/serving.knative.dev/v1/namespaces/405318049509/services/a2abench-api",
+    "uid": "6a2c4456-781b-446a-a566-3d9375fa919f"
+  },
+  "spec": {
+    "template": {
+      "metadata": {
+        "annotations": {
+          "autoscaling.knative.dev/maxScale": "20",
+          "run.googleapis.com/client-name": "gcloud",
+          "run.googleapis.com/client-version": "554.0.0",
+          "run.googleapis.com/cloudsql-instances": "a2abench-prod:us-central1:a2abench-db",
+          "run.googleapis.com/startup-cpu-boost": "true"
+        },
+        "labels": {
+          "client.knative.dev/nonce": "hcwoojcoxa",
+          "run.googleapis.com/startupProbeType": "Default"
+        }
+      },
+      "spec": {
+        "containerConcurrency": 80,
+        "containers": [
+          {
+            "env": [
+              {
+                "name": "DATABASE_URL",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "latest",
+                    "name": "a2abench-database-url"
+                  }
+                }
+              },
+              {
+                "name": "ADMIN_TOKEN",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "latest",
+                    "name": "a2abench-admin-token"
+                  }
+                }
+              },
+              {
+                "name": "ADMIN_DASH_USER",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "latest",
+                    "name": "a2abench-admin-dash-user"
+                  }
+                }
+              },
+              {
+                "name": "ADMIN_DASH_PASS",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "latest",
+                    "name": "a2abench-admin-dash-pass"
+                  }
+                }
+              },
+              {
+                "name": "SERVICE_VERSION",
+                "value": "0.1.16"
+              }
+            ],
+            "image": "us-central1-docker.pkg.dev/a2abench-prod/a2abench/api:29045d4",
+            "ports": [
+              {
+                "containerPort": 8080,
+                "name": "http1"
+              }
+            ],
+            "resources": {
+              "limits": {
+                "cpu": "1000m",
+                "memory": "512Mi"
+              }
+            },
+            "startupProbe": {
+              "failureThreshold": 1,
+              "periodSeconds": 240,
+              "tcpSocket": {
+                "port": 8080
+              },
+              "timeoutSeconds": 240
+            }
+          }
+        ],
+        "serviceAccountName": "405318049509-compute@developer.gserviceaccount.com",
+        "timeoutSeconds": 300
+      }
+    },
+    "traffic": [
+      {
+        "latestRevision": true,
+        "percent": 100
+      }
+    ]
+  },
+  "status": {
+    "address": {
+      "url": "https://a2abench-api-7mymv6hkwa-uc.a.run.app"
+    },
+    "conditions": [
+      {
+        "lastTransitionTime": "2026-02-02T17:49:13.260270Z",
+        "message": "The user-provided container failed to start and listen on the port defined provided by the PORT=8080 environment variable within the allocated timeout. This can happen when the container port is misconfigured or if the timeout is too short. The health check timeout can be extended. Logs for this revision might contain more information.\n\nLogs URL: https://console.cloud.google.com/logs/viewer?project=a2abench-prod&resource=cloud_run_revision/service_name/a2abench-api/revision_name/a2abench-api-00029-mds&advancedFilter=resource.type%3D%22cloud_run_revision%22%0Aresource.labels.service_name%3D%22a2abench-api%22%0Aresource.labels.revision_name%3D%22a2abench-api-00029-mds%22 \nFor more troubleshooting guidance, see https://cloud.google.com/run/docs/troubleshooting#container-failed-to-start",
+        "reason": "HealthCheckContainerError",
+        "status": "False",
+        "type": "Ready"
+      },
+      {
+        "lastTransitionTime": "2026-02-02T17:49:13.188787Z",
+        "message": "The user-provided container failed to start and listen on the port defined provided by the PORT=8080 environment variable within the allocated timeout. This can happen when the container port is misconfigured or if the timeout is too short. The health check timeout can be extended. Logs for this revision might contain more information.\n\nLogs URL: https://console.cloud.google.com/logs/viewer?project=a2abench-prod&resource=cloud_run_revision/service_name/a2abench-api/revision_name/a2abench-api-00029-mds&advancedFilter=resource.type%3D%22cloud_run_revision%22%0Aresource.labels.service_name%3D%22a2abench-api%22%0Aresource.labels.revision_name%3D%22a2abench-api-00029-mds%22 \nFor more troubleshooting guidance, see https://cloud.google.com/run/docs/troubleshooting#container-failed-to-start",
+        "reason": "HealthCheckContainerError",
+        "status": "False",
+        "type": "ConfigurationsReady"
+      },
+      {
+        "lastTransitionTime": "2026-02-02T17:49:13.260270Z",
+        "message": "The user-provided container failed to start and listen on the port defined provided by the PORT=8080 environment variable within the allocated timeout. This can happen when the container port is misconfigured or if the timeout is too short. The health check timeout can be extended. Logs for this revision might contain more information.\n\nLogs URL: https://console.cloud.google.com/logs/viewer?project=a2abench-prod&resource=cloud_run_revision/service_name/a2abench-api/revision_name/a2abench-api-00029-mds&advancedFilter=resource.type%3D%22cloud_run_revision%22%0Aresource.labels.service_name%3D%22a2abench-api%22%0Aresource.labels.revision_name%3D%22a2abench-api-00029-mds%22 \nFor more troubleshooting guidance, see https://cloud.google.com/run/docs/troubleshooting#container-failed-to-start",
+        "reason": "HealthCheckContainerError",
+        "status": "False",
+        "type": "RoutesReady"
+      }
+    ],
+    "latestCreatedRevisionName": "a2abench-api-00029-mds",
+    "latestReadyRevisionName": "a2abench-api-00028-ck6",
+    "observedGeneration": 29,
+    "traffic": [
+      {
+        "latestRevision": true,
+        "percent": 100,
+        "revisionName": "a2abench-api-00028-ck6"
+      }
+    ],
+    "url": "https://a2abench-api-7mymv6hkwa-uc.a.run.app"
+  }
+}

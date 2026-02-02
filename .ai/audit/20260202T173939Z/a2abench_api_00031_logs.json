@@ -1,0 +1,423 @@
+[
+  {
+    "insertId": "-768xd5dhu3k",
+    "logName": "projects/a2abench-prod/logs/cloudaudit.googleapis.com%2Fsystem_event",
+    "protoPayload": {
+      "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+      "methodName": "/Services.ReplaceService",
+      "resourceName": "namespaces/a2abench-prod/revisions/a2abench-api-00031-s28",
+      "response": {
+        "@type": "type.googleapis.com/google.cloud.run.v1.Revision",
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Revision",
+        "metadata": {
+          "annotations": {
+            "autoscaling.knative.dev/maxScale": "20",
+            "run.googleapis.com/client-name": "gcloud",
+            "run.googleapis.com/client-version": "554.0.0",
+            "run.googleapis.com/cloudsql-instances": "a2abench-prod:us-central1:a2abench-db",
+            "run.googleapis.com/operation-id": "ce532b90-4b14-4372-a805-83598753f6d3",
+            "run.googleapis.com/startup-cpu-boost": "true",
+            "serving.knative.dev/creator": "khalidsaidi66@gmail.com"
+          },
+          "creationTimestamp": "2026-02-02T18:00:09.952400Z",
+          "generation": 1,
+          "labels": {
+            "client.knative.dev/nonce": "vpssufnwad",
+            "cloud.googleapis.com/location": "us-central1",
+            "run.googleapis.com/startupProbeType": "Default",
+            "serving.knative.dev/configuration": "a2abench-api",
+            "serving.knative.dev/configurationGeneration": "31",
+            "serving.knative.dev/route": "a2abench-api",
+            "serving.knative.dev/service": "a2abench-api",
+            "serving.knative.dev/serviceUid": "6a2c4456-781b-446a-a566-3d9375fa919f"
+          },
+          "name": "a2abench-api-00031-s28",
+          "namespace": "405318049509",
+          "ownerReferences": [
+            {
+              "apiVersion": "serving.knative.dev/v1",
+              "blockOwnerDeletion": true,
+              "controller": true,
+              "kind": "Configuration",
+              "name": "a2abench-api",
+              "uid": "38305139-3db0-4601-b428-5589c8d660fd"
+            }
+          ],
+          "resourceVersion": "AAZJ2yASJSE",
+          "selfLink": "/apis/serving.knative.dev/v1/namespaces/405318049509/revisions/a2abench-api-00031-s28",
+          "uid": "bf25412d-204d-4ea4-a8fe-70d91c00d20b"
+        },
+        "spec": {
+          "containerConcurrency": 80,
+          "containers": [
+            {
+              "env": [
+                {
+                  "name": "DATABASE_URL",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "latest",
+                      "name": "a2abench-database-url"
+                    }
+                  }
+                },
+                {
+                  "name": "ADMIN_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "latest",
+                      "name": "a2abench-admin-token"
+                    }
+                  }
+                },
+                {
+                  "name": "ADMIN_DASH_USER",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "latest",
+                      "name": "a2abench-admin-dash-user"
+                    }
+                  }
+                },
+                {
+                  "name": "ADMIN_DASH_PASS",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "latest",
+                      "name": "a2abench-admin-dash-pass"
+                    }
+                  }
+                },
+                {
+                  "name": "SERVICE_VERSION",
+                  "value": "0.1.16"
+                }
+              ],
+              "image": "us-central1-docker.pkg.dev/a2abench-prod/a2abench/api@sha256:5d8311459de6a9e000794a67e34541d2da499bd52e128bbdf9c90c598db8140d",
+              "name": "api-1",
+              "ports": [
+                {
+                  "containerPort": 8080,
+                  "name": "http1"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "1000m",
+                  "memory": "512Mi"
+                }
+              },
+              "startupProbe": {
+                "failureThreshold": 1,
+                "periodSeconds": 240,
+                "tcpSocket": {
+                  "port": 8080
+                },
+                "timeoutSeconds": 240
+              }
+            }
+          ],
+          "serviceAccountName": "405318049509-compute@developer.gserviceaccount.com",
+          "timeoutSeconds": 300
+        },
+        "status": {
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-02-02T18:02:24.989473Z",
+              "message": "The user-provided container failed to start and listen on the port defined provided by the PORT=8080 environment variable within the allocated timeout. This can happen when the container port is misconfigured or if the timeout is too short. The health check timeout can be extended. Logs for this revision might contain more information.\n\nLogs URL: https://console.cloud.google.com/logs/viewer?project=a2abench-prod&resource=cloud_run_revision/service_name/a2abench-api/revision_name/a2abench-api-00031-s28&advancedFilter=resource.type%3D%22cloud_run_revision%22%0Aresource.labels.service_name%3D%22a2abench-api%22%0Aresource.labels.revision_name%3D%22a2abench-api-00031-s28%22 \nFor more troubleshooting guidance, see https://cloud.google.com/run/docs/troubleshooting#container-failed-to-start",
+              "reason": "HealthCheckContainerError",
+              "status": "False",
+              "type": "Ready"
+            },
+            {
+              "lastTransitionTime": "2026-02-02T18:02:24.989473Z",
+              "message": "The user-provided container failed to start and listen on the port defined provided by the PORT=8080 environment variable within the allocated timeout. This can happen when the container port is misconfigured or if the timeout is too short. The health check timeout can be extended. Logs for this revision might contain more information.\n\nLogs URL: https://console.cloud.google.com/logs/viewer?project=a2abench-prod&resource=cloud_run_revision/service_name/a2abench-api/revision_name/a2abench-api-00031-s28&advancedFilter=resource.type%3D%22cloud_run_revision%22%0Aresource.labels.service_name%3D%22a2abench-api%22%0Aresource.labels.revision_name%3D%22a2abench-api-00031-s28%22 \nFor more troubleshooting guidance, see https://cloud.google.com/run/docs/troubleshooting#container-failed-to-start",
+              "reason": "HealthCheckContainerError",
+              "status": "False",
+              "type": "ContainerHealthy"
+            },
+            {
+              "lastTransitionTime": "2026-02-02T18:00:17.522332Z",
+              "message": "Container image import completed in 6.78s.",
+              "status": "True",
+              "type": "ContainerReady"
+            },
+            {
+              "lastTransitionTime": "2026-02-02T18:02:20.588331Z",
+              "message": "Provisioning imported containers completed in 2m3.06s. Checking container health. This will wait for up to 4m for the configured startup probe, including an initial delay of 0s.",
+              "status": "True",
+              "type": "ResourcesAvailable"
+            },
+            {
+              "lastTransitionTime": "2026-02-02T18:02:20.588331Z",
+              "message": "System will retry after 00:00 from lastTransitionTime for attempt 0.",
+              "reason": "ImmediateRetry",
+              "severity": "Info",
+              "status": "True",
+              "type": "Retry"
+            }
+          ],
+          "containerStatuses": [
+            {
+              "imageDigest": "us-central1-docker.pkg.dev/a2abench-prod/a2abench/api@sha256:5d8311459de6a9e000794a67e34541d2da499bd52e128bbdf9c90c598db8140d",
+              "name": "api-1"
+            }
+          ],
+          "imageDigest": "us-central1-docker.pkg.dev/a2abench-prod/a2abench/api@sha256:5d8311459de6a9e000794a67e34541d2da499bd52e128bbdf9c90c598db8140d",
+          "logUrl": "https://console.cloud.google.com/logs/viewer?project=a2abench-prod&resource=cloud_run_revision/service_name/a2abench-api/revision_name/a2abench-api-00031-s28&advancedFilter=resource.type%3D%22cloud_run_revision%22%0Aresource.labels.service_name%3D%22a2abench-api%22%0Aresource.labels.revision_name%3D%22a2abench-api-00031-s28%22",
+          "observedGeneration": 1
+        }
+      },
+      "serviceName": "run.googleapis.com",
+      "status": {
+        "code": 9,
+        "message": "Ready condition status changed to False for Revision a2abench-api-00031-s28 with message: The user-provided container failed to start and listen on the port defined provided by the PORT=8080 environment variable within the allocated timeout. This can happen when the container port is misconfigured or if the timeout is too short. The health check timeout can be extended. Logs for this revision might contain more information.\n\nLogs URL: https://console.cloud.google.com/logs/viewer?project=a2abench-prod&resource=cloud_run_revision/service_name/a2abench-api/revision_name/a2abench-api-00031-s28&advancedFilter=resource.type%3D%22cloud_run_revision%22%0Aresource.labels.service_name%3D%22a2abench-api%22%0Aresource.labels.revision_name%3D%22a2abench-api-00031-s28%22 \nFor more troubleshooting guidance, see https://cloud.google.com/run/docs/troubleshooting#container-failed-to-start"
+      }
+    },
+    "receiveTimestamp": "2026-02-02T18:02:25.904757186Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "a2abench-api",
+        "location": "us-central1",
+        "project_id": "a2abench-prod",
+        "revision_name": "a2abench-api-00031-s28",
+        "service_name": "a2abench-api"
+      },
+      "type": "cloud_run_revision"
+    },
+    "severity": "ERROR",
+    "timestamp": "2026-02-02T18:02:25.000586Z"
+  },
+  {
+    "insertId": "6980e6b0000f19493d369046",
+    "labels": {
+      "instanceId": "005eb6974cbaca259d6a7aab360bc9d0b83d26afc9f8c5ccbf6455e8c87447643cd0031c2337bc24e52ddb1d90199693c8fa18563416b4e7ea527b0f0f0e9792180a37289236f561fb0f3876e186c2"
+    },
+    "logName": "projects/a2abench-prod/logs/run.googleapis.com%2Fvarlog%2Fsystem",
+    "receiveTimestamp": "2026-02-02T18:02:25.018476323Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "a2abench-api",
+        "location": "us-central1",
+        "project_id": "a2abench-prod",
+        "revision_name": "a2abench-api-00031-s28",
+        "service_name": "a2abench-api"
+      },
+      "type": "cloud_run_revision"
+    },
+    "severity": "ERROR",
+    "textPayload": "Default STARTUP TCP probe failed 1 time consecutively for container \"api-1\" on port 8080. The instance was not started.\nConnection failed with status CANCELLED.",
+    "timestamp": "2026-02-02T18:02:24.989513Z"
+  },
+  {
+    "insertId": "6980e6b0000d9b5bf29f6f0c",
+    "labels": {
+      "container_name": "api-1",
+      "instanceId": "005eb6974cbaca259d6a7aab360bc9d0b83d26afc9f8c5ccbf6455e8c87447643cd0031c2337bc24e52ddb1d90199693c8fa18563416b4e7ea527b0f0f0e9792180a37289236f561fb0f3876e186c2"
+    },
+    "logName": "projects/a2abench-prod/logs/run.googleapis.com%2Fvarlog%2Fsystem",
+    "receiveTimestamp": "2026-02-02T18:02:25.018476323Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "a2abench-api",
+        "location": "us-central1",
+        "project_id": "a2abench-prod",
+        "revision_name": "a2abench-api-00031-s28",
+        "service_name": "a2abench-api"
+      },
+      "type": "cloud_run_revision"
+    },
+    "severity": "WARNING",
+    "textPayload": "Container called exit(1).",
+    "timestamp": "2026-02-02T18:02:24.891681316Z"
+  },
+  {
+    "insertId": "6980e6b0000260823f201d9e",
+    "labels": {
+      "instanceId": "005eb6974cbaca259d6a7aab360bc9d0b83d26afc9f8c5ccbf6455e8c87447643cd0031c2337bc24e52ddb1d90199693c8fa18563416b4e7ea527b0f0f0e9792180a37289236f561fb0f3876e186c2"
+    },
+    "logName": "projects/a2abench-prod/logs/run.googleapis.com%2Fstderr",
+    "receiveTimestamp": "2026-02-02T18:02:24.495062609Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "a2abench-api",
+        "location": "us-central1",
+        "project_id": "a2abench-prod",
+        "revision_name": "a2abench-api-00031-s28",
+        "service_name": "a2abench-api"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "Node.js v20.20.0",
+    "timestamp": "2026-02-02T18:02:24.155778Z"
+  },
+  {
+    "insertId": "6980e6b00002607e97d01f3c",
+    "labels": {
+      "instanceId": "005eb6974cbaca259d6a7aab360bc9d0b83d26afc9f8c5ccbf6455e8c87447643cd0031c2337bc24e52ddb1d90199693c8fa18563416b4e7ea527b0f0f0e9792180a37289236f561fb0f3876e186c2"
+    },
+    "logName": "projects/a2abench-prod/logs/run.googleapis.com%2Fstderr",
+    "receiveTimestamp": "2026-02-02T18:02:24.495062609Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "a2abench-api",
+        "location": "us-central1",
+        "project_id": "a2abench-prod",
+        "revision_name": "a2abench-api-00031-s28",
+        "service_name": "a2abench-api"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "}",
+    "timestamp": "2026-02-02T18:02:24.155774Z"
+  },
+  {
+    "insertId": "6980e6b00002607bae92047e",
+    "labels": {
+      "instanceId": "005eb6974cbaca259d6a7aab360bc9d0b83d26afc9f8c5ccbf6455e8c87447643cd0031c2337bc24e52ddb1d90199693c8fa18563416b4e7ea527b0f0f0e9792180a37289236f561fb0f3876e186c2"
+    },
+    "logName": "projects/a2abench-prod/logs/run.googleapis.com%2Fstderr",
+    "receiveTimestamp": "2026-02-02T18:02:24.495062609Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "a2abench-api",
+        "location": "us-central1",
+        "project_id": "a2abench-prod",
+        "revision_name": "a2abench-api-00031-s28",
+        "service_name": "a2abench-api"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "  statusCode: 500",
+    "timestamp": "2026-02-02T18:02:24.155771Z"
+  },
+  {
+    "insertId": "6980e6b00002607798ffd522",
+    "labels": {
+      "instanceId": "005eb6974cbaca259d6a7aab360bc9d0b83d26afc9f8c5ccbf6455e8c87447643cd0031c2337bc24e52ddb1d90199693c8fa18563416b4e7ea527b0f0f0e9792180a37289236f561fb0f3876e186c2"
+    },
+    "logName": "projects/a2abench-prod/logs/run.googleapis.com%2Fstderr",
+    "receiveTimestamp": "2026-02-02T18:02:24.495062609Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "a2abench-api",
+        "location": "us-central1",
+        "project_id": "a2abench-prod",
+        "revision_name": "a2abench-api-00031-s28",
+        "service_name": "a2abench-api"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "  code: 'FST_ERR_PLUGIN_VERSION_MISMATCH',",
+    "timestamp": "2026-02-02T18:02:24.155767Z"
+  },
+  {
+    "errorGroups": [
+      {
+        "id": "CJWhoar29tPovwE"
+      }
+    ],
+    "insertId": "6980e6b00002606e837882f2",
+    "labels": {
+      "instanceId": "005eb6974cbaca259d6a7aab360bc9d0b83d26afc9f8c5ccbf6455e8c87447643cd0031c2337bc24e52ddb1d90199693c8fa18563416b4e7ea527b0f0f0e9792180a37289236f561fb0f3876e186c2"
+    },
+    "logName": "projects/a2abench-prod/logs/run.googleapis.com%2Fstderr",
+    "receiveTimestamp": "2026-02-02T18:02:24.495062609Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "a2abench-api",
+        "location": "us-central1",
+        "project_id": "a2abench-prod",
+        "revision_name": "a2abench-api-00031-s28",
+        "service_name": "a2abench-api"
+      },
+      "type": "cloud_run_revision"
+    },
+    "severity": "ERROR",
+    "textPayload": "FastifyError [Error]: fastify-plugin: @fastify/swagger - expected '5.x' fastify version, '4.29.1' is installed\n    at Object.checkVersion (/repo/node_modules/.pnpm/fastify@4.29.1/node_modules/fastify/lib/pluginUtils.js:125:11)\n    at Object.registerPlugin (/repo/node_modules/.pnpm/fastify@4.29.1/node_modules/fastify/lib/pluginUtils.js:148:16)\n    at Boot.override (/repo/node_modules/.pnpm/fastify@4.29.1/node_modules/fastify/lib/pluginOverride.js:28:57)\n    at Boot._loadPlugin (/repo/node_modules/.pnpm/avvio@8.4.0/node_modules/avvio/boot.js:425:25)\n    at process.processTicksAndRejections (node:internal/process/task_queues:82:21) {",
+    "timestamp": "2026-02-02T18:02:24.155758Z"
+  },
+  {
+    "insertId": "6980e6b0000254794f0cf800",
+    "labels": {
+      "instanceId": "005eb6974cbaca259d6a7aab360bc9d0b83d26afc9f8c5ccbf6455e8c87447643cd0031c2337bc24e52ddb1d90199693c8fa18563416b4e7ea527b0f0f0e9792180a37289236f561fb0f3876e186c2"
+    },
+    "logName": "projects/a2abench-prod/logs/run.googleapis.com%2Fstderr",
+    "receiveTimestamp": "2026-02-02T18:02:24.159448440Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "a2abench-api",
+        "location": "us-central1",
+        "project_id": "a2abench-prod",
+        "revision_name": "a2abench-api-00031-s28",
+        "service_name": "a2abench-api"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "          ^",
+    "timestamp": "2026-02-02T18:02:24.152697Z"
+  },
+  {
+    "insertId": "6980e6b00002547514fe977b",
+    "labels": {
+      "instanceId": "005eb6974cbaca259d6a7aab360bc9d0b83d26afc9f8c5ccbf6455e8c87447643cd0031c2337bc24e52ddb1d90199693c8fa18563416b4e7ea527b0f0f0e9792180a37289236f561fb0f3876e186c2"
+    },
+    "logName": "projects/a2abench-prod/logs/run.googleapis.com%2Fstderr",
+    "receiveTimestamp": "2026-02-02T18:02:24.159448440Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "a2abench-api",
+        "location": "us-central1",
+        "project_id": "a2abench-prod",
+        "revision_name": "a2abench-api-00031-s28",
+        "service_name": "a2abench-api"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "    throw new FST_ERR_PLUGIN_VERSION_MISMATCH(meta.name, requiredVersion, this.version)",
+    "timestamp": "2026-02-02T18:02:24.152693Z"
+  },
+  {
+    "insertId": "6980e6b0000254608defc813",
+    "labels": {
+      "instanceId": "005eb6974cbaca259d6a7aab360bc9d0b83d26afc9f8c5ccbf6455e8c87447643cd0031c2337bc24e52ddb1d90199693c8fa18563416b4e7ea527b0f0f0e9792180a37289236f561fb0f3876e186c2"
+    },
+    "logName": "projects/a2abench-prod/logs/run.googleapis.com%2Fstderr",
+    "receiveTimestamp": "2026-02-02T18:02:24.159448440Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "a2abench-api",
+        "location": "us-central1",
+        "project_id": "a2abench-prod",
+        "revision_name": "a2abench-api-00031-s28",
+        "service_name": "a2abench-api"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "/repo/node_modules/.pnpm/fastify@4.29.1/node_modules/fastify/lib/pluginUtils.js:125",
+    "timestamp": "2026-02-02T18:02:24.152672Z"
+  },
+  {
+    "insertId": "6980e6ac000a6ba82d9319c1",
+    "labels": {
+      "instanceId": "005eb6974cbaca259d6a7aab360bc9d0b83d26afc9f8c5ccbf6455e8c87447643cd0031c2337bc24e52ddb1d90199693c8fa18563416b4e7ea527b0f0f0e9792180a37289236f561fb0f3876e186c2",
+      "scaling_reason": "DEPLOYMENT_ROLLOUT"
+    },
+    "logName": "projects/a2abench-prod/logs/run.googleapis.com%2Fvarlog%2Fsystem",
+    "receiveTimestamp": "2026-02-02T18:02:20.688360564Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "a2abench-api",
+        "location": "us-central1",
+        "project_id": "a2abench-prod",
+        "revision_name": "a2abench-api-00031-s28",
+        "service_name": "a2abench-api"
+      },
+      "type": "cloud_run_revision"
+    },
+    "severity": "INFO",
+    "textPayload": "Starting new instance. Reason: DEPLOYMENT_ROLLOUT - Instance started due to traffic shifting between revisions due to deployment, traffic split adjustment, or deployment health check.",
+    "timestamp": "2026-02-02T18:02:20.682920Z"
+  }
+]
