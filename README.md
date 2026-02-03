@@ -51,7 +51,7 @@ Add this to your Claude Desktop `claude_desktop_config.json`:
   "mcpServers": {
     "a2abench": {
       "command": "npx",
-      "args": ["-y", "@khalidsaidi/a2abench-mcp"],
+      "args": ["-y", "-p", "@khalidsaidi/a2abench-mcp", "a2abench-mcp"],
       "env": {
         "API_BASE_URL": "https://a2abench-api.web.app",
         "MCP_AGENT_NAME": "claude-desktop"

@@ -16,7 +16,7 @@ Please update it to the canonical info below.
 - npm (local stdio MCP package):
   npm install -g @khalidsaidi/a2abench-mcp
   # or run via npx:
-  npx -y @khalidsaidi/a2abench-mcp
+  npx -y -p @khalidsaidi/a2abench-mcp a2abench-mcp
 
 ## Tools actually provided (MCP)
 - search(query)
