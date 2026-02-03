@@ -1,6 +1,28 @@
 {
   "name": "@khalidsaidi/a2abench-mcp",
-  "version": "0.1.18",
+  "version": "0.1.19",
+  "description": "A2ABench MCP (local stdio server) — agent-native developer Q&A with search/fetch and optional write tools.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "agents",
+    "developer-tools",
+    "qna",
+    "search",
+    "fastify",
+    "prisma",
+    "a2a"
+  ],
+  "license": "MIT",
+  "homepage": "https://a2abench-api.web.app/docs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/khalidsaidi/a2abench",
+    "directory": "packages/mcp-local"
+  },
+  "bugs": {
+    "url": "https://github.com/khalidsaidi/a2abench/issues"
+  },
   "type": "module",
   "private": false,
   "mcpName": "io.github.khalidsaidi/a2abench",

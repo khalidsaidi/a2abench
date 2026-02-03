@@ -11,7 +11,7 @@ const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-local';
 
 const server = new McpServer({
   name: 'A2ABench',
-  version: '0.1.18'
+  version: '0.1.19'
 });
 
 async function apiGet(path: string, params?: Record<string, string>) {
