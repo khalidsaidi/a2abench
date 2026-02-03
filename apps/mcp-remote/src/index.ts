@@ -16,12 +16,22 @@ const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-remote';
 const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.17';
 const COMMIT_SHA = process.env.COMMIT_SHA ?? process.env.GIT_SHA ?? 'unknown';
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
+const CAPTURE_AGENT_PAYLOADS = (process.env.CAPTURE_AGENT_PAYLOADS ?? '').toLowerCase() === 'true';
+const AGENT_EVENT_TOKEN = process.env.AGENT_EVENT_TOKEN ?? '';
+const AGENT_EVENT_ENDPOINT =
+  process.env.AGENT_EVENT_ENDPOINT ?? `${API_BASE_URL.replace(/\/$/, '')}/api/v1/admin/agent-events/ingest`;
 const ALLOWED_ORIGINS = (process.env.MCP_ALLOWED_ORIGINS ?? '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-const requestContext = new AsyncLocalStorage<{ agentName?: string; requestId?: string; authHeader?: string }>();
+const requestContext = new AsyncLocalStorage<{
+  agentName?: string;
+  requestId?: string;
+  authHeader?: string;
+  userAgent?: string;
+  ip?: string;
+}>();
 
 const server = new McpServer({
   name: 'A2ABench',
@@ -81,6 +91,93 @@ function logMetricsSummary() {
     byTool,
     toolErrors
   });
+}
+
+function captureToolEvent(
+  tool: string,
+  requestBody: Record<string, unknown>,
+  responseBody: Record<string, unknown>,
+  status: number,
+  durationMs: number
+) {
+  if (!CAPTURE_AGENT_PAYLOADS || !AGENT_EVENT_TOKEN) return;
+  const ctx = requestContext.getStore();
+  void postAgentEvent({
+    source: 'mcp-remote',
+    kind: 'mcp_tool',
+    tool,
+    status,
+    durationMs,
+    requestId: ctx?.requestId ?? null,
+    agentName: ctx?.agentName ?? null,
+    userAgent: ctx?.userAgent ?? null,
+    ip: ctx?.ip ?? null,
+    apiKeyPrefix: extractApiKeyPrefix(ctx?.authHeader),
+    requestBody: sanitizePayload(requestBody),
+    responseBody: sanitizePayload(responseBody)
+  });
+}
+
+function extractApiKeyPrefix(authHeader?: string) {
+  if (!authHeader) return null;
+  const [scheme, ...rest] = authHeader.split(' ');
+  if (!scheme || scheme.toLowerCase() !== 'bearer') return null;
+  const token = rest.join(' ').trim();
+  if (!token) return null;
+  return token.slice(0, 8);
+}
+
+function getClientIp(headers: Record<string, string | string[] | undefined>, fallback?: string | null) {
+  const forwarded = headers['x-forwarded-for'];
+  const forwardedValue = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+  if (forwardedValue) return forwardedValue.split(',')[0]?.trim();
+  const realIp = headers['x-real-ip'];
+  const realIpValue = Array.isArray(realIp) ? realIp[0] : realIp;
+  if (realIpValue) return realIpValue;
+  const cfIp = headers['cf-connecting-ip'];
+  const cfIpValue = Array.isArray(cfIp) ? cfIp[0] : cfIp;
+  if (cfIpValue) return cfIpValue;
+  return fallback ?? null;
+}
+
+function redactString(value: string) {
+  return value.replace(/Bearer\\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted]');
+}
+
+function sanitizePayload(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') return redactString(value);
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (Array.isArray(value)) return value.map((item) => sanitizePayload(item));
+  if (typeof value === 'object') {
+    const output: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      const lower = key.toLowerCase();
+      if (lower.includes('authorization') || lower.includes('token') || lower.includes('apikey') || lower.includes('secret')) {
+        output[key] = '[redacted]';
+      } else {
+        output[key] = sanitizePayload(val);
+      }
+    }
+    return output;
+  }
+  return value;
+}
+
+async function postAgentEvent(payload: Record<string, unknown>) {
+  if (!CAPTURE_AGENT_PAYLOADS || !AGENT_EVENT_TOKEN) return;
+  try {
+    await fetch(AGENT_EVENT_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-agent-event-token': AGENT_EVENT_TOKEN
+      },
+      body: JSON.stringify(payload)
+    });
+  } catch (err) {
+    logEvent('warn', { kind: 'agent_event_failed', errorName: err instanceof Error ? err.name : 'unknown' });
+  }
 }
 
 async function apiGet(path: string, params?: Record<string, string>) {
@@ -151,6 +248,7 @@ server.registerTool(
         durationMs: Date.now() - toolStart,
         requestId
       });
+      captureToolEvent('search', { query }, { results: [] }, response.status, Date.now() - toolStart);
       return {
         content: [
           {
@@ -176,6 +274,7 @@ server.registerTool(
       resultCount: results.length,
       requestId
     });
+    captureToolEvent('search', { query }, { results }, response.status, Date.now() - toolStart);
     return {
       content: [
         {
@@ -212,6 +311,7 @@ server.registerTool(
         id,
         requestId
       });
+      captureToolEvent('fetch', { id }, { error: 'Not found' }, response.status, Date.now() - toolStart);
       return {
         content: [
           {
@@ -232,6 +332,7 @@ server.registerTool(
       id,
       requestId
     });
+    captureToolEvent('fetch', { id }, data as Record<string, unknown>, response.status, Date.now() - toolStart);
     return {
       content: [
         {
@@ -263,6 +364,13 @@ server.registerTool(
       metrics.totalToolCalls += 1;
       bumpMap(metrics.byTool, 'create_question');
       bumpMap(metrics.toolErrors, 'create_question');
+      captureToolEvent(
+        'create_question',
+        { title, bodyMd, tags, force },
+        { error: 'Missing API key' },
+        401,
+        Date.now() - toolStart
+      );
       return {
         isError: true,
         content: [
@@ -289,6 +397,13 @@ server.registerTool(
         durationMs: Date.now() - toolStart,
         requestId
       });
+      captureToolEvent(
+        'create_question',
+        { title, bodyMd, tags, force },
+        { error: text || 'Failed to create question', status: response.status },
+        response.status,
+        Date.now() - toolStart
+      );
       return {
         isError: true,
         content: [
@@ -309,6 +424,7 @@ server.registerTool(
       durationMs: Date.now() - toolStart,
       requestId
     });
+    captureToolEvent('create_question', { title, bodyMd, tags, force }, data as Record<string, unknown>, response.status, Date.now() - toolStart);
     return {
       content: [
         {
@@ -341,6 +457,13 @@ server.registerTool(
       metrics.totalToolCalls += 1;
       bumpMap(metrics.byTool, 'create_answer');
       bumpMap(metrics.toolErrors, 'create_answer');
+      captureToolEvent(
+        'create_answer',
+        { id, bodyMd },
+        { error: 'Missing API key' },
+        401,
+        Date.now() - toolStart
+      );
       return {
         isError: true,
         content: [
@@ -367,6 +490,13 @@ server.registerTool(
         durationMs: Date.now() - toolStart,
         requestId
       });
+      captureToolEvent(
+        'create_answer',
+        { id, bodyMd },
+        { error: text || 'Failed to create answer', status: response.status },
+        response.status,
+        Date.now() - toolStart
+      );
       return {
         isError: true,
         content: [
@@ -387,6 +517,7 @@ server.registerTool(
       durationMs: Date.now() - toolStart,
       requestId
     });
+    captureToolEvent('create_answer', { id, bodyMd }, data as Record<string, unknown>, response.status, Date.now() - toolStart);
     return {
       content: [
         {
@@ -467,6 +598,7 @@ async function main() {
       ? req.headers.authorization[0]
       : req.headers.authorization;
     const userAgent = Array.isArray(req.headers['user-agent']) ? req.headers['user-agent'][0] : req.headers['user-agent'];
+    const ip = getClientIp(req.headers as Record<string, string | string[] | undefined>, req.socket?.remoteAddress ?? null) ?? undefined;
     const startMs = Date.now();
     const requestId =
       (Array.isArray(req.headers['x-request-id']) ? req.headers['x-request-id'][0] : req.headers['x-request-id']) ??
@@ -758,7 +890,13 @@ async function main() {
     req.on('end', async () => {
       try {
         const json = body.length ? JSON.parse(body) : undefined;
-        await requestContext.run({ agentName, requestId, authHeader }, async () => {
+        await requestContext.run({
+          agentName: agentName ?? undefined,
+          requestId,
+          authHeader,
+          userAgent: userAgent ?? undefined,
+          ip
+        }, async () => {
           await transport.handleRequest(req, res, json);
         });
         metrics.totalRequests += 1;

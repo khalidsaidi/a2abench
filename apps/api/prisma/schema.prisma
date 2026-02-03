@@ -105,3 +105,28 @@ model UsageEvent {
   @@index([ip])
   @@index([agentName])
 }
+
+model AgentPayloadEvent {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  source       String
+  kind         String
+  method       String?
+  route        String?
+  status       Int?
+  durationMs   Int?
+  tool         String?
+  requestId    String?
+  agentName    String?
+  userAgent    String?
+  ip           String?
+  apiKeyPrefix String?
+  requestBody  String?
+  responseBody String?
+
+  @@index([createdAt])
+  @@index([source])
+  @@index([route])
+  @@index([tool])
+  @@index([agentName])
+}

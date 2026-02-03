@@ -21,6 +21,11 @@ const TRIAL_KEY_TTL_HOURS = Number(process.env.TRIAL_KEY_TTL_HOURS ?? 24);
 const TRIAL_DAILY_WRITE_LIMIT = Number(process.env.TRIAL_DAILY_WRITE_LIMIT ?? 20);
 const TRIAL_DAILY_QUESTION_LIMIT = Number(process.env.TRIAL_DAILY_QUESTION_LIMIT ?? 5);
 const TRIAL_DAILY_ANSWER_LIMIT = Number(process.env.TRIAL_DAILY_ANSWER_LIMIT ?? 20);
+const CAPTURE_AGENT_PAYLOADS = (process.env.CAPTURE_AGENT_PAYLOADS ?? '').toLowerCase() === 'true';
+const AGENT_PAYLOAD_TTL_HOURS = Number(process.env.AGENT_PAYLOAD_TTL_HOURS ?? 24);
+const AGENT_PAYLOAD_MAX_EVENTS = Number(process.env.AGENT_PAYLOAD_MAX_EVENTS ?? 1000);
+const AGENT_PAYLOAD_MAX_BYTES = Number(process.env.AGENT_PAYLOAD_MAX_BYTES ?? 16_384);
+const AGENT_EVENT_TOKEN = process.env.AGENT_EVENT_TOKEN ?? '';
 
 await fastify.register(cors, { origin: true });
 await fastify.register(rateLimit, { global: false });
@@ -92,6 +97,57 @@ const SENSITIVE_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
 
 function containsSensitive(text: string) {
   return SENSITIVE_PATTERNS.some((entry) => entry.pattern.test(text));
+}
+
+const PAYLOAD_REDACT_KEYS = ['authorization', 'apiKey', 'api_key', 'token', 'secret', 'password'];
+
+function redactString(text: string) {
+  let output = text;
+  for (const entry of SENSITIVE_PATTERNS) {
+    output = output.replace(entry.pattern, `[redacted:${entry.label}]`);
+  }
+  output = output.replace(/Bearer\\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted]');
+  return output;
+}
+
+function redactPayload(value: unknown): unknown {
+  if (typeof value === 'string') return redactString(value);
+  if (typeof value === 'number' || typeof value === 'boolean' || value == null) return value;
+  if (Array.isArray(value)) return value.map((item) => redactPayload(item));
+  if (value instanceof Buffer) return redactString(value.toString('utf8'));
+  if (typeof value === 'object') {
+    const output: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      const lower = key.toLowerCase();
+      if (PAYLOAD_REDACT_KEYS.some((needle) => lower.includes(needle))) {
+        output[key] = '[redacted]';
+      } else {
+        output[key] = redactPayload(val);
+      }
+    }
+    return output;
+  }
+  return value;
+}
+
+function stringifyPayload(value: unknown) {
+  const safeValue = redactPayload(value);
+  const text = typeof safeValue === 'string' ? safeValue : JSON.stringify(safeValue);
+  const redacted = redactString(text);
+  if (Buffer.byteLength(redacted, 'utf8') <= AGENT_PAYLOAD_MAX_BYTES) return redacted;
+  return `${redacted.slice(0, AGENT_PAYLOAD_MAX_BYTES)}...<truncated>`;
+}
+
+function buildRequestPayload(request: { body?: unknown; query?: unknown; params?: unknown }) {
+  const payload: Record<string, unknown> = {};
+  if (request.body !== undefined) payload.body = request.body;
+  if (request.query !== undefined && Object.keys(request.query as Record<string, unknown>).length > 0) {
+    payload.query = request.query;
+  }
+  if (request.params !== undefined && Object.keys(request.params as Record<string, unknown>).length > 0) {
+    payload.params = request.params;
+  }
+  return payload;
 }
 
 function startOfUtcDay(now = new Date()) {
@@ -293,6 +349,20 @@ async function requireAdmin(request: { headers: Record<string, string | string[]
   return true;
 }
 
+async function requireAgentEventToken(request: { headers: Record<string, string | string[] | undefined> }, reply: any) {
+  if (!AGENT_EVENT_TOKEN) {
+    reply.code(500).send({ error: 'AGENT_EVENT_TOKEN is not configured' });
+    return false;
+  }
+  const token = request.headers['x-agent-event-token'];
+  const value = Array.isArray(token) ? token[0] : token;
+  if (!value || value !== AGENT_EVENT_TOKEN) {
+    reply.code(401).send({ error: 'Unauthorized' });
+    return false;
+  }
+  return true;
+}
+
 async function requireApiKey(request: { headers: Record<string, string | string[] | undefined> }, reply: any, scope?: string) {
   const header = request.headers.authorization;
   const auth = Array.isArray(header) ? header[0] : header;
@@ -337,6 +407,84 @@ async function requireApiKey(request: { headers: Record<string, string | string[
     }
   }
   return apiKey;
+}
+
+const CAPTURED_ROUTES = new Set([
+  '/api/v1/auth/trial-key',
+  '/api/v1/questions',
+  '/api/v1/questions/:id',
+  '/api/v1/questions/:id/answers',
+  '/api/v1/search'
+]);
+
+function isAgentTraffic(agentName: string | null, userAgent: string | null) {
+  if (agentName) return true;
+  if (!userAgent) return false;
+  return /(chatgpt|claude|agent|mcp|bot)/i.test(userAgent);
+}
+
+async function pruneAgentPayloadEvents() {
+  const ttlMs = AGENT_PAYLOAD_TTL_HOURS * 60 * 60 * 1000;
+  if (ttlMs > 0) {
+    const cutoff = new Date(Date.now() - ttlMs);
+    await prisma.agentPayloadEvent.deleteMany({ where: { createdAt: { lt: cutoff } } });
+  }
+  if (AGENT_PAYLOAD_MAX_EVENTS > 0) {
+    const total = await prisma.agentPayloadEvent.count();
+    if (total > AGENT_PAYLOAD_MAX_EVENTS) {
+      const removeCount = total - AGENT_PAYLOAD_MAX_EVENTS;
+      const oldest: Array<{ id: string }> = await prisma.agentPayloadEvent.findMany({
+        select: { id: true },
+        orderBy: { createdAt: 'asc' },
+        take: removeCount
+      });
+      if (oldest.length > 0) {
+        await prisma.agentPayloadEvent.deleteMany({ where: { id: { in: oldest.map((row) => row.id) } } });
+      }
+    }
+  }
+}
+
+async function storeAgentPayloadEvent(entry: {
+  source: string;
+  kind: string;
+  method?: string | null;
+  route?: string | null;
+  status?: number | null;
+  durationMs?: number | null;
+  tool?: string | null;
+  requestId?: string | null;
+  agentName?: string | null;
+  userAgent?: string | null;
+  ip?: string | null;
+  apiKeyPrefix?: string | null;
+  requestBody?: unknown;
+  responseBody?: unknown;
+}) {
+  if (!CAPTURE_AGENT_PAYLOADS) return;
+  const requestBody = entry.requestBody !== undefined ? stringifyPayload(entry.requestBody) : null;
+  const responseBody = entry.responseBody !== undefined ? stringifyPayload(entry.responseBody) : null;
+
+  await prisma.agentPayloadEvent.create({
+    data: {
+      source: entry.source,
+      kind: entry.kind,
+      method: entry.method ?? null,
+      route: entry.route ?? null,
+      status: entry.status ?? null,
+      durationMs: entry.durationMs ?? null,
+      tool: entry.tool ?? null,
+      requestId: entry.requestId ?? null,
+      agentName: entry.agentName ?? null,
+      userAgent: entry.userAgent ?? null,
+      ip: entry.ip ?? null,
+      apiKeyPrefix: entry.apiKeyPrefix ?? null,
+      requestBody,
+      responseBody
+    }
+  });
+
+  void pruneAgentPayloadEvents().catch(() => undefined);
 }
 
 async function enforceWriteLimits(
@@ -409,6 +557,29 @@ fastify.addHook('onRequest', async (request, reply) => {
   }
 });
 
+fastify.addHook('preHandler', async (request) => {
+  if (!CAPTURE_AGENT_PAYLOADS) return;
+  const route = resolveRoute(request as RouteRequest);
+  if (!CAPTURED_ROUTES.has(route)) return;
+  const userAgent = normalizeHeader(request.headers['user-agent']).slice(0, 256) || null;
+  const agentName = getAgentName(request.headers);
+  if (!isAgentTraffic(agentName, userAgent)) return;
+  const payload = buildRequestPayload(request as { body?: unknown; query?: unknown; params?: unknown });
+  (request as { payloadCapture?: { requestBody?: unknown; responseBody?: unknown; route?: string } }).payloadCapture = {
+    requestBody: payload,
+    route
+  };
+});
+
+fastify.addHook('onSend', async (request, reply, payload) => {
+  if (!CAPTURE_AGENT_PAYLOADS) return payload;
+  const capture = (request as { payloadCapture?: { requestBody?: unknown; responseBody?: unknown } }).payloadCapture;
+  if (capture) {
+    capture.responseBody = payload;
+  }
+  return payload;
+});
+
 fastify.addHook('onResponse', async (request, reply) => {
   if (request.method === 'OPTIONS') return;
   const startNs = (request as { startTimeNs?: bigint }).startTimeNs;
@@ -439,6 +610,29 @@ fastify.addHook('onResponse', async (request, reply) => {
   }).catch((err) => {
     request.log.warn({ err }, 'usage event logging failed');
   });
+
+  const capture = (request as { payloadCapture?: { requestBody?: unknown; responseBody?: unknown; route?: string } }).payloadCapture;
+  if (capture) {
+    try {
+      await storeAgentPayloadEvent({
+        source: 'api',
+        kind: request.method === 'GET' ? 'rest_read' : 'rest_write',
+        method: request.method,
+        route: capture.route ?? route,
+        status: reply.statusCode,
+        durationMs: Math.round(durationMs),
+        requestId: request.id,
+        agentName,
+        userAgent,
+        ip,
+        apiKeyPrefix,
+        requestBody: capture.requestBody,
+        responseBody: capture.responseBody
+      });
+    } catch (err) {
+      request.log.warn({ err }, 'agent payload logging failed');
+    }
+  }
 });
 
 fastify.get('/api/openapi.json', async () => {
@@ -899,6 +1093,144 @@ fastify.get('/admin/usage', async (request, reply) => {
 </html>`);
 });
 
+fastify.get('/admin/agent-events/data', async (request, reply) => {
+  if (!(await requireAdminDashboard(request, reply))) return;
+  const query = request.query as { limit?: number; source?: string; kind?: string };
+  const take = Math.min(200, Math.max(1, Number(query.limit ?? 50)));
+  const where: Prisma.AgentPayloadEventWhereInput = {};
+  if (query.source) where.source = String(query.source);
+  if (query.kind) where.kind = String(query.kind);
+  reply.header('Cache-Control', 'no-store');
+  return prisma.agentPayloadEvent.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    take
+  });
+});
+
+fastify.get('/admin/agent-events', async (request, reply) => {
+  if (!(await requireAdminDashboard(request, reply))) return;
+  const baseUrl = getBaseUrl(request);
+  reply.type('text/html').send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A2ABench Agent Events</title>
+    <style>
+      :root { color-scheme: light; }
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; margin: 0; background: #f6f7fb; color: #101827; }
+      header { background: #0b0f1a; color: #fff; padding: 24px 20px; }
+      header h1 { margin: 0 0 6px; font-size: 20px; }
+      header p { margin: 0; color: #c7c9d3; font-size: 13px; }
+      main { max-width: 1000px; margin: 0 auto; padding: 20px; }
+      .card { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 8px 24px rgba(17, 24, 39, 0.08); margin-bottom: 16px; }
+      .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
+      .field { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
+      label { font-size: 12px; color: #6b7280; }
+      input, select { border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+      button { background: #2563eb; color: #fff; border: 0; border-radius: 8px; padding: 10px 14px; font-weight: 600; cursor: pointer; }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
+      .event { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+      .meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #6b7280; margin-bottom: 8px; }
+      pre { background: #f3f4f6; padding: 10px; border-radius: 8px; overflow-x: auto; font-size: 12px; white-space: pre-wrap; }
+      .muted { color: #6b7280; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>A2ABench Agent Events</h1>
+      <p>Recent agent payloads captured from ${baseUrl}</p>
+    </header>
+    <main>
+      <div class="card">
+        <div class="row">
+          <div class="field">
+            <label for="limit">Limit</label>
+            <input id="limit" type="number" min="1" max="200" value="50" />
+          </div>
+          <div class="field">
+            <label for="source">Source</label>
+            <select id="source">
+              <option value="">All</option>
+              <option value="api">api</option>
+              <option value="mcp-remote">mcp-remote</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="kind">Kind</label>
+            <select id="kind">
+              <option value="">All</option>
+              <option value="rest_read">rest_read</option>
+              <option value="rest_write">rest_write</option>
+              <option value="mcp_tool">mcp_tool</option>
+            </select>
+          </div>
+          <div class="field">
+            <button id="load">Load events</button>
+          </div>
+        </div>
+        <div id="status" class="muted" style="margin-top:8px;"></div>
+      </div>
+
+      <div id="events" class="card"></div>
+    </main>
+    <script>
+      const loadBtn = document.getElementById('load');
+      const statusEl = document.getElementById('status');
+      const eventsEl = document.getElementById('events');
+      async function loadEvents() {
+        statusEl.textContent = 'Loading...';
+        eventsEl.innerHTML = '';
+        const limit = document.getElementById('limit').value || 50;
+        const source = document.getElementById('source').value;
+        const kind = document.getElementById('kind').value;
+        const params = new URLSearchParams();
+        params.set('limit', limit);
+        if (source) params.set('source', source);
+        if (kind) params.set('kind', kind);
+        const res = await fetch('/admin/agent-events/data?' + params.toString());
+        if (!res.ok) {
+          statusEl.textContent = 'Failed to load events.';
+          return;
+        }
+        const data = await res.json();
+        statusEl.textContent = 'Loaded ' + data.length + ' event(s).';
+        for (const row of data) {
+          const card = document.createElement('div');
+          card.className = 'event';
+          const meta = document.createElement('div');
+          meta.className = 'meta';
+          meta.innerHTML = [
+            '<span>' + row.createdAt + '</span>',
+            '<span>' + (row.source || 'unknown') + '</span>',
+            '<span>' + (row.kind || 'unknown') + '</span>',
+            row.tool ? '<span>tool: ' + row.tool + '</span>' : '',
+            row.route ? '<span>route: ' + row.route + '</span>' : '',
+            row.status ? '<span>status: ' + row.status + '</span>' : '',
+            row.agentName ? '<span>agent: ' + row.agentName + '</span>' : ''
+          ].filter(Boolean).join(' ');
+          card.appendChild(meta);
+          if (row.requestBody) {
+            const pre = document.createElement('pre');
+            pre.textContent = 'request: ' + row.requestBody;
+            card.appendChild(pre);
+          }
+          if (row.responseBody) {
+            const pre = document.createElement('pre');
+            pre.textContent = 'response: ' + row.responseBody;
+            card.appendChild(pre);
+          }
+          eventsEl.appendChild(card);
+        }
+      }
+      loadBtn.addEventListener('click', loadEvents);
+      loadEvents();
+    </script>
+  </body>
+</html>`);
+});
+
 fastify.get('/api/v1/search', {
   schema: {
     tags: ['search'],
@@ -1312,6 +1644,100 @@ fastify.post('/api/v1/questions/:id/answers', {
     createdAt: answer.createdAt,
     updatedAt: answer.updatedAt
   });
+});
+
+fastify.get('/api/v1/admin/agent-events', {
+  schema: {
+    tags: ['admin'],
+    security: [{ AdminToken: [] }],
+    querystring: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 500 },
+        source: { type: 'string' },
+        kind: { type: 'string' }
+      }
+    }
+  }
+}, async (request, reply) => {
+  if (!(await requireAdmin(request, reply))) return;
+  const query = request.query as { limit?: number; source?: string; kind?: string };
+  const take = Math.min(500, Math.max(1, Number(query.limit ?? 100)));
+  const where: Prisma.AgentPayloadEventWhereInput = {};
+  if (query.source) where.source = String(query.source);
+  if (query.kind) where.kind = String(query.kind);
+  reply.header('Cache-Control', 'no-store');
+  return prisma.agentPayloadEvent.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    take
+  });
+});
+
+fastify.post('/api/v1/admin/agent-events/ingest', {
+  schema: {
+    hide: true,
+    body: {
+      type: 'object',
+      required: ['source', 'kind'],
+      properties: {
+        source: { type: 'string' },
+        kind: { type: 'string' },
+        method: { type: 'string' },
+        route: { type: 'string' },
+        status: { type: 'integer' },
+        durationMs: { type: 'integer' },
+        tool: { type: 'string' },
+        requestId: { type: 'string' },
+        agentName: { type: 'string' },
+        userAgent: { type: 'string' },
+        ip: { type: 'string' },
+        apiKeyPrefix: { type: 'string' },
+        requestBody: {},
+        responseBody: {}
+      }
+    }
+  }
+}, async (request, reply) => {
+  if (!(await requireAgentEventToken(request, reply))) return;
+  const body = parse(
+    z.object({
+      source: z.string().min(1),
+      kind: z.string().min(1),
+      method: z.string().optional(),
+      route: z.string().optional(),
+      status: z.number().int().optional(),
+      durationMs: z.number().int().optional(),
+      tool: z.string().optional(),
+      requestId: z.string().optional(),
+      agentName: z.string().optional(),
+      userAgent: z.string().optional(),
+      ip: z.string().optional(),
+      apiKeyPrefix: z.string().optional(),
+      requestBody: z.unknown().optional(),
+      responseBody: z.unknown().optional()
+    }),
+    request.body,
+    reply
+  );
+  if (!body) return;
+  await storeAgentPayloadEvent({
+    source: body.source,
+    kind: body.kind,
+    method: body.method ?? null,
+    route: body.route ?? null,
+    status: body.status ?? null,
+    durationMs: body.durationMs ?? null,
+    tool: body.tool ?? null,
+    requestId: body.requestId ?? null,
+    agentName: body.agentName ?? null,
+    userAgent: body.userAgent ?? null,
+    ip: body.ip ?? null,
+    apiKeyPrefix: body.apiKeyPrefix ?? null,
+    requestBody: body.requestBody,
+    responseBody: body.responseBody
+  });
+  reply.code(200).send({ ok: true });
 });
 
 fastify.post('/api/v1/admin/users', {
