@@ -613,6 +613,16 @@ async function main() {
       }
     })();
 
+    const isMcpPath = pathname.startsWith('/mcp');
+    if (req.method === 'POST' && isMcpPath) {
+      const acceptHeader = Array.isArray(req.headers.accept)
+        ? req.headers.accept.join(',')
+        : req.headers.accept ?? '';
+      if (!acceptHeader.includes('application/json') || !acceptHeader.includes('text/event-stream')) {
+        req.headers.accept = 'application/json, text/event-stream';
+      }
+    }
+
     if (req.method === 'OPTIONS') {
       res.statusCode = 200;
       res.end();
@@ -781,7 +791,7 @@ async function main() {
       return;
     }
 
-    if (!pathname.startsWith('/mcp')) {
+    if (!isMcpPath) {
       res.statusCode = 404;
       res.end('Not found');
       return;
