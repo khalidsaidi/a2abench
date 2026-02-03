@@ -1,0 +1,15 @@
+HTTP/2 405 
+allow: POST
+content-type: application/json; charset=utf-8
+server: Google Frontend
+x-cloud-trace-context: b2493f95b3b172fcdcf1e68b742ed1cd
+accept-ranges: bytes
+date: Tue, 03 Feb 2026 01:09:01 GMT
+x-served-by: cache-yvr1529-YVR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1770080942.657258,VS0,VE101
+vary: Origin, x-fh-requested-host, accept-encoding
+alt-svc: h3=":443";ma=86400,h3-29=":443";ma=86400,h3-27=":443";ma=86400
+content-length: 75
+

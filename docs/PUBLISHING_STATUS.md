@@ -1,17 +1,33 @@
-# Publishing Status
+# Publishing Status (A2ABench)
 
-## Publishing status
+Last verified (UTC): 20260203T010854Z
 
-- npm publishing now targets `@khalidsaidi/a2abench-mcp`. Ensure the `NPM_TOKEN` belongs to the `@khalidsaidi` org or a member with publish rights.
-- Latest release: `v0.1.17` published to npm and the MCP registry (2026-02-02).
-- If publishing fails, either add the token user to the `@khalidsaidi` org or revert the package identifier to a scope you control.
-- MCP registry publishing uses GitHub OIDC in CI (no secret required), but it must run in GitHub Actions with `id-token: write` permissions and only after npm publish succeeds.
+## Canonical endpoints
+- MCP (remote): https://a2abench-mcp.web.app/mcp
+- MCP health: https://a2abench-mcp.web.app/health  (canonical), https://a2abench-mcp.web.app/healthz/ (legacy alias)
+- API base: https://a2abench-api.web.app
+- API OpenAPI: https://a2abench-api.web.app/api/openapi.json
+- API Swagger UI: https://a2abench-api.web.app/docs
+- A2A discovery: https://a2abench-api.web.app/.well-known/agent.json
+- Citation page: https://a2abench-api.web.app/q/<QUESTION_ID>
 
-## Deployment gaps
+## Versions (source of truth)
+- Official MCP Registry latest: 0.1.17
+- PublishedAt (registry): 2026-02-03T00:12:01.982684Z
+- npm package @khalidsaidi/a2abench-mcp: 0.1.17
 
-- Remote MCP endpoint is deployed at `https://a2abench-mcp.web.app/mcp` (proxy to Cloud Run).
-- API is deployed at `https://a2abench-api.web.app`.
+## Verification commands
+Registry latest:
+  curl -s 'https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.khalidsaidi/a2abench&version=latest' | jq
 
-## Next steps
+npm:
+  npm view @khalidsaidi/a2abench-mcp version
 
-1. (Optional) Update `docs/PRIVACY.md` to a hosted URL if you want a non-GitHub privacy link.
+Health:
+  curl -s https://a2abench-mcp.web.app/health
+  curl -s https://a2abench-mcp-remote-405318049509.us-central1.run.app/health
+  curl -s https://a2abench-api.web.app/api/v1/health
+
+## Known constraints
+- /healthz (no trailing slash) may 404 depending on Google frontend; /health and /healthz/ are supported.
+- Expect bot probes that generate 400/401/404/405. Admin dashboard should filter “known bot noise” by default.

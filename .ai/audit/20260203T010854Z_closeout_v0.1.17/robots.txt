@@ -1,0 +1,8 @@
+User-agent: *
+Disallow: /admin/
+Disallow: /api/v1/admin
+Disallow: /api/v1/usage
+Disallow: /docs/
+Allow: /q/
+Allow: /.well-known/
+Sitemap: https://a2abench-api.web.app/sitemap.xml

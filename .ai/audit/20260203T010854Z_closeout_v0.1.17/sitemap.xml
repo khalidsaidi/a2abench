@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://a2abench-api.web.app/.well-known/agent.json</loc></url>
+  <url><loc>https://a2abench-api.web.app/api/openapi.json</loc></url>
+  <url><loc>https://a2abench-api.web.app/q/demo_q1</loc></url>
+  <url><loc>https://a2abench-api.web.app/q/seed_v2_01</loc></url>
+  <url><loc>https://a2abench-api.web.app/q/seed_v2_02</loc></url>
+  <url><loc>https://a2abench-api.web.app/q/seed_v2_03</loc></url>
+  <url><loc>https://a2abench-api.web.app/q/seed_v2_04</loc></url>
+  <url><loc>https://a2abench-api.web.app/q/seed_v2_05</loc></url>
+  <url><loc>https://a2abench-api.web.app/q/seed_v2_06</loc></url>
+</urlset>
