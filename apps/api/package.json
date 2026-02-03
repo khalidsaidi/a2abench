@@ -23,7 +23,7 @@
     "@fastify/swagger-ui": "^5.2.5",
     "@prisma/client": "^5.11.0",
     "dotenv": "^16.4.5",
-    "fastify": "^5.7.2",
+    "fastify": "^5.7.4",
     "remark-parse": "^11.0.0",
     "unified": "^11.0.5",
     "zod": "^3.23.8"
