@@ -619,7 +619,21 @@ async function main() {
         ? req.headers.accept.join(',')
         : req.headers.accept ?? '';
       if (!acceptHeader.includes('application/json') || !acceptHeader.includes('text/event-stream')) {
-        req.headers.accept = 'application/json, text/event-stream';
+        const normalized = 'application/json, text/event-stream';
+        req.headers.accept = normalized;
+        if (Array.isArray(req.rawHeaders)) {
+          let updated = false;
+          for (let i = 0; i < req.rawHeaders.length; i += 2) {
+            if (String(req.rawHeaders[i]).toLowerCase() === 'accept') {
+              req.rawHeaders[i + 1] = normalized;
+              updated = true;
+              break;
+            }
+          }
+          if (!updated) {
+            req.rawHeaders.push('accept', normalized);
+          }
+        }
       }
     }
 
