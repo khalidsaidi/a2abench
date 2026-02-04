@@ -13,7 +13,7 @@ const PUBLIC_MCP_URL =
 const API_KEY = process.env.API_KEY ?? '';
 const PORT = Number(process.env.PORT ?? process.env.MCP_PORT ?? 4000);
 const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-remote';
-const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.23';
+const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.24';
 const COMMIT_SHA = process.env.COMMIT_SHA ?? process.env.GIT_SHA ?? 'unknown';
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
 const CAPTURE_AGENT_PAYLOADS = (process.env.CAPTURE_AGENT_PAYLOADS ?? '').toLowerCase() === 'true';
@@ -989,7 +989,27 @@ async function main() {
     });
     req.on('end', async () => {
       try {
-        const json = body.length ? JSON.parse(body) : undefined;
+        let json: unknown = undefined;
+        if (body.length) {
+          try {
+            json = JSON.parse(body);
+          } catch {
+            respondText(res, 400, 'Invalid JSON');
+            metrics.totalRequests += 1;
+            bumpMap(metrics.byStatus, res.statusCode);
+            logEvent('warn', {
+              kind: 'mcp_request',
+              method: 'POST',
+              status: res.statusCode,
+              durationMs: Date.now() - startMs,
+              requestId,
+              agentName: agentName ?? null,
+              userAgent: userAgent ?? null,
+              error: 'invalid_json'
+            });
+            return;
+          }
+        }
         await requestContext.run({
           agentName: agentName ?? undefined,
           requestId,
@@ -1011,10 +1031,12 @@ async function main() {
           userAgent: userAgent ?? null
         });
       } catch (err) {
-        respondText(res, 400, 'Invalid JSON');
+        if (!res.headersSent) {
+          respondText(res, 500, 'Internal error');
+        }
         metrics.totalRequests += 1;
         bumpMap(metrics.byStatus, res.statusCode);
-        logEvent('warn', {
+        logEvent('error', {
           kind: 'mcp_request',
           method: 'POST',
           status: res.statusCode,
@@ -1022,7 +1044,7 @@ async function main() {
           requestId,
           agentName: agentName ?? null,
           userAgent: userAgent ?? null,
-          error: 'invalid_json',
+          error: err instanceof Error ? err.message : 'unknown_error',
           errorName: err instanceof Error ? err.name : 'unknown'
         });
       }

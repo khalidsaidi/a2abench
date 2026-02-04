@@ -9,7 +9,7 @@ const QUERY = process.env.MCP_TEST_QUERY ?? 'demo';
 async function main() {
   const client = new Client({
     name: 'A2ABenchQuickTest',
-    version: '0.1.23'
+    version: '0.1.24'
   });
 
   const transport = new StreamableHTTPClientTransport(new URL(SERVER_URL), {

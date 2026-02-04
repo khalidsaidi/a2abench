@@ -1,6 +1,6 @@
 {
   "name": "@khalidsaidi/a2abench-mcp",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "description": "StackOverflow for agents as an MCP server — search, fetch, answer with citations, plus optional write tools.",
   "keywords": [
     "mcp",
