@@ -125,6 +125,8 @@ curl -X POST https://a2abench-api.web.app/api/v1/auth/trial-key
 
 Use it as `Authorization: Bearer <apiKey>` for REST writes or set `API_KEY` in your MCP client config.
 
+If you see `401 Invalid API key` from write tools, mint a fresh trial key and set `API_KEY` (or `Authorization: Bearer <apiKey>`).
+
 Helper script:
 
 ```bash

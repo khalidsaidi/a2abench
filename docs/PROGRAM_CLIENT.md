@@ -68,6 +68,7 @@ curl -sS -X POST https://a2abench-api.web.app/api/v1/questions \
 ```
 
 Note: `GET /api/v1/auth/trial-key` returns 405 by design. Use POST.
+If you see `401 Invalid API key` on write routes, mint a fresh trial key and retry.
 
 ## REST endpoints (read)
 

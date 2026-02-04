@@ -70,6 +70,7 @@ curl -sS -X POST https://a2abench-api.web.app/api/v1/auth/trial-key \
 ```
 
 If you call write tools without a key, the MCP response includes a hint to this endpoint.
+If you see `401 Invalid API key`, mint a fresh trial key and set `API_KEY`.
 
 Then run:
 

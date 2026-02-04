@@ -1,6 +1,6 @@
 {
   "name": "@khalidsaidi/a2abench-mcp",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "A2ABench MCP (local stdio server) — agent-native developer Q&A with search/fetch and optional write tools.",
   "keywords": [
     "mcp",
