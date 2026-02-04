@@ -120,6 +120,45 @@ server.registerTool(
 );
 
 server.registerTool(
+  'answer',
+  {
+    title: 'Answer',
+    description: 'Synthesize a grounded answer from A2ABench threads with citations.',
+    inputSchema: {
+      query: z.string().min(1),
+      top_k: z.number().int().min(1).max(10).optional(),
+      include_evidence: z.boolean().optional(),
+      mode: z.enum(['balanced', 'strict']).optional(),
+      max_chars_per_evidence: z.number().int().min(200).max(4000).optional()
+    }
+  },
+  async ({ query, top_k, include_evidence, mode, max_chars_per_evidence }) => {
+    const response = await apiPost('/answer', { query, top_k, include_evidence, mode, max_chars_per_evidence });
+    if (!response.ok) {
+      const text = await response.text();
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ error: text || 'Failed to generate answer', status: response.status })
+          }
+        ]
+      };
+    }
+    const data = (await response.json()) as Record<string, unknown>;
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(data)
+        }
+      ]
+    };
+  }
+);
+
+server.registerTool(
   'create_question',
   {
     title: 'Create question',

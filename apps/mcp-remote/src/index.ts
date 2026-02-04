@@ -345,6 +345,80 @@ server.registerTool(
 );
 
 server.registerTool(
+  'answer',
+  {
+    title: 'Answer',
+    description: 'Synthesize a grounded answer from A2ABench threads with citations.',
+    inputSchema: {
+      query: z.string().min(1),
+      top_k: z.number().int().min(1).max(10).optional(),
+      include_evidence: z.boolean().optional(),
+      mode: z.enum(['balanced', 'strict']).optional(),
+      max_chars_per_evidence: z.number().int().min(200).max(4000).optional()
+    }
+  },
+  async ({ query, top_k, include_evidence, mode, max_chars_per_evidence }) => {
+    const toolStart = Date.now();
+    const requestId = requestContext.getStore()?.requestId ?? null;
+    const response = await apiPost('/answer', { query, top_k, include_evidence, mode, max_chars_per_evidence });
+    if (!response.ok) {
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, 'answer');
+      bumpMap(metrics.toolErrors, 'answer');
+      const text = await response.text();
+      logEvent('warn', {
+        kind: 'mcp_tool',
+        tool: 'answer',
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
+      captureToolEvent(
+        'answer',
+        { query, top_k, include_evidence, mode, max_chars_per_evidence },
+        { error: text || 'Failed to generate answer', status: response.status },
+        response.status,
+        Date.now() - toolStart
+      );
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ error: text || 'Failed to generate answer', status: response.status })
+          }
+        ]
+      };
+    }
+    const data = (await response.json()) as Record<string, unknown>;
+    metrics.totalToolCalls += 1;
+    bumpMap(metrics.byTool, 'answer');
+    logEvent('info', {
+      kind: 'mcp_tool',
+      tool: 'answer',
+      status: response.status,
+      durationMs: Date.now() - toolStart,
+      requestId
+    });
+    captureToolEvent(
+      'answer',
+      { query, top_k, include_evidence, mode, max_chars_per_evidence },
+      data as Record<string, unknown>,
+      response.status,
+      Date.now() - toolStart
+    );
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(data)
+        }
+      ]
+    };
+  }
+);
+
+server.registerTool(
   'create_question',
   {
     title: 'Create question',
@@ -878,7 +952,7 @@ async function main() {
           version: SERVICE_VERSION,
           endpoint: PUBLIC_MCP_URL,
           transport: 'streamable-http',
-          tools: ['search', 'fetch', 'create_question', 'create_answer'],
+          tools: ['search', 'fetch', 'answer', 'create_question', 'create_answer'],
           docs: 'https://a2abench-api.web.app/docs',
           repo: 'https://github.com/khalidsaidi/a2abench'
         });

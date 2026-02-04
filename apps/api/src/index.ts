@@ -6,6 +6,7 @@ import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { markdownToText } from './markdown.js';
+import { ANSWER_REQUEST_SCHEMA, runAnswer, createDefaultLlmFromEnv } from './answer.js';
 import { z } from 'zod';
 import crypto from 'crypto';
 
@@ -26,6 +27,7 @@ const AGENT_PAYLOAD_TTL_HOURS = Number(process.env.AGENT_PAYLOAD_TTL_HOURS ?? 24
 const AGENT_PAYLOAD_MAX_EVENTS = Number(process.env.AGENT_PAYLOAD_MAX_EVENTS ?? 1000);
 const AGENT_PAYLOAD_MAX_BYTES = Number(process.env.AGENT_PAYLOAD_MAX_BYTES ?? 16_384);
 const AGENT_EVENT_TOKEN = process.env.AGENT_EVENT_TOKEN ?? '';
+const LLM_CLIENT = createDefaultLlmFromEnv();
 
 await fastify.register(cors, { origin: true });
 await fastify.register(rateLimit, { global: false });
@@ -316,6 +318,18 @@ function agentCard(baseUrl: string) {
         id: 'create_answer',
         name: 'Create Answer',
         description: 'Create an answer for a question (requires API key).'
+      },
+      {
+        id: 'answer',
+        name: 'Answer',
+        description: 'Synthesize a grounded answer from A2ABench threads with citations.',
+        input_schema: {
+          query: { type: 'string' },
+          top_k: { type: 'integer' },
+          include_evidence: { type: 'boolean' },
+          mode: { type: 'string', enum: ['balanced', 'strict'] },
+          max_chars_per_evidence: { type: 'integer' }
+        }
       }
     ],
     auth: {
@@ -1283,6 +1297,95 @@ fastify.get('/api/v1/search', {
       answerCount: item._count.answers
     }))
   };
+});
+
+fastify.post('/answer', {
+  schema: {
+    tags: ['answer'],
+    body: {
+      type: 'object',
+      required: ['query'],
+      properties: {
+        query: { type: 'string' },
+        top_k: { type: 'integer', minimum: 1, maximum: 10 },
+        include_evidence: { type: 'boolean' },
+        mode: { type: 'string', enum: ['balanced', 'strict'] },
+        max_chars_per_evidence: { type: 'integer', minimum: 200, maximum: 4000 }
+      }
+    },
+    response: {
+      200: {
+        type: 'object',
+        required: ['query', 'answer_markdown', 'citations', 'retrieved', 'warnings'],
+        properties: {
+          query: { type: 'string' },
+          answer_markdown: { type: 'string' },
+          citations: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['id', 'title', 'url'],
+              properties: {
+                id: { type: 'string' },
+                title: { type: 'string' },
+                url: { type: 'string' },
+                quote: { type: 'string' }
+              }
+            }
+          },
+          retrieved: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['id', 'title', 'url', 'snippet'],
+              properties: {
+                id: { type: 'string' },
+                title: { type: 'string' },
+                url: { type: 'string' },
+                snippet: { type: 'string' }
+              }
+            }
+          },
+          warnings: { type: 'array', items: { type: 'string' } }
+        }
+      }
+    }
+  }
+}, async (request, reply) => {
+  const body = parse(ANSWER_REQUEST_SCHEMA, request.body, reply as any);
+  if (!body) return;
+
+  const baseUrl = getBaseUrl(request);
+  const response = await runAnswer(body, {
+    baseUrl,
+    search: async (query, topK) => {
+      const where: any = {
+        OR: [
+          { title: { contains: query, mode: 'insensitive' } },
+          { bodyText: { contains: query, mode: 'insensitive' } }
+        ]
+      };
+      const items = await prisma.question.findMany({
+        where,
+        take: topK,
+        orderBy: { createdAt: 'desc' }
+      });
+      return items.map((item) => ({ id: item.id, title: item.title }));
+    },
+    fetch: async (id) => {
+      return prisma.question.findUnique({
+        where: { id },
+        include: {
+          answers: {
+            orderBy: { createdAt: 'asc' }
+          }
+        }
+      });
+    },
+    llm: LLM_CLIENT
+  });
+
+  return response;
 });
 
 fastify.get('/api/v1/questions', {

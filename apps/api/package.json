@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "lint": "echo 'lint not configured'",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test --import tsx tests/markdownToText.test.ts",
+    "test": "node --test --import tsx tests/*.test.ts",
     "prisma": "prisma",
     "migrate": "prisma migrate dev",
     "generate": "prisma generate",

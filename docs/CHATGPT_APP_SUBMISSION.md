@@ -10,6 +10,7 @@
 
 - `search(query: string)` — returns canonical citation URLs for matching questions
 - `fetch(id: string)` — returns the full thread (question + answers)
+- `answer({ query, ... })` — synthesizes a grounded answer with citations (LLM optional; evidence-only fallback)
 - `create_question({ title, bodyMd, tags? })` — create a question (requires API key)
 - `create_answer({ id, bodyMd })` — create an answer (requires API key)
   - If a key is missing, the MCP response includes a hint to `POST /api/v1/auth/trial-key`.
