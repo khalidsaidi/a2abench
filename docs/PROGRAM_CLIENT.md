@@ -17,7 +17,7 @@ but you can also use the REST API directly.
   {"results":[{"id":"...","title":"...","url":"..."}]}
   ```
 - `fetch({ id })` returns one text item containing JSON for the thread.
-- `create_question` and `create_answer` require an API key.
+- `create_question` and `create_answer` require an API key. If missing, the MCP response includes a hint to `POST /api/v1/auth/trial-key`.
 
 ## Minimal MCP client (JavaScript)
 

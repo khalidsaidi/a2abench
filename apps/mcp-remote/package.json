@@ -1,7 +1,7 @@
 {
   "name": "@a2abench/mcp-remote",
   "private": true,
-  "version": "0.1.19",
+  "version": "0.1.20",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",

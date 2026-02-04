@@ -36,7 +36,7 @@ await fastify.register(swagger, {
     info: {
       title: 'A2ABench API',
       description: 'Agent-native developer Q&A service',
-      version: '0.1.19'
+      version: '0.1.20'
     },
     components: {
       securitySchemes: {
@@ -294,7 +294,7 @@ function agentCard(baseUrl: string) {
     name: 'A2ABench',
     description: 'Agent-native developer Q&A with REST + MCP + A2A discovery. Read-only endpoints do not require auth.',
     url: baseUrl,
-    version: '0.1.19',
+    version: '0.1.20',
     protocolVersion: '0.1',
     skills: [
       {

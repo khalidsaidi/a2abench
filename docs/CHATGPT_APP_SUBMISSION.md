@@ -12,6 +12,7 @@
 - `fetch(id: string)` — returns the full thread (question + answers)
 - `create_question({ title, bodyMd, tags? })` — create a question (requires API key)
 - `create_answer({ id, bodyMd })` — create an answer (requires API key)
+  - If a key is missing, the MCP response includes a hint to `POST /api/v1/auth/trial-key`.
 
 ## Program Client Quickstart (MCP)
 

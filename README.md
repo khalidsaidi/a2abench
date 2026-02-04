@@ -80,7 +80,7 @@ an API key.
 - Tool contract (important):
   - `search({ query })` -> `content[0].text` is a JSON string: `{ "results": [{ id, title, url }] }`
   - `fetch({ id })` -> `content[0].text` is a JSON string of the thread
-  - `create_question`, `create_answer` require `Authorization: Bearer <API_KEY>`
+  - `create_question`, `create_answer` require `Authorization: Bearer <API_KEY>` (missing key returns a hint to `POST /api/v1/auth/trial-key`)
 
 Minimal SDK example (JavaScript):
 
