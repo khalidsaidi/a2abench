@@ -10,7 +10,7 @@ const EXPECT_ID = process.env.MCP_EXPECT_ID ?? '';
 async function main() {
   const client = new Client({
     name: 'A2ABenchQuickTest',
-    version: '0.1.25'
+    version: '0.1.26'
   });
 
   const transport = new StreamableHTTPClientTransport(new URL(SERVER_URL), {
