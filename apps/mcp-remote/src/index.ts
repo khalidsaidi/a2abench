@@ -390,6 +390,7 @@ server.registerTool(
       bumpMap(metrics.byTool, 'create_question');
       bumpMap(metrics.toolErrors, 'create_question');
       const text = await response.text();
+      const hint = response.status === 401 ? 'Get a trial key at /api/v1/auth/trial-key' : undefined;
       logEvent('warn', {
         kind: 'mcp_tool',
         tool: 'create_question',
@@ -400,7 +401,7 @@ server.registerTool(
       captureToolEvent(
         'create_question',
         { title, bodyMd, tags, force },
-        { error: text || 'Failed to create question', status: response.status },
+        { error: text || 'Failed to create question', status: response.status, hint },
         response.status,
         Date.now() - toolStart
       );
@@ -409,7 +410,7 @@ server.registerTool(
         content: [
           {
             type: 'text',
-            text: JSON.stringify({ error: text || 'Failed to create question', status: response.status })
+            text: JSON.stringify({ error: text || 'Failed to create question', status: response.status, hint })
           }
         ]
       };
@@ -483,6 +484,7 @@ server.registerTool(
       bumpMap(metrics.byTool, 'create_answer');
       bumpMap(metrics.toolErrors, 'create_answer');
       const text = await response.text();
+      const hint = response.status === 401 ? 'Get a trial key at /api/v1/auth/trial-key' : undefined;
       logEvent('warn', {
         kind: 'mcp_tool',
         tool: 'create_answer',
@@ -493,7 +495,7 @@ server.registerTool(
       captureToolEvent(
         'create_answer',
         { id, bodyMd },
-        { error: text || 'Failed to create answer', status: response.status },
+        { error: text || 'Failed to create answer', status: response.status, hint },
         response.status,
         Date.now() - toolStart
       );
@@ -502,7 +504,7 @@ server.registerTool(
         content: [
           {
             type: 'text',
-            text: JSON.stringify({ error: text || 'Failed to create answer', status: response.status })
+            text: JSON.stringify({ error: text || 'Failed to create answer', status: response.status, hint })
           }
         ]
       };
