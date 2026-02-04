@@ -5,11 +5,12 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 const SERVER_URL = process.env.MCP_SERVER_URL ?? 'https://a2abench-mcp.web.app/mcp';
 const AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-quick-test';
 const QUERY = process.env.MCP_TEST_QUERY ?? 'demo';
+const EXPECT_ID = process.env.MCP_EXPECT_ID ?? '';
 
 async function main() {
   const client = new Client({
     name: 'A2ABenchQuickTest',
-    version: '0.1.24'
+    version: '0.1.25'
   });
 
   const transport = new StreamableHTTPClientTransport(new URL(SERVER_URL), {
@@ -44,8 +45,13 @@ async function main() {
   }
 
   if (!parsed.results || parsed.results.length === 0) {
-    console.log('No results for query:', QUERY);
-    return;
+    console.error('No results for query:', QUERY);
+    process.exit(1);
+  }
+
+  if (EXPECT_ID && !parsed.results.some((item) => item.id === EXPECT_ID)) {
+    console.error(`Expected id ${EXPECT_ID} not found in MCP results.`);
+    process.exit(1);
   }
 
   const first = parsed.results[0];

@@ -4,14 +4,14 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
-const API_BASE_URL = process.env.API_BASE_URL ?? 'http://localhost:3000';
+const API_BASE_URL = process.env.API_BASE_URL ?? 'https://a2abench-api.web.app';
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL ?? API_BASE_URL;
 const API_KEY = process.env.API_KEY ?? '';
 const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-local';
 
 const server = new McpServer({
   name: 'A2ABench',
-  version: '0.1.24'
+  version: '0.1.25'
 });
 
 async function apiGet(path: string, params?: Record<string, string>) {
@@ -275,7 +275,7 @@ Usage:
   a2abench-mcp
 
 Environment:
-  API_BASE_URL   Base API URL (default: http://localhost:3000)
+  API_BASE_URL   Base API URL (default: https://a2abench-api.web.app)
   PUBLIC_BASE_URL Canonical base URL for citations (default: API_BASE_URL)
   API_KEY        Optional bearer token for write/auth endpoints
   MCP_AGENT_NAME Agent identifier header (default: a2abench-mcp-local)

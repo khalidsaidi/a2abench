@@ -12,9 +12,9 @@ Last verified (UTC): 20260203T010854Z
 - Citation page: https://a2abench-api.web.app/q/<QUESTION_ID>
 
 ## Versions (source of truth)
-- Official MCP Registry latest: 0.1.24
+- Official MCP Registry latest: 0.1.25
 - PublishedAt (registry): 2026-02-03T00:12:01.982684Z
-- npm package @khalidsaidi/a2abench-mcp: 0.1.24
+- npm package @khalidsaidi/a2abench-mcp: 0.1.25
 
 ## Verification commands
 Registry latest:

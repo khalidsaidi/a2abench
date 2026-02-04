@@ -47,21 +47,8 @@ node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync(0,'utf8')
 fetch=$(curl -sS "$API_BASE_URL/api/v1/questions/$question_id")
 node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync(0,'utf8')); if(data.id!=='$question_id'){console.error('Fetch mismatch'); process.exit(1);}" <<< "$fetch"
 
-# MCP search
-mcp_search='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":{"query":"'"$title"'"}}}'
-code=$(curl -sS -o /tmp/mcp_search.json -w "%{http_code}" -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" -X POST "$MCP_URL" -d "$mcp_search")
-if [[ "$code" != "200" ]]; then
-  echo "MCP search failed: $code" >&2
-  cat /tmp/mcp_search.json >&2
-  exit 1
-fi
-
-mcp_fetch='{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"fetch","arguments":{"id":"'"$question_id"'"}}}'
-code=$(curl -sS -o /tmp/mcp_fetch.json -w "%{http_code}" -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" -X POST "$MCP_URL" -d "$mcp_fetch")
-if [[ "$code" != "200" ]]; then
-  echo "MCP fetch failed: $code" >&2
-  cat /tmp/mcp_fetch.json >&2
-  exit 1
-fi
+# MCP search/fetch via official SDK (handles session + protocol correctly)
+MCP_SERVER_URL="$MCP_URL" MCP_AGENT_NAME="smoke-trial" MCP_TEST_QUERY="$title" MCP_EXPECT_ID="$question_id" \
+  pnpm -C packages/mcp-local exec tsx scripts/quick-test.ts
 
 echo "smoke-trial-write: OK"

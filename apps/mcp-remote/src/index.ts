@@ -13,7 +13,7 @@ const PUBLIC_MCP_URL =
 const API_KEY = process.env.API_KEY ?? '';
 const PORT = Number(process.env.PORT ?? process.env.MCP_PORT ?? 4000);
 const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-remote';
-const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.24';
+const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.25';
 const COMMIT_SHA = process.env.COMMIT_SHA ?? process.env.GIT_SHA ?? 'unknown';
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
 const CAPTURE_AGENT_PAYLOADS = (process.env.CAPTURE_AGENT_PAYLOADS ?? '').toLowerCase() === 'true';
@@ -657,6 +657,13 @@ async function main() {
   });
 
   await server.connect(transport);
+  transport.onerror = (err) => {
+    logEvent('error', {
+      kind: 'mcp_transport_error',
+      error: err instanceof Error ? err.message : String(err),
+      errorName: err instanceof Error ? err.name : 'unknown'
+    });
+  };
 
   const httpServer = createServer(async (req, res) => {
     if (!req.url || !req.method) {
@@ -983,72 +990,48 @@ async function main() {
       return;
     }
 
-    let body = '';
-    req.on('data', (chunk) => {
-      body += chunk;
-    });
-    req.on('end', async () => {
-      try {
-        let json: unknown = undefined;
-        if (body.length) {
-          try {
-            json = JSON.parse(body);
-          } catch {
-            respondText(res, 400, 'Invalid JSON');
-            metrics.totalRequests += 1;
-            bumpMap(metrics.byStatus, res.statusCode);
-            logEvent('warn', {
-              kind: 'mcp_request',
-              method: 'POST',
-              status: res.statusCode,
-              durationMs: Date.now() - startMs,
-              requestId,
-              agentName: agentName ?? null,
-              userAgent: userAgent ?? null,
-              error: 'invalid_json'
-            });
-            return;
-          }
-        }
-        await requestContext.run({
+    try {
+      await requestContext.run(
+        {
           agentName: agentName ?? undefined,
           requestId,
           authHeader,
           userAgent: userAgent ?? undefined,
           ip
-        }, async () => {
-          await transport.handleRequest(req, res, json);
-        });
-        metrics.totalRequests += 1;
-        bumpMap(metrics.byStatus, res.statusCode);
-        logEvent('info', {
-          kind: 'mcp_request',
-          method: 'POST',
-          status: res.statusCode,
-          durationMs: Date.now() - startMs,
-          requestId,
-          agentName: agentName ?? null,
-          userAgent: userAgent ?? null
-        });
-      } catch (err) {
-        if (!res.headersSent) {
-          respondText(res, 500, 'Internal error');
+        },
+        async () => {
+          await transport.handleRequest(req, res);
         }
-        metrics.totalRequests += 1;
-        bumpMap(metrics.byStatus, res.statusCode);
-        logEvent('error', {
-          kind: 'mcp_request',
-          method: 'POST',
-          status: res.statusCode,
-          durationMs: Date.now() - startMs,
-          requestId,
-          agentName: agentName ?? null,
-          userAgent: userAgent ?? null,
-          error: err instanceof Error ? err.message : 'unknown_error',
-          errorName: err instanceof Error ? err.name : 'unknown'
-        });
+      );
+      metrics.totalRequests += 1;
+      bumpMap(metrics.byStatus, res.statusCode);
+      logEvent('info', {
+        kind: 'mcp_request',
+        method: 'POST',
+        status: res.statusCode,
+        durationMs: Date.now() - startMs,
+        requestId,
+        agentName: agentName ?? null,
+        userAgent: userAgent ?? null
+      });
+    } catch (err) {
+      if (!res.headersSent) {
+        respondText(res, 500, 'Internal error');
       }
-    });
+      metrics.totalRequests += 1;
+      bumpMap(metrics.byStatus, res.statusCode);
+      logEvent('error', {
+        kind: 'mcp_request',
+        method: 'POST',
+        status: res.statusCode,
+        durationMs: Date.now() - startMs,
+        requestId,
+        agentName: agentName ?? null,
+        userAgent: userAgent ?? null,
+        error: err instanceof Error ? err.message : 'unknown_error',
+        errorName: err instanceof Error ? err.name : 'unknown'
+      });
+    }
   });
 
   httpServer.listen(PORT, '0.0.0.0', () => {

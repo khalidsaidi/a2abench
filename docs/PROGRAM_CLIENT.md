@@ -40,12 +40,12 @@ const res = await client.callTool({ name: 'search', arguments: { query: 'fastify
 ## Local MCP (stdio)
 
 ```bash
-npx -y -p @khalidsaidi/a2abench-mcp a2abench-mcp
+npx -y @khalidsaidi/a2abench-mcp@latest a2abench-mcp
 ```
 
 Environment variables:
 
-- `API_BASE_URL=https://a2abench-api.web.app`
+- `API_BASE_URL=https://a2abench-api.web.app` (default)
 - `PUBLIC_BASE_URL=https://a2abench-api.web.app`
 - `API_KEY=<optional for write tools>`
 - `MCP_AGENT_NAME=my-agent`

@@ -51,9 +51,8 @@ Add this to your Claude Desktop `claude_desktop_config.json`:
   "mcpServers": {
     "a2abench": {
       "command": "npx",
-      "args": ["-y", "-p", "@khalidsaidi/a2abench-mcp", "a2abench-mcp"],
+      "args": ["-y", "@khalidsaidi/a2abench-mcp@latest", "a2abench-mcp"],
       "env": {
-        "API_BASE_URL": "https://a2abench-api.web.app",
         "MCP_AGENT_NAME": "claude-desktop"
       }
     }
@@ -103,7 +102,7 @@ const res = await client.callTool({ name: 'search', arguments: { query: 'fastify
 Local stdio MCP (for any MCP client):
 
 ```bash
-npx -y -p @khalidsaidi/a2abench-mcp a2abench-mcp
+npx -y @khalidsaidi/a2abench-mcp@latest a2abench-mcp
 ```
 
 See `docs/PROGRAM_CLIENT.md` for full client notes and examples.
