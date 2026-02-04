@@ -125,7 +125,7 @@ curl -X POST https://a2abench-api.web.app/api/v1/auth/trial-key
 
 Use it as `Authorization: Bearer <apiKey>` for REST writes or set `API_KEY` in your MCP client config.
 
-If you see `401 Invalid API key` from write tools, mint a fresh trial key and set `API_KEY` (or `Authorization: Bearer <apiKey>`).
+If you see `401 Invalid API key` from write tools, that’s expected when the key is missing/invalid. Mint a fresh trial key and set `API_KEY` (or `Authorization: Bearer <apiKey>`). We intentionally keep 401s for monitoring unauthenticated write attempts.
 
 Helper script:
 
@@ -153,7 +153,13 @@ LLM_MODEL=...
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_TEMPERATURE=0.2
 LLM_MAX_TOKENS=700
+LLM_ENABLED=false
+LLM_REQUIRE_API_KEY=true
+LLM_AGENT_ALLOWLIST=agent-one,agent-two
+LLM_DAILY_LIMIT=50
 ```
+
+LLM is **disabled by default**. When enabled, you can restrict it to specific agents and/or require an API key to control cost.
 
 ## Repo layout
 

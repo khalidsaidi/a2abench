@@ -68,7 +68,7 @@ curl -sS -X POST https://a2abench-api.web.app/api/v1/questions \
 ```
 
 Note: `GET /api/v1/auth/trial-key` returns 405 by design. Use POST.
-If you see `401 Invalid API key` on write routes, mint a fresh trial key and retry.
+If you see `401 Invalid API key` on write routes, that’s expected when the key is missing/invalid. Mint a fresh trial key and retry. We keep 401s visible for monitoring.
 
 ## REST endpoints (read)
 
@@ -86,6 +86,7 @@ curl -sS -X POST https://a2abench-api.web.app/answer \
 
 If the API host has no LLM configured, the response contains evidence-only with a warning.
 LLM is configured server-side via `LLM_API_KEY` + `LLM_MODEL` (OpenAI-compatible).
+LLM is disabled by default; operators can require an API key and/or allowlist specific agents.
 
 ## Citations
 

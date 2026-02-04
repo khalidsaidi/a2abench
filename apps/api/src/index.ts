@@ -28,6 +28,16 @@ const AGENT_PAYLOAD_MAX_EVENTS = Number(process.env.AGENT_PAYLOAD_MAX_EVENTS ?? 
 const AGENT_PAYLOAD_MAX_BYTES = Number(process.env.AGENT_PAYLOAD_MAX_BYTES ?? 16_384);
 const AGENT_EVENT_TOKEN = process.env.AGENT_EVENT_TOKEN ?? '';
 const LLM_CLIENT = createDefaultLlmFromEnv();
+const LLM_ENABLED = (process.env.LLM_ENABLED ?? '').toLowerCase() === 'true';
+const LLM_REQUIRE_API_KEY = (process.env.LLM_REQUIRE_API_KEY ?? 'true').toLowerCase() === 'true';
+const LLM_AGENT_ALLOWLIST = new Set(
+  (process.env.LLM_AGENT_ALLOWLIST ?? '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+);
+const LLM_DAILY_LIMIT = Number(process.env.LLM_DAILY_LIMIT ?? 50);
+const llmUsage = new Map<string, { dateKey: string; count: number }>();
 
 await fastify.register(cors, { origin: true });
 await fastify.register(rateLimit, { global: false });
@@ -38,7 +48,7 @@ await fastify.register(swagger, {
     info: {
       title: 'A2ABench API',
       description: 'Agent-native developer Q&A service',
-      version: '0.1.22'
+      version: '0.1.23'
     },
     components: {
       securitySchemes: {
@@ -172,6 +182,10 @@ function normalizeHeader(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+function normalizeAgentName(value: string | null | undefined) {
+  return (value ?? '').trim().toLowerCase();
+}
+
 function isPlaceholderId(id: string) {
   const trimmed = id.trim();
   if (!trimmed) return true;
@@ -296,7 +310,7 @@ function agentCard(baseUrl: string) {
     name: 'A2ABench',
     description: 'Agent-native developer Q&A with REST + MCP + A2A discovery. Read-only endpoints do not require auth.',
     url: baseUrl,
-    version: '0.1.22',
+    version: '0.1.23',
     protocolVersion: '0.1',
     skills: [
       {
@@ -421,6 +435,76 @@ async function requireApiKey(request: { headers: Record<string, string | string[
     }
   }
   return apiKey;
+}
+
+async function validateApiKey(request: { headers: Record<string, string | string[] | undefined> }) {
+  const header = request.headers.authorization;
+  const auth = Array.isArray(header) ? header[0] : header;
+  if (!auth) return { ok: false, reason: 'Missing API key' };
+  const [scheme, ...rest] = auth.split(' ');
+  if (!scheme || scheme.toLowerCase() !== 'bearer' || rest.length === 0) {
+    return { ok: false, reason: 'Missing API key' };
+  }
+  const key = rest.join(' ').trim();
+  if (!key) return { ok: false, reason: 'Invalid API key' };
+  const keyPrefix = key.slice(0, 8);
+  const keyHash = sha256(key);
+  const apiKey = await prisma.apiKey.findFirst({
+    where: { keyPrefix, keyHash, revokedAt: null }
+  });
+  if (!apiKey) return { ok: false, reason: 'Invalid API key' };
+  if (apiKey.expiresAt && apiKey.expiresAt.getTime() < Date.now()) {
+    return { ok: false, reason: 'API key expired' };
+  }
+  return { ok: true, keyPrefix };
+}
+
+function getLlmQuotaKey(request: RouteRequest, agentName: string | null) {
+  const keyPrefix = extractApiKeyPrefix(request.headers);
+  if (keyPrefix) return `key:${keyPrefix}`;
+  if (agentName) return `agent:${normalizeAgentName(agentName)}`;
+  return `ip:${request.ip ?? 'unknown'}`;
+}
+
+function getUtcDateKey(now = new Date()) {
+  return now.toISOString().slice(0, 10);
+}
+
+function allowLlmForRequest(request: RouteRequest, agentName: string | null) {
+  if (!LLM_ENABLED || !LLM_CLIENT) {
+    return {
+      allowed: false,
+      message: 'LLM disabled; returning retrieved evidence only.',
+      warnings: ['LLM disabled by policy.']
+    };
+  }
+  if (LLM_AGENT_ALLOWLIST.size > 0) {
+    const normalized = normalizeAgentName(agentName);
+    if (!normalized || !LLM_AGENT_ALLOWLIST.has(normalized)) {
+      return {
+        allowed: false,
+        message: 'LLM disabled for this agent; returning retrieved evidence only.',
+        warnings: ['LLM disabled for this agent.']
+      };
+    }
+  }
+  return { allowed: true, message: '', warnings: [] };
+}
+
+function allowLlmByQuota(request: RouteRequest, agentName: string | null) {
+  if (LLM_DAILY_LIMIT <= 0) return { allowed: true };
+  const key = getLlmQuotaKey(request, agentName);
+  const today = getUtcDateKey();
+  const entry = llmUsage.get(key);
+  if (!entry || entry.dateKey !== today) {
+    llmUsage.set(key, { dateKey: today, count: 1 });
+    return { allowed: true };
+  }
+  if (entry.count >= LLM_DAILY_LIMIT) {
+    return { allowed: false };
+  }
+  entry.count += 1;
+  return { allowed: true };
 }
 
 const CAPTURED_ROUTES = new Set([
@@ -1356,6 +1440,29 @@ fastify.post('/answer', {
   if (!body) return;
 
   const baseUrl = getBaseUrl(request);
+  const agentName = getAgentName(request.headers as Record<string, string | string[] | undefined>);
+  const policy = allowLlmForRequest(request as RouteRequest, agentName);
+  let llmAllowed = policy.allowed;
+  const warnings = [...policy.warnings];
+  let message = policy.message;
+
+  if (llmAllowed && LLM_REQUIRE_API_KEY) {
+    const keyCheck = await validateApiKey(request);
+    if (!keyCheck.ok) {
+      llmAllowed = false;
+      message = 'LLM requires a valid API key; returning retrieved evidence only.';
+      warnings.push('LLM requires a valid API key.');
+    }
+  }
+
+  if (llmAllowed) {
+    const quota = allowLlmByQuota(request as RouteRequest, agentName);
+    if (!quota.allowed) {
+      llmAllowed = false;
+      message = 'LLM daily limit reached; returning retrieved evidence only.';
+      warnings.push('LLM daily limit reached.');
+    }
+  }
   const response = await runAnswer(body, {
     baseUrl,
     search: async (query, topK) => {
@@ -1382,7 +1489,10 @@ fastify.post('/answer', {
         }
       });
     },
-    llm: LLM_CLIENT
+    llm: llmAllowed ? LLM_CLIENT : null
+  }, {
+    evidenceOnlyMessage: message || undefined,
+    evidenceOnlyWarnings: warnings.length > 0 ? warnings : undefined
   });
 
   return response;

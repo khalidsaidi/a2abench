@@ -218,6 +218,10 @@ export async function runAnswer(
     search: (query: string, topK: number) => Promise<SearchResult[]>;
     fetch: (id: string) => Promise<Thread | null>;
     llm?: LlmFn | null;
+  },
+  options?: {
+    evidenceOnlyMessage?: string;
+    evidenceOnlyWarnings?: string[];
   }
 ): Promise<AnswerResponse> {
   const query = request.query.trim();
@@ -236,12 +240,9 @@ export async function runAnswer(
     : retrievedForModel.map((item) => ({ ...item, snippet: '' }));
 
   if (!deps.llm) {
-    return evidenceOnlyAnswer(
-      query,
-      retrievedForResponse,
-      ['LLM not configured; returning retrieved evidence only.'],
-      'LLM not configured; returning retrieved evidence only.'
-    );
+    const warnings = options?.evidenceOnlyWarnings ?? ['LLM not configured; returning retrieved evidence only.'];
+    const message = options?.evidenceOnlyMessage ?? 'LLM not configured; returning retrieved evidence only.';
+    return evidenceOnlyAnswer(query, retrievedForResponse, warnings, message);
   }
 
   const system =
