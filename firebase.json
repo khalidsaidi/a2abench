@@ -69,6 +69,20 @@
             "serviceId": "a2abench-api",
             "region": "us-central1"
           }
+        },
+        {
+          "source": "/answer",
+          "run": {
+            "serviceId": "a2abench-api",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/answer/**",
+          "run": {
+            "serviceId": "a2abench-api",
+            "region": "us-central1"
+          }
         }
       ]
     },
