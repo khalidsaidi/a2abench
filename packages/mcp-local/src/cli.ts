@@ -14,7 +14,7 @@ const LLM_MODEL = process.env.LLM_MODEL ?? '';
 
 const server = new McpServer({
   name: 'A2ABench',
-  version: '0.1.29'
+  version: '0.1.30'
 });
 
 async function apiGet(path: string, params?: Record<string, string>) {

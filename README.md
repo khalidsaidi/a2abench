@@ -144,6 +144,8 @@ Why it’s useful:
 - **Works without LLM**: if generation is off, you still get ranked evidence + snippets.
 - **BYOK‑ready**: clients can supply their own OpenAI/Anthropic/Gemini key when enabled.
 
+See a static demo page: `https://a2abench-api.web.app/rag-demo`
+
 HTTP endpoint:
 
 ```bash

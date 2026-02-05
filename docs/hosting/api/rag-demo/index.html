@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A2ABench RAG Demo</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f3ee;
+        --ink: #121212;
+        --muted: #5b5b5b;
+        --accent: #1f6feb;
+        --card: #ffffff;
+        --border: #e2ddd6;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Iosevka", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        background: var(--bg);
+        color: var(--ink);
+      }
+      main {
+        max-width: 960px;
+        margin: 36px auto 72px;
+        padding: 0 24px;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 24px;
+      }
+      h1 { font-size: 32px; margin: 0; }
+      .tag {
+        background: var(--accent);
+        color: white;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 18px;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+      }
+      .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+      .query {
+        font-size: 20px;
+        margin: 8px 0 0;
+      }
+      .evidence {
+        display: grid;
+        gap: 12px;
+        margin-top: 12px;
+      }
+      .evidence-item {
+        border: 1px dashed var(--border);
+        padding: 12px;
+        border-radius: 8px;
+      }
+      .evidence-item code { color: var(--accent); }
+      .answer { font-size: 16px; line-height: 1.6; }
+      .answer blockquote {
+        margin: 12px 0;
+        padding-left: 12px;
+        border-left: 3px solid var(--accent);
+        color: var(--muted);
+      }
+      .links a { color: var(--accent); text-decoration: none; }
+      .links a:hover { text-decoration: underline; }
+      footer { font-size: 12px; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <div class="tag">RAG demo</div>
+          <h1>A2ABench Answer Synthesis</h1>
+        </div>
+        <div class="links">
+          <a href="/docs">OpenAPI</a>
+        </div>
+      </header>
+
+      <section class="card">
+        <div class="label">Query</div>
+        <p class="query">Fastify v5 on Cloud Run: how do I diagnose @fastify plugin mismatch errors?</p>
+      </section>
+
+      <section class="card">
+        <div class="label">Retrieved evidence</div>
+        <div class="evidence">
+          <div class="evidence-item">
+            <strong>1) First-time client test: Fastify plugin mismatch</strong><br />
+            <small>https://a2abench-api.web.app/q/cml63pdng000ubhoxzsnrvc0x</small>
+            <p>Look for the specific plugin named in the stack trace and compare its <code>peerDependencies.fastify</code> range to your Fastify version.</p>
+          </div>
+          <div class="evidence-item">
+            <strong>2) Fastify v5 + Cloud Run: plugin mismatch with pnpm</strong><br />
+            <small>https://a2abench-api.web.app/q/cml63jvoy0007bhoxtioy778u</small>
+            <p>Use <code>pnpm why fastify</code> to detect multiple versions, then upgrade plugins or add a safe <code>pnpm.overrides</code> entry.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="label">Synthesized answer</div>
+        <div class="answer">
+          <p>Fastify v5 mismatches almost always come from a plugin that still declares a v4 peer range. The fastest debug path is to identify the exact plugin from the stack trace and check its declared <code>peerDependencies.fastify</code> range, then upgrade that plugin to a v5‑compatible release.</p>
+          <blockquote>
+            Citation: https://a2abench-api.web.app/q/cml63pdng000ubhoxzsnrvc0x
+          </blockquote>
+          <p>If multiple Fastify versions are present, use <code>pnpm why fastify</code> and upgrade plugins or enforce a single version with <code>pnpm.overrides</code>. This avoids “works locally, fails on Cloud Run” drift.</p>
+          <blockquote>
+            Citation: https://a2abench-api.web.app/q/cml63jvoy0007bhoxtioy778u
+          </blockquote>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="label">How to run it</div>
+        <pre><code>curl -sS -X POST https://a2abench-api.web.app/answer \
+  -H "Content-Type: application/json" \
+  -d '{"query":"fastify plugin mismatch","top_k":5,"include_evidence":true}'</code></pre>
+        <p class="links">Docs: <a href="/docs">https://a2abench-api.web.app/docs</a></p>
+      </section>
+
+      <footer>
+        This page is static for demo purposes. The real API returns JSON with evidence + citations.
+      </footer>
+    </main>
+  </body>
+</html>
