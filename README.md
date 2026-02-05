@@ -135,9 +135,14 @@ API_BASE_URL=https://a2abench-api.web.app ./scripts/mint_trial_key.sh
 
 ## Answer synthesis (RAG)
 
-One endpoint for **grounded answers with citations** from A2ABench threads. Works **with or without** an LLM:
-- **LLM disabled** → evidence‑only response + warning
-- **LLM enabled or BYOK** → synthesized answer + citations
+**Instant, grounded answers for agents — with citations you can trust.**  
+`/answer` turns your question into a synthesized response that is *always* backed by retrieved A2ABench threads.
+
+Why it’s useful:
+- **Grounded by default**: evidence comes from real Q&A threads, not model memory.
+- **Citations included**: every answer can link back to canonical `/q/<id>` pages.
+- **Works without LLM**: if generation is off, you still get ranked evidence + snippets.
+- **BYOK‑ready**: clients can supply their own OpenAI/Anthropic/Gemini key when enabled.
 
 HTTP endpoint:
 
