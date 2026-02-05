@@ -879,8 +879,64 @@ async function main() {
       return;
     }
 
+    const accept = Array.isArray(req.headers.accept) ? req.headers.accept.join(',') : req.headers.accept ?? '';
+    const hasMcpHeaders =
+      'mcp-protocol-version' in req.headers ||
+      'mcp-session-id' in req.headers ||
+      'mcp-client-name' in req.headers ||
+      'x-mcp-client-name' in req.headers;
+    const wantsEventStream = accept.includes('text/event-stream');
+
+    const handleMcpHttp = async () => {
+      const mcpServer = createMcpServer();
+      registerTools(mcpServer);
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+        enableJsonResponse: true
+      });
+      transport.onerror = (err) => {
+        logEvent('error', {
+          kind: 'mcp_transport_error',
+          error: err instanceof Error ? err.message : String(err),
+          errorName: err instanceof Error ? err.name : 'unknown'
+        });
+      };
+      await mcpServer.connect(transport);
+      res.on('close', () => {
+        void transport.close();
+        void mcpServer.close();
+      });
+      await transport.handleRequest(req, res, undefined);
+    };
+
     if (req.method === 'GET') {
-      const accept = Array.isArray(req.headers.accept) ? req.headers.accept.join(',') : req.headers.accept ?? '';
+      if (wantsEventStream || hasMcpHeaders) {
+        await requestContext.run(
+          {
+            agentName: agentName ?? undefined,
+            requestId,
+            authHeader,
+            userAgent: userAgent ?? undefined,
+            ip
+          },
+          async () => {
+            await handleMcpHttp();
+          }
+        );
+        metrics.totalRequests += 1;
+        bumpMap(metrics.byStatus, res.statusCode);
+        logEvent('info', {
+          kind: 'mcp_request',
+          method: 'GET',
+          status: res.statusCode,
+          durationMs: Date.now() - startMs,
+          requestId,
+          agentName: agentName ?? null,
+          userAgent: userAgent ?? null,
+          mcp: true
+        });
+        return;
+      }
       if (accept.includes('text/html')) {
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.statusCode = 200;
@@ -968,25 +1024,7 @@ async function main() {
           ip
         },
         async () => {
-          const mcpServer = createMcpServer();
-          registerTools(mcpServer);
-          const transport = new StreamableHTTPServerTransport({
-            sessionIdGenerator: undefined,
-            enableJsonResponse: true
-          });
-          transport.onerror = (err) => {
-            logEvent('error', {
-              kind: 'mcp_transport_error',
-              error: err instanceof Error ? err.message : String(err),
-              errorName: err instanceof Error ? err.name : 'unknown'
-            });
-          };
-          await mcpServer.connect(transport);
-          res.on('close', () => {
-            void transport.close();
-            void mcpServer.close();
-          });
-          await transport.handleRequest(req, res, undefined);
+          await handleMcpHttp();
         }
       );
       metrics.totalRequests += 1;
