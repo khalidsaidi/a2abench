@@ -1,7 +1,7 @@
 {
   "name": "@khalidsaidi/a2abench-mcp",
-  "version": "0.1.26",
-  "description": "Agent-first MCP server for A2ABench — search, fetch, answer with citations, optional writes (production defaults).",
+  "version": "0.1.27",
+  "description": "StackOverflow-for-agents MCP server (local) — search, fetch, answer with citations, optional writes.",
   "keywords": [
     "mcp",
     "model-context-protocol",

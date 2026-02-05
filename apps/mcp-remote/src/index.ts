@@ -2,8 +2,9 @@ import 'dotenv/config';
 import { createServer } from 'node:http';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { z } from 'zod';
 
 const API_BASE_URL = process.env.API_BASE_URL ?? 'http://localhost:3000';
@@ -13,7 +14,7 @@ const PUBLIC_MCP_URL =
 const API_KEY = process.env.API_KEY ?? '';
 const PORT = Number(process.env.PORT ?? process.env.MCP_PORT ?? 4000);
 const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-remote';
-const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.26';
+const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.27';
 const COMMIT_SHA = process.env.COMMIT_SHA ?? process.env.GIT_SHA ?? 'unknown';
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
 const CAPTURE_AGENT_PAYLOADS = (process.env.CAPTURE_AGENT_PAYLOADS ?? '').toLowerCase() === 'true';
@@ -651,8 +652,48 @@ function respondText(res: import('node:http').ServerResponse, status: number, te
   res.end(text);
 }
 
+async function handleMcpRequest(
+  req: import('node:http').IncomingMessage,
+  res: import('node:http').ServerResponse,
+  transport: WebStandardStreamableHTTPServerTransport
+) {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (Array.isArray(value)) {
+      value.forEach((entry) => headers.append(key, entry));
+    } else if (value !== undefined) {
+      headers.set(key, value);
+    }
+  }
+  const method = req.method ?? 'GET';
+  const body = method === 'GET' || method === 'HEAD' ? undefined : (req as any);
+  const webRequest = new Request(url.toString(), {
+    method,
+    headers,
+    body,
+    duplex: body ? 'half' : undefined
+  } as any);
+
+  const webResponse = await transport.handleRequest(webRequest);
+  res.statusCode = webResponse.status;
+  webResponse.headers.forEach((value, key) => res.setHeader(key, value));
+  if (!webResponse.body || method === 'HEAD') {
+    res.end();
+    return;
+  }
+  const stream = Readable.fromWeb(webResponse.body);
+  stream.on('error', () => {
+    if (!res.headersSent) {
+      res.statusCode = 500;
+    }
+    res.end();
+  });
+  stream.pipe(res);
+}
+
 async function main() {
-  const transport = new StreamableHTTPServerTransport({
+  const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true
   });
@@ -698,29 +739,6 @@ async function main() {
     })();
 
     const isMcpPath = pathname.startsWith('/mcp');
-    if (req.method === 'POST' && isMcpPath) {
-      const acceptHeader = Array.isArray(req.headers.accept)
-        ? req.headers.accept.join(',')
-        : req.headers.accept ?? '';
-      if (!acceptHeader.includes('application/json') || !acceptHeader.includes('text/event-stream')) {
-        const normalized = 'application/json, text/event-stream';
-        req.headers.accept = normalized;
-        if (Array.isArray(req.rawHeaders)) {
-          let updated = false;
-          for (let i = 0; i < req.rawHeaders.length; i += 2) {
-            if (String(req.rawHeaders[i]).toLowerCase() === 'accept') {
-              req.rawHeaders[i + 1] = normalized;
-              updated = true;
-              break;
-            }
-          }
-          if (!updated) {
-            req.rawHeaders.push('accept', normalized);
-          }
-        }
-      }
-    }
-
     if (req.method === 'OPTIONS') {
       res.statusCode = 200;
       res.end();
@@ -1001,7 +1019,7 @@ async function main() {
           ip
         },
         async () => {
-          await transport.handleRequest(req, res);
+          await handleMcpRequest(req, res, transport);
         }
       );
       metrics.totalRequests += 1;

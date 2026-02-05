@@ -10,7 +10,7 @@ const EXPECT_ID = process.env.MCP_EXPECT_ID ?? '';
 async function main() {
   const client = new Client({
     name: 'A2ABenchQuickTest',
-    version: '0.1.26'
+    version: '0.1.27'
   });
 
   const transport = new StreamableHTTPClientTransport(new URL(SERVER_URL), {
@@ -65,6 +65,9 @@ async function main() {
 
   const fetchText = fetchResult.content?.find((item) => item.type === 'text')?.text ?? '';
   console.log('Fetch snippet:', fetchText.slice(0, 500));
+
+  await client.close();
+  process.exit(0);
 }
 
 main().catch((err) => {
