@@ -22,6 +22,8 @@ const TRIAL_KEY_TTL_HOURS = Number(process.env.TRIAL_KEY_TTL_HOURS ?? 24);
 const TRIAL_DAILY_WRITE_LIMIT = Number(process.env.TRIAL_DAILY_WRITE_LIMIT ?? 20);
 const TRIAL_DAILY_QUESTION_LIMIT = Number(process.env.TRIAL_DAILY_QUESTION_LIMIT ?? 5);
 const TRIAL_DAILY_ANSWER_LIMIT = Number(process.env.TRIAL_DAILY_ANSWER_LIMIT ?? 20);
+const TRIAL_KEY_RATE_LIMIT_MAX = Number(process.env.TRIAL_KEY_RATE_LIMIT_MAX ?? 3);
+const TRIAL_KEY_RATE_LIMIT_WINDOW = process.env.TRIAL_KEY_RATE_LIMIT_WINDOW ?? '1 day';
 const CAPTURE_AGENT_PAYLOADS = (process.env.CAPTURE_AGENT_PAYLOADS ?? '').toLowerCase() === 'true';
 const AGENT_PAYLOAD_TTL_HOURS = Number(process.env.AGENT_PAYLOAD_TTL_HOURS ?? 24);
 const AGENT_PAYLOAD_MAX_EVENTS = Number(process.env.AGENT_PAYLOAD_MAX_EVENTS ?? 1000);
@@ -1599,8 +1601,8 @@ fastify.post('/api/v1/auth/trial-key', {
   },
   config: {
     rateLimit: {
-      max: 3,
-      timeWindow: '1 day',
+      max: TRIAL_KEY_RATE_LIMIT_MAX,
+      timeWindow: TRIAL_KEY_RATE_LIMIT_WINDOW,
       keyGenerator: (request: RouteRequest) => {
         const ua = normalizeHeader(request.headers['user-agent']) ?? 'unknown';
         return `${request.ip ?? 'unknown'}:${ua}`;
