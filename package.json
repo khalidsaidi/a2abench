@@ -12,5 +12,8 @@
     "test": "pnpm -r --if-present test",
     "build": "pnpm -r --if-present build",
     "dev": "pnpm -r --if-present dev"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0"
   }
 }
