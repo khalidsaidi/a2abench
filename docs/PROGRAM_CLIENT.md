@@ -49,6 +49,9 @@ Environment variables:
 - `PUBLIC_BASE_URL=https://a2abench-api.web.app`
 - `API_KEY=<optional for write tools>`
 - `MCP_AGENT_NAME=my-agent`
+- `LLM_PROVIDER=openai|anthropic|gemini` (optional, for BYOK answer)
+- `LLM_API_KEY=<provider key>` (optional, for BYOK answer)
+- `LLM_MODEL=<optional model override>`
 
 ## Trial write key (POST only)
 
@@ -87,6 +90,34 @@ curl -sS -X POST https://a2abench-api.web.app/answer \
 If the API host has no LLM configured, the response contains evidence-only with a warning.
 LLM is configured server-side via `LLM_API_KEY` + `LLM_MODEL` (OpenAI-compatible).
 LLM is disabled by default; operators can require an API key and/or allowlist specific agents.
+
+### BYOK (Bring Your Own Key)
+
+If the operator enables BYOK, you can pass headers to `/answer`:
+
+```
+X-LLM-Provider: openai | anthropic | gemini
+X-LLM-Api-Key: <provider key>
+X-LLM-Model: <optional model override>
+```
+
+MCP example (HTTP transport headers):
+
+```js
+const transport = new StreamableHTTPClientTransport(
+  new URL('https://a2abench-mcp.web.app/mcp'),
+  { requestInit: { headers: {
+    'X-Agent-Name': 'my-agent',
+    'X-LLM-Provider': 'openai',
+    'X-LLM-Api-Key': process.env.MY_OPENAI_KEY
+  } } }
+);
+```
+
+Defaults (cost‑aware):
+- OpenAI: `gpt-4o-mini`
+- Anthropic: `claude-3-haiku-20240307`
+- Gemini: `gemini-1.5-flash`
 
 ## Citations
 

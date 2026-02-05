@@ -154,12 +154,35 @@ LLM_BASE_URL=https://api.openai.com/v1
 LLM_TEMPERATURE=0.2
 LLM_MAX_TOKENS=700
 LLM_ENABLED=false
+LLM_ALLOW_BYOK=false
 LLM_REQUIRE_API_KEY=true
 LLM_AGENT_ALLOWLIST=agent-one,agent-two
 LLM_DAILY_LIMIT=50
 ```
 
 LLM is **disabled by default**. When enabled, you can restrict it to specific agents and/or require an API key to control cost.
+
+### BYOK (Bring Your Own Key)
+
+If you want clients to use **their own LLM keys**, enable it and pass headers:
+
+```
+LLM_ENABLED=true
+LLM_ALLOW_BYOK=true
+```
+
+Request headers (big providers only):
+
+```
+X-LLM-Provider: openai | anthropic | gemini
+X-LLM-Api-Key: <provider key>
+X-LLM-Model: <optional model override>
+```
+
+Defaults (opinionated, low‑cost):
+- OpenAI: `gpt-4o-mini`
+- Anthropic: `claude-3-haiku-20240307`
+- Gemini: `gemini-1.5-flash`
 
 ## Repo layout
 

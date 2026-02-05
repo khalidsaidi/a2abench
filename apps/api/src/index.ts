@@ -6,7 +6,7 @@ import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { markdownToText } from './markdown.js';
-import { ANSWER_REQUEST_SCHEMA, runAnswer, createDefaultLlmFromEnv } from './answer.js';
+import { ANSWER_REQUEST_SCHEMA, runAnswer, createDefaultLlmFromEnv, createLlmFromByok } from './answer.js';
 import { z } from 'zod';
 import crypto from 'crypto';
 
@@ -29,6 +29,7 @@ const AGENT_PAYLOAD_MAX_BYTES = Number(process.env.AGENT_PAYLOAD_MAX_BYTES ?? 16
 const AGENT_EVENT_TOKEN = process.env.AGENT_EVENT_TOKEN ?? '';
 const LLM_CLIENT = createDefaultLlmFromEnv();
 const LLM_ENABLED = (process.env.LLM_ENABLED ?? '').toLowerCase() === 'true';
+const LLM_ALLOW_BYOK = (process.env.LLM_ALLOW_BYOK ?? '').toLowerCase() === 'true';
 const LLM_REQUIRE_API_KEY = (process.env.LLM_REQUIRE_API_KEY ?? 'true').toLowerCase() === 'true';
 const LLM_AGENT_ALLOWLIST = new Set(
   (process.env.LLM_AGENT_ALLOWLIST ?? '')
@@ -48,7 +49,7 @@ await fastify.register(swagger, {
     info: {
       title: 'A2ABench API',
       description: 'Agent-native developer Q&A service',
-      version: '0.1.27'
+      version: '0.1.28'
     },
     components: {
       securitySchemes: {
@@ -111,7 +112,16 @@ function containsSensitive(text: string) {
   return SENSITIVE_PATTERNS.some((entry) => entry.pattern.test(text));
 }
 
-const PAYLOAD_REDACT_KEYS = ['authorization', 'apiKey', 'api_key', 'token', 'secret', 'password'];
+const PAYLOAD_REDACT_KEYS = [
+  'authorization',
+  'apiKey',
+  'api_key',
+  'token',
+  'secret',
+  'password',
+  'x-llm-api-key',
+  'llm_api_key'
+];
 
 function redactString(text: string) {
   let output = text;
@@ -260,6 +270,10 @@ function getAgentName(headers: Record<string, string | string[] | undefined>) {
   return name.slice(0, 128);
 }
 
+function getHeaderValue(headers: Record<string, string | string[] | undefined>, key: string) {
+  return normalizeHeader(headers[key as keyof typeof headers]);
+}
+
 function firstHeaderIp(value: string) {
   return value.split(',')[0]?.trim();
 }
@@ -310,7 +324,7 @@ function agentCard(baseUrl: string) {
     name: 'A2ABench',
     description: 'Agent-native developer Q&A with REST + MCP + A2A discovery. Read-only endpoints do not require auth.',
     url: baseUrl,
-    version: '0.1.27',
+    version: '0.1.28',
     protocolVersion: '0.1',
     skills: [
       {
@@ -1440,11 +1454,52 @@ fastify.post('/answer', {
   if (!body) return;
 
   const baseUrl = getBaseUrl(request);
-  const agentName = getAgentName(request.headers as Record<string, string | string[] | undefined>);
+  const headers = request.headers as Record<string, string | string[] | undefined>;
+  const agentName = getAgentName(headers);
+  const byokProvider = getHeaderValue(headers, 'x-llm-provider');
+  const byokApiKey = getHeaderValue(headers, 'x-llm-api-key');
+  const byokModel = getHeaderValue(headers, 'x-llm-model');
+  const wantsByok = Boolean(byokProvider || byokApiKey || byokModel);
   const policy = allowLlmForRequest(request as RouteRequest, agentName);
   let llmAllowed = policy.allowed;
   const warnings = [...policy.warnings];
   let message = policy.message;
+  let llmClient = LLM_CLIENT;
+
+  if (!LLM_ENABLED) {
+    llmAllowed = false;
+    message = 'LLM disabled; returning retrieved evidence only.';
+    warnings.push('LLM disabled.');
+  }
+
+  if (wantsByok) {
+    if (!LLM_ALLOW_BYOK) {
+      llmAllowed = false;
+      message = 'BYOK disabled; returning retrieved evidence only.';
+      warnings.push('BYOK disabled.');
+    } else if (!LLM_ENABLED) {
+      llmAllowed = false;
+      message = 'LLM disabled; returning retrieved evidence only.';
+      warnings.push('LLM disabled.');
+    } else {
+      const byokClient = createLlmFromByok({
+        provider: byokProvider,
+        apiKey: byokApiKey,
+        model: byokModel
+      });
+      if (!byokClient) {
+        llmAllowed = false;
+        message = 'Invalid BYOK provider or key; returning retrieved evidence only.';
+        warnings.push('Invalid BYOK provider or key.');
+      } else {
+        llmClient = byokClient;
+      }
+    }
+  } else if (!LLM_CLIENT) {
+    llmAllowed = false;
+    message = 'LLM not configured; returning retrieved evidence only.';
+    warnings.push('LLM not configured.');
+  }
 
   if (llmAllowed && LLM_REQUIRE_API_KEY) {
     const keyCheck = await validateApiKey(request);
@@ -1489,7 +1544,7 @@ fastify.post('/answer', {
         }
       });
     },
-    llm: llmAllowed ? LLM_CLIENT : null
+    llm: llmAllowed ? llmClient : null
   }, {
     evidenceOnlyMessage: message || undefined,
     evidenceOnlyWarnings: warnings.length > 0 ? warnings : undefined

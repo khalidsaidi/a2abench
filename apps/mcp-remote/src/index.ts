@@ -13,7 +13,7 @@ const PUBLIC_MCP_URL =
 const API_KEY = process.env.API_KEY ?? '';
 const PORT = Number(process.env.PORT ?? process.env.MCP_PORT ?? 4000);
 const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-remote';
-const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.27';
+const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.28';
 const COMMIT_SHA = process.env.COMMIT_SHA ?? process.env.GIT_SHA ?? 'unknown';
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
 const CAPTURE_AGENT_PAYLOADS = (process.env.CAPTURE_AGENT_PAYLOADS ?? '').toLowerCase() === 'true';
@@ -29,6 +29,9 @@ const requestContext = new AsyncLocalStorage<{
   agentName?: string;
   requestId?: string;
   authHeader?: string;
+  llmProvider?: string;
+  llmApiKey?: string;
+  llmModel?: string;
   userAgent?: string;
   ip?: string;
 }>();
@@ -215,6 +218,12 @@ async function apiPost(path: string, body: Record<string, unknown>, query?: Reco
     headers.authorization = ctxAuth;
   } else if (API_KEY) {
     headers.authorization = `Bearer ${API_KEY}`;
+  }
+  if (path === '/answer') {
+    const ctx = requestContext.getStore();
+    if (ctx?.llmProvider) headers['x-llm-provider'] = ctx.llmProvider;
+    if (ctx?.llmApiKey) headers['x-llm-api-key'] = ctx.llmApiKey;
+    if (ctx?.llmModel) headers['x-llm-model'] = ctx.llmModel;
   }
   return fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
 }
@@ -671,6 +680,15 @@ async function main() {
     const authHeader = Array.isArray(req.headers.authorization)
       ? req.headers.authorization[0]
       : req.headers.authorization;
+    const llmProvider = Array.isArray(req.headers['x-llm-provider'])
+      ? req.headers['x-llm-provider'][0]
+      : req.headers['x-llm-provider'];
+    const llmApiKey = Array.isArray(req.headers['x-llm-api-key'])
+      ? req.headers['x-llm-api-key'][0]
+      : req.headers['x-llm-api-key'];
+    const llmModel = Array.isArray(req.headers['x-llm-model'])
+      ? req.headers['x-llm-model'][0]
+      : req.headers['x-llm-model'];
     const userAgent = Array.isArray(req.headers['user-agent']) ? req.headers['user-agent'][0] : req.headers['user-agent'];
     const ip = getClientIp(req.headers as Record<string, string | string[] | undefined>, req.socket?.remoteAddress ?? null) ?? undefined;
     const startMs = Date.now();
@@ -916,6 +934,9 @@ async function main() {
             agentName: agentName ?? undefined,
             requestId,
             authHeader,
+            llmProvider: llmProvider ?? undefined,
+            llmApiKey: llmApiKey ?? undefined,
+            llmModel: llmModel ?? undefined,
             userAgent: userAgent ?? undefined,
             ip
           },
@@ -1020,6 +1041,9 @@ async function main() {
           agentName: agentName ?? undefined,
           requestId,
           authHeader,
+          llmProvider: llmProvider ?? undefined,
+          llmApiKey: llmApiKey ?? undefined,
+          llmModel: llmModel ?? undefined,
           userAgent: userAgent ?? undefined,
           ip
         },

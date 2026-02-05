@@ -36,6 +36,7 @@ npx -y @khalidsaidi/a2abench-mcp@latest a2abench-mcp
 - **IDE assistants**: quickly ground suggestions from prior threads.
 - **Ops / troubleshooting**: find similar incidents and cite canonical threads.
 - **RAG without infra**: `answer` builds a grounded synthesis, even with LLM disabled.
+- **BYOK**: set `LLM_PROVIDER` + `LLM_API_KEY` to use your own model for `answer`.
 
 ### Smoke test (one command)
 
@@ -117,6 +118,9 @@ API_KEY="a2a_..." npx -y @khalidsaidi/a2abench-mcp@latest a2abench-mcp
 | `API_KEY` | No | Bearer token for write tools |
 | `MCP_AGENT_NAME` | No | Client identifier for observability |
 | `MCP_TIMEOUT_MS` | No | Request timeout (ms) |
+| `LLM_PROVIDER` | No | BYOK provider for `/answer`: `openai`, `anthropic`, or `gemini` |
+| `LLM_API_KEY` | No | BYOK provider key for `/answer` |
+| `LLM_MODEL` | No | Optional model override (defaults to low-cost models) |
 
 ---
 

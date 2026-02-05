@@ -49,6 +49,8 @@ export type SearchResult = { id: string; title?: string };
 
 export type LlmFn = (input: { system: string; user: string }) => Promise<string>;
 
+export type LlmProvider = 'openai' | 'anthropic' | 'gemini';
+
 const DEFAULT_MAX_CHARS = 1200;
 
 function clamp(value: number, min: number, max: number) {
@@ -314,4 +316,110 @@ export function createDefaultLlmFromEnv(): LlmFn | null {
     const content = data?.choices?.[0]?.message?.content;
     return typeof content === 'string' ? content : '';
   };
+}
+
+function normalizeProvider(value: string | undefined | null): LlmProvider | null {
+  if (!value) return null;
+  const lowered = value.trim().toLowerCase();
+  if (lowered === 'openai') return 'openai';
+  if (lowered === 'anthropic' || lowered === 'claude') return 'anthropic';
+  if (lowered === 'gemini' || lowered === 'google') return 'gemini';
+  return null;
+}
+
+export function createLlmFromByok(opts: {
+  provider?: string | null;
+  apiKey?: string | null;
+  model?: string | null;
+}): LlmFn | null {
+  const provider = normalizeProvider(opts.provider);
+  const apiKey = opts.apiKey?.trim() ?? '';
+  const model = opts.model?.trim() ?? '';
+  if (!provider || !apiKey) return null;
+
+  const temperature = Number(process.env.LLM_TEMPERATURE ?? 0.2);
+  const maxTokens = Number(process.env.LLM_MAX_TOKENS ?? 700);
+
+  if (provider === 'openai') {
+    const baseUrl = (process.env.LLM_OPENAI_BASE_URL ?? 'https://api.openai.com/v1').replace(/\/$/, '');
+    const useModel = model || process.env.LLM_OPENAI_MODEL || 'gpt-4o-mini';
+    return async ({ system, user }) => {
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: useModel,
+          temperature,
+          max_tokens: maxTokens,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user }
+          ]
+        })
+      });
+      if (!res.ok) return '';
+      const data = (await res.json()) as any;
+      const content = data?.choices?.[0]?.message?.content;
+      return typeof content === 'string' ? content : '';
+    };
+  }
+
+  if (provider === 'anthropic') {
+    const baseUrl = (process.env.LLM_ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com/v1').replace(/\/$/, '');
+    const useModel = model || process.env.LLM_ANTHROPIC_MODEL || 'claude-3-haiku-20240307';
+    return async ({ system, user }) => {
+      const res = await fetch(`${baseUrl}/messages`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: useModel,
+          max_tokens: maxTokens,
+          temperature,
+          system,
+          messages: [{ role: 'user', content: user }]
+        })
+      });
+      if (!res.ok) return '';
+      const data = (await res.json()) as any;
+      const content = data?.content?.[0]?.text;
+      return typeof content === 'string' ? content : '';
+    };
+  }
+
+  if (provider === 'gemini') {
+    const baseUrl = (process.env.LLM_GEMINI_BASE_URL ?? 'https://generativelanguage.googleapis.com/v1beta').replace(
+      /\/$/,
+      ''
+    );
+    const useModel = model || process.env.LLM_GEMINI_MODEL || 'gemini-1.5-flash';
+    return async ({ system, user }) => {
+      const prompt = `${system}\n\n${user}`;
+      const res = await fetch(`${baseUrl}/models/${useModel}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature,
+            maxOutputTokens: maxTokens
+          }
+        })
+      });
+      if (!res.ok) return '';
+      const data = (await res.json()) as any;
+      const content = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      return typeof content === 'string' ? content : '';
+    };
+  }
+
+  return null;
 }

@@ -8,10 +8,13 @@ const API_BASE_URL = process.env.API_BASE_URL ?? 'https://a2abench-api.web.app';
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL ?? API_BASE_URL;
 const API_KEY = process.env.API_KEY ?? '';
 const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-local';
+const LLM_PROVIDER = process.env.LLM_PROVIDER ?? '';
+const LLM_API_KEY = process.env.LLM_API_KEY ?? '';
+const LLM_MODEL = process.env.LLM_MODEL ?? '';
 
 const server = new McpServer({
   name: 'A2ABench',
-  version: '0.1.27'
+  version: '0.1.28'
 });
 
 async function apiGet(path: string, params?: Record<string, string>) {
@@ -44,6 +47,11 @@ async function apiPost(path: string, body: Record<string, unknown>, query?: Reco
   }
   if (API_KEY) {
     headers.authorization = `Bearer ${API_KEY}`;
+  }
+  if (path === '/answer') {
+    if (LLM_PROVIDER) headers['X-LLM-Provider'] = LLM_PROVIDER;
+    if (LLM_API_KEY) headers['X-LLM-Api-Key'] = LLM_API_KEY;
+    if (LLM_MODEL) headers['X-LLM-Model'] = LLM_MODEL;
   }
   return fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
 }
