@@ -1,6 +1,6 @@
 # Publishing Status (A2ABench)
 
-Last verified (UTC): 20260205T015409Z
+Last verified (UTC): 20260205T023150Z
 
 ## Canonical endpoints
 - MCP (remote): https://a2abench-mcp.web.app/mcp
@@ -12,9 +12,9 @@ Last verified (UTC): 20260205T015409Z
 - Citation page: https://a2abench-api.web.app/q/<QUESTION_ID>
 
 ## Versions (source of truth)
-- Official MCP Registry latest: 0.1.28
-- PublishedAt (registry): 2026-02-05T01:52:35.185807Z
-- npm package @khalidsaidi/a2abench-mcp: 0.1.28
+- Official MCP Registry latest: 0.1.29
+- PublishedAt (registry): 2026-02-05T02:30:32.274971Z
+- npm package @khalidsaidi/a2abench-mcp: 0.1.29
 
 ## Verification commands
 Registry latest:
