@@ -2,9 +2,8 @@ import 'dotenv/config';
 import { createServer } from 'node:http';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
-import { Readable } from 'node:stream';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 
 const API_BASE_URL = process.env.API_BASE_URL ?? 'http://localhost:3000';
@@ -33,11 +32,6 @@ const requestContext = new AsyncLocalStorage<{
   userAgent?: string;
   ip?: string;
 }>();
-
-const server = new McpServer({
-  name: 'A2ABench',
-  version: SERVICE_VERSION
-});
 
 const metrics = {
   startedAt: new Date().toISOString(),
@@ -142,7 +136,7 @@ function getClientIp(headers: Record<string, string | string[] | undefined>, fal
 }
 
 function redactString(value: string) {
-  return value.replace(/Bearer\\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted]');
+  return value.replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted]');
 }
 
 function sanitizePayload(value: unknown): unknown {
@@ -225,86 +219,115 @@ async function apiPost(path: string, body: Record<string, unknown>, query?: Reco
   return fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
 }
 
-server.registerTool(
-  'search',
-  {
-    title: 'Search questions',
-    description: 'Search questions by keyword and return canonical URLs.',
-    inputSchema: {
-      query: z.string().min(1)
-    }
-  },
-  async ({ query }) => {
-    const toolStart = Date.now();
-    const response = await apiGet('/api/v1/search', { q: query });
-    const requestId = requestContext.getStore()?.requestId ?? null;
-    if (!response.ok) {
+function createMcpServer() {
+  return new McpServer({
+    name: 'A2ABench',
+    version: SERVICE_VERSION
+  });
+}
+
+function registerTools(server: McpServer) {
+  server.registerTool(
+    'search',
+    {
+      title: 'Search questions',
+      description: 'Search questions by keyword and return canonical URLs.',
+      inputSchema: {
+        query: z.string().min(1)
+      }
+    },
+    async ({ query }) => {
+      const toolStart = Date.now();
+      const response = await apiGet('/api/v1/search', { q: query });
+      const requestId = requestContext.getStore()?.requestId ?? null;
+      if (!response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'search');
+        bumpMap(metrics.toolErrors, 'search');
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'search',
+          status: response.status,
+          durationMs: Date.now() - toolStart,
+          requestId
+        });
+        captureToolEvent('search', { query }, { results: [] }, response.status, Date.now() - toolStart);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ results: [] })
+            }
+          ]
+        };
+      }
+      const data = (await response.json()) as { results?: Array<{ id: string; title: string }> };
+      const results = (data.results ?? []).map((item) => ({
+        id: item.id,
+        title: item.title,
+        url: `${PUBLIC_BASE_URL}/q/${item.id}`
+      }));
       metrics.totalToolCalls += 1;
       bumpMap(metrics.byTool, 'search');
-      bumpMap(metrics.toolErrors, 'search');
-      logEvent('warn', {
+      logEvent('info', {
         kind: 'mcp_tool',
         tool: 'search',
         status: response.status,
         durationMs: Date.now() - toolStart,
+        resultCount: results.length,
         requestId
       });
-      captureToolEvent('search', { query }, { results: [] }, response.status, Date.now() - toolStart);
+      captureToolEvent('search', { query }, { results }, response.status, Date.now() - toolStart);
       return {
         content: [
           {
             type: 'text',
-            text: JSON.stringify({ results: [] })
+            text: JSON.stringify({ results })
           }
         ]
       };
     }
-    const data = (await response.json()) as { results?: Array<{ id: string; title: string }> };
-    const results = (data.results ?? []).map((item) => ({
-      id: item.id,
-      title: item.title,
-      url: `${PUBLIC_BASE_URL}/q/${item.id}`
-    }));
-    metrics.totalToolCalls += 1;
-    bumpMap(metrics.byTool, 'search');
-    logEvent('info', {
-      kind: 'mcp_tool',
-      tool: 'search',
-      status: response.status,
-      durationMs: Date.now() - toolStart,
-      resultCount: results.length,
-      requestId
-    });
-    captureToolEvent('search', { query }, { results }, response.status, Date.now() - toolStart);
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({ results })
-        }
-      ]
-    };
-  }
-);
+  );
 
-server.registerTool(
-  'fetch',
-  {
-    title: 'Fetch question thread',
-    description: 'Fetch a question and its answers by id.',
-    inputSchema: {
-      id: z.string().min(1)
-    }
-  },
-  async ({ id }) => {
-    const toolStart = Date.now();
-    const response = await apiGet(`/api/v1/questions/${id}`);
-    const requestId = requestContext.getStore()?.requestId ?? null;
-    if (!response.ok) {
+  server.registerTool(
+    'fetch',
+    {
+      title: 'Fetch question thread',
+      description: 'Fetch a question and its answers by id.',
+      inputSchema: {
+        id: z.string().min(1)
+      }
+    },
+    async ({ id }) => {
+      const toolStart = Date.now();
+      const response = await apiGet(`/api/v1/questions/${id}`);
+      const requestId = requestContext.getStore()?.requestId ?? null;
+      if (!response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'fetch');
+        bumpMap(metrics.toolErrors, 'fetch');
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'fetch',
+          status: response.status,
+          durationMs: Date.now() - toolStart,
+          id,
+          requestId
+        });
+        captureToolEvent('fetch', { id }, { error: 'Not found' }, response.status, Date.now() - toolStart);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ id, error: 'Not found' })
+            }
+          ]
+        };
+      }
+      const data = (await response.json()) as Record<string, unknown>;
       metrics.totalToolCalls += 1;
       bumpMap(metrics.byTool, 'fetch');
-      bumpMap(metrics.toolErrors, 'fetch');
-      logEvent('warn', {
+      logEvent('info', {
         kind: 'mcp_tool',
         tool: 'fetch',
         status: response.status,
@@ -312,62 +335,68 @@ server.registerTool(
         id,
         requestId
       });
-      captureToolEvent('fetch', { id }, { error: 'Not found' }, response.status, Date.now() - toolStart);
+      captureToolEvent('fetch', { id }, data as Record<string, unknown>, response.status, Date.now() - toolStart);
       return {
         content: [
           {
             type: 'text',
-            text: JSON.stringify({ id, error: 'Not found' })
+            text: JSON.stringify(data)
           }
         ]
       };
     }
-    const data = (await response.json()) as Record<string, unknown>;
-    metrics.totalToolCalls += 1;
-    bumpMap(metrics.byTool, 'fetch');
-    logEvent('info', {
-      kind: 'mcp_tool',
-      tool: 'fetch',
-      status: response.status,
-      durationMs: Date.now() - toolStart,
-      id,
-      requestId
-    });
-    captureToolEvent('fetch', { id }, data as Record<string, unknown>, response.status, Date.now() - toolStart);
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(data)
-        }
-      ]
-    };
-  }
-);
+  );
 
-server.registerTool(
-  'answer',
-  {
-    title: 'Answer',
-    description: 'Synthesize a grounded answer from A2ABench threads with citations.',
-    inputSchema: {
-      query: z.string().min(1),
-      top_k: z.number().int().min(1).max(10).optional(),
-      include_evidence: z.boolean().optional(),
-      mode: z.enum(['balanced', 'strict']).optional(),
-      max_chars_per_evidence: z.number().int().min(200).max(4000).optional()
-    }
-  },
-  async ({ query, top_k, include_evidence, mode, max_chars_per_evidence }) => {
-    const toolStart = Date.now();
-    const requestId = requestContext.getStore()?.requestId ?? null;
-    const response = await apiPost('/answer', { query, top_k, include_evidence, mode, max_chars_per_evidence });
-    if (!response.ok) {
+  server.registerTool(
+    'answer',
+    {
+      title: 'Answer',
+      description: 'Synthesize a grounded answer from A2ABench threads with citations.',
+      inputSchema: {
+        query: z.string().min(1),
+        top_k: z.number().int().min(1).max(10).optional(),
+        include_evidence: z.boolean().optional(),
+        mode: z.enum(['balanced', 'strict']).optional(),
+        max_chars_per_evidence: z.number().int().min(200).max(4000).optional()
+      }
+    },
+    async ({ query, top_k, include_evidence, mode, max_chars_per_evidence }) => {
+      const toolStart = Date.now();
+      const requestId = requestContext.getStore()?.requestId ?? null;
+      const response = await apiPost('/answer', { query, top_k, include_evidence, mode, max_chars_per_evidence });
+      if (!response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'answer');
+        bumpMap(metrics.toolErrors, 'answer');
+        const text = await response.text();
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'answer',
+          status: response.status,
+          durationMs: Date.now() - toolStart,
+          requestId
+        });
+        captureToolEvent(
+          'answer',
+          { query, top_k, include_evidence, mode, max_chars_per_evidence },
+          { error: text || 'Failed to generate answer', status: response.status },
+          response.status,
+          Date.now() - toolStart
+        );
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ error: text || 'Failed to generate answer', status: response.status })
+            }
+          ]
+        };
+      }
+      const data = (await response.json()) as Record<string, unknown>;
       metrics.totalToolCalls += 1;
       bumpMap(metrics.byTool, 'answer');
-      bumpMap(metrics.toolErrors, 'answer');
-      const text = await response.text();
-      logEvent('warn', {
+      logEvent('info', {
         kind: 'mcp_tool',
         tool: 'answer',
         status: response.status,
@@ -377,237 +406,211 @@ server.registerTool(
       captureToolEvent(
         'answer',
         { query, top_k, include_evidence, mode, max_chars_per_evidence },
-        { error: text || 'Failed to generate answer', status: response.status },
+        data as Record<string, unknown>,
         response.status,
         Date.now() - toolStart
       );
       return {
-        isError: true,
         content: [
           {
             type: 'text',
-            text: JSON.stringify({ error: text || 'Failed to generate answer', status: response.status })
+            text: JSON.stringify(data)
           }
         ]
       };
     }
-    const data = (await response.json()) as Record<string, unknown>;
-    metrics.totalToolCalls += 1;
-    bumpMap(metrics.byTool, 'answer');
-    logEvent('info', {
-      kind: 'mcp_tool',
-      tool: 'answer',
-      status: response.status,
-      durationMs: Date.now() - toolStart,
-      requestId
-    });
-    captureToolEvent(
-      'answer',
-      { query, top_k, include_evidence, mode, max_chars_per_evidence },
-      data as Record<string, unknown>,
-      response.status,
-      Date.now() - toolStart
-    );
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(data)
-        }
-      ]
-    };
-  }
-);
+  );
 
-server.registerTool(
-  'create_question',
-  {
-    title: 'Create question',
-    description: 'Create a new question thread (requires API key).',
-    inputSchema: {
-      title: z.string().min(8),
-      bodyMd: z.string().min(3),
-      tags: z.array(z.string()).optional(),
-      force: z.boolean().optional()
-    }
-  },
-  async ({ title, bodyMd, tags, force }) => {
-    const toolStart = Date.now();
-    const requestId = requestContext.getStore()?.requestId ?? null;
-    const authHeader = requestContext.getStore()?.authHeader ?? (API_KEY ? `Bearer ${API_KEY}` : '');
-    if (!authHeader) {
+  server.registerTool(
+    'create_question',
+    {
+      title: 'Create question',
+      description: 'Create a new question thread (requires API key).',
+      inputSchema: {
+        title: z.string().min(8),
+        bodyMd: z.string().min(3),
+        tags: z.array(z.string()).optional(),
+        force: z.boolean().optional()
+      }
+    },
+    async ({ title, bodyMd, tags, force }) => {
+      const toolStart = Date.now();
+      const requestId = requestContext.getStore()?.requestId ?? null;
+      const authHeader = requestContext.getStore()?.authHeader ?? (API_KEY ? `Bearer ${API_KEY}` : '');
+      if (!authHeader) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'create_question');
+        bumpMap(metrics.toolErrors, 'create_question');
+        captureToolEvent(
+          'create_question',
+          { title, bodyMd, tags, force },
+          { error: 'Missing API key' },
+          401,
+          Date.now() - toolStart
+        );
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                error: 'Missing API key',
+                hint: 'Get a trial key at /api/v1/auth/trial-key'
+              })
+            }
+          ]
+        };
+      }
+      const response = await apiPost('/api/v1/questions', { title, bodyMd, tags }, force ? { force: '1' } : undefined);
+      if (!response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'create_question');
+        bumpMap(metrics.toolErrors, 'create_question');
+        const text = await response.text();
+        const hint = response.status === 401 ? 'Get a trial key at /api/v1/auth/trial-key' : undefined;
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'create_question',
+          status: response.status,
+          durationMs: Date.now() - toolStart,
+          requestId
+        });
+        captureToolEvent(
+          'create_question',
+          { title, bodyMd, tags, force },
+          { error: text || 'Failed to create question', status: response.status, hint },
+          response.status,
+          Date.now() - toolStart
+        );
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ error: text || 'Failed to create question', status: response.status, hint })
+            }
+          ]
+        };
+      }
+      const data = (await response.json()) as Record<string, unknown>;
       metrics.totalToolCalls += 1;
       bumpMap(metrics.byTool, 'create_question');
-      bumpMap(metrics.toolErrors, 'create_question');
-      captureToolEvent(
-        'create_question',
-        { title, bodyMd, tags, force },
-        { error: 'Missing API key' },
-        401,
-        Date.now() - toolStart
-      );
-      return {
-        isError: true,
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              error: 'Missing API key',
-              hint: 'Get a trial key at /api/v1/auth/trial-key'
-            })
-          }
-        ]
-      };
-    }
-    const response = await apiPost('/api/v1/questions', { title, bodyMd, tags }, force ? { force: '1' } : undefined);
-    if (!response.ok) {
-      metrics.totalToolCalls += 1;
-      bumpMap(metrics.byTool, 'create_question');
-      bumpMap(metrics.toolErrors, 'create_question');
-      const text = await response.text();
-      const hint = response.status === 401 ? 'Get a trial key at /api/v1/auth/trial-key' : undefined;
-      logEvent('warn', {
+      logEvent('info', {
         kind: 'mcp_tool',
         tool: 'create_question',
         status: response.status,
         durationMs: Date.now() - toolStart,
         requestId
       });
-      captureToolEvent(
-        'create_question',
-        { title, bodyMd, tags, force },
-        { error: text || 'Failed to create question', status: response.status, hint },
-        response.status,
-        Date.now() - toolStart
-      );
+      captureToolEvent('create_question', { title, bodyMd, tags, force }, data as Record<string, unknown>, response.status, Date.now() - toolStart);
       return {
-        isError: true,
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({ error: text || 'Failed to create question', status: response.status, hint })
-          }
-        ]
-      };
-    }
-    const data = (await response.json()) as Record<string, unknown>;
-    metrics.totalToolCalls += 1;
-    bumpMap(metrics.byTool, 'create_question');
-    logEvent('info', {
-      kind: 'mcp_tool',
-      tool: 'create_question',
-      status: response.status,
-      durationMs: Date.now() - toolStart,
-      requestId
-    });
-    captureToolEvent('create_question', { title, bodyMd, tags, force }, data as Record<string, unknown>, response.status, Date.now() - toolStart);
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            ...data,
-            url: `${PUBLIC_BASE_URL}/q/${data.id}`
-          })
-        }
-      ]
-    };
-  }
-);
-
-server.registerTool(
-  'create_answer',
-  {
-    title: 'Create answer',
-    description: 'Create an answer for a question (requires API key).',
-    inputSchema: {
-      id: z.string().min(1),
-      bodyMd: z.string().min(3)
-    }
-  },
-  async ({ id, bodyMd }) => {
-    const toolStart = Date.now();
-    const requestId = requestContext.getStore()?.requestId ?? null;
-    const authHeader = requestContext.getStore()?.authHeader ?? (API_KEY ? `Bearer ${API_KEY}` : '');
-    if (!authHeader) {
-      metrics.totalToolCalls += 1;
-      bumpMap(metrics.byTool, 'create_answer');
-      bumpMap(metrics.toolErrors, 'create_answer');
-      captureToolEvent(
-        'create_answer',
-        { id, bodyMd },
-        { error: 'Missing API key' },
-        401,
-        Date.now() - toolStart
-      );
-      return {
-        isError: true,
         content: [
           {
             type: 'text',
             text: JSON.stringify({
-              error: 'Missing API key',
-              hint: 'Get a trial key at /api/v1/auth/trial-key'
+              ...data,
+              url: `${PUBLIC_BASE_URL}/q/${data.id}`
             })
           }
         ]
       };
     }
-    const response = await apiPost(`/api/v1/questions/${id}/answers`, { bodyMd });
-    if (!response.ok) {
+  );
+
+  server.registerTool(
+    'create_answer',
+    {
+      title: 'Create answer',
+      description: 'Create an answer for a question (requires API key).',
+      inputSchema: {
+        id: z.string().min(1),
+        bodyMd: z.string().min(3)
+      }
+    },
+    async ({ id, bodyMd }) => {
+      const toolStart = Date.now();
+      const requestId = requestContext.getStore()?.requestId ?? null;
+      const authHeader = requestContext.getStore()?.authHeader ?? (API_KEY ? `Bearer ${API_KEY}` : '');
+      if (!authHeader) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'create_answer');
+        bumpMap(metrics.toolErrors, 'create_answer');
+        captureToolEvent(
+          'create_answer',
+          { id, bodyMd },
+          { error: 'Missing API key' },
+          401,
+          Date.now() - toolStart
+        );
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                error: 'Missing API key',
+                hint: 'Get a trial key at /api/v1/auth/trial-key'
+              })
+            }
+          ]
+        };
+      }
+      const response = await apiPost(`/api/v1/questions/${id}/answers`, { bodyMd });
+      if (!response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'create_answer');
+        bumpMap(metrics.toolErrors, 'create_answer');
+        const text = await response.text();
+        const hint = response.status === 401 ? 'Get a trial key at /api/v1/auth/trial-key' : undefined;
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'create_answer',
+          status: response.status,
+          durationMs: Date.now() - toolStart,
+          requestId
+        });
+        captureToolEvent(
+          'create_answer',
+          { id, bodyMd },
+          { error: text || 'Failed to create answer', status: response.status, hint },
+          response.status,
+          Date.now() - toolStart
+        );
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ error: text || 'Failed to create answer', status: response.status, hint })
+            }
+          ]
+        };
+      }
+      const data = (await response.json()) as Record<string, unknown>;
       metrics.totalToolCalls += 1;
       bumpMap(metrics.byTool, 'create_answer');
-      bumpMap(metrics.toolErrors, 'create_answer');
-      const text = await response.text();
-      const hint = response.status === 401 ? 'Get a trial key at /api/v1/auth/trial-key' : undefined;
-      logEvent('warn', {
+      logEvent('info', {
         kind: 'mcp_tool',
         tool: 'create_answer',
         status: response.status,
         durationMs: Date.now() - toolStart,
         requestId
       });
-      captureToolEvent(
-        'create_answer',
-        { id, bodyMd },
-        { error: text || 'Failed to create answer', status: response.status, hint },
-        response.status,
-        Date.now() - toolStart
-      );
+      captureToolEvent('create_answer', { id, bodyMd }, data as Record<string, unknown>, response.status, Date.now() - toolStart);
       return {
-        isError: true,
         content: [
           {
             type: 'text',
-            text: JSON.stringify({ error: text || 'Failed to create answer', status: response.status, hint })
+            text: JSON.stringify({
+              ...data,
+              url: `${PUBLIC_BASE_URL}/q/${id}`
+            })
           }
         ]
       };
     }
-    const data = (await response.json()) as Record<string, unknown>;
-    metrics.totalToolCalls += 1;
-    bumpMap(metrics.byTool, 'create_answer');
-    logEvent('info', {
-      kind: 'mcp_tool',
-      tool: 'create_answer',
-      status: response.status,
-      durationMs: Date.now() - toolStart,
-      requestId
-    });
-    captureToolEvent('create_answer', { id, bodyMd }, data as Record<string, unknown>, response.status, Date.now() - toolStart);
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            ...data,
-            url: `${PUBLIC_BASE_URL}/q/${id}`
-          })
-        }
-      ]
-    };
-  }
-);
+  );
+}
 
 function isOriginAllowed(origin: string | undefined) {
   if (!origin) return true;
@@ -652,61 +655,7 @@ function respondText(res: import('node:http').ServerResponse, status: number, te
   res.end(text);
 }
 
-async function handleMcpRequest(
-  req: import('node:http').IncomingMessage,
-  res: import('node:http').ServerResponse,
-  transport: WebStandardStreamableHTTPServerTransport
-) {
-  const url = new URL(req.url ?? '/', 'http://localhost');
-  const headers = new Headers();
-  for (const [key, value] of Object.entries(req.headers)) {
-    if (Array.isArray(value)) {
-      value.forEach((entry) => headers.append(key, entry));
-    } else if (value !== undefined) {
-      headers.set(key, value);
-    }
-  }
-  const method = req.method ?? 'GET';
-  const body = method === 'GET' || method === 'HEAD' ? undefined : (req as any);
-  const webRequest = new Request(url.toString(), {
-    method,
-    headers,
-    body,
-    duplex: body ? 'half' : undefined
-  } as any);
-
-  const webResponse = await transport.handleRequest(webRequest);
-  res.statusCode = webResponse.status;
-  webResponse.headers.forEach((value, key) => res.setHeader(key, value));
-  if (!webResponse.body || method === 'HEAD') {
-    res.end();
-    return;
-  }
-  const stream = Readable.fromWeb(webResponse.body);
-  stream.on('error', () => {
-    if (!res.headersSent) {
-      res.statusCode = 500;
-    }
-    res.end();
-  });
-  stream.pipe(res);
-}
-
 async function main() {
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-    enableJsonResponse: true
-  });
-
-  await server.connect(transport);
-  transport.onerror = (err) => {
-    logEvent('error', {
-      kind: 'mcp_transport_error',
-      error: err instanceof Error ? err.message : String(err),
-      errorName: err instanceof Error ? err.name : 'unknown'
-    });
-  };
-
   const httpServer = createServer(async (req, res) => {
     if (!req.url || !req.method) {
       res.statusCode = 400;
@@ -1019,7 +968,25 @@ async function main() {
           ip
         },
         async () => {
-          await handleMcpRequest(req, res, transport);
+          const mcpServer = createMcpServer();
+          registerTools(mcpServer);
+          const transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: undefined,
+            enableJsonResponse: true
+          });
+          transport.onerror = (err) => {
+            logEvent('error', {
+              kind: 'mcp_transport_error',
+              error: err instanceof Error ? err.message : String(err),
+              errorName: err instanceof Error ? err.name : 'unknown'
+            });
+          };
+          await mcpServer.connect(transport);
+          res.on('close', () => {
+            void transport.close();
+            void mcpServer.close();
+          });
+          await transport.handleRequest(req, res, undefined);
         }
       );
       metrics.totalRequests += 1;
