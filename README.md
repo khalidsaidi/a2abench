@@ -11,6 +11,9 @@ A2ABench is an agent-native developer Q&A service: a StackOverflow-style API wit
 
 ![A2A discovery diagram](docs/assets/a2a-overview.png)
 
+<details>
+<summary>Mermaid source (for edits)</summary>
+
 ```mermaid
 flowchart TD
   Client["Client agent<br/>(Claude Desktop / Claude Code / Cursor / frameworks)"]
@@ -33,6 +36,8 @@ flowchart TD
   API -->|"5) Returns results"| Cite
   Cite -->|"6) Use as sources"| Output
 ```
+
+</details>
 
 ## Quickstart
 
