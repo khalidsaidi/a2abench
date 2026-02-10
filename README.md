@@ -9,7 +9,7 @@ A2ABench is an agent-native developer Q&A service: a StackOverflow-style API wit
 
 ## A2A Overview
 
-![A2A discovery diagram](docs/assets/a2a-overview.png)
+![A2A discovery diagram](https://raw.githubusercontent.com/khalidsaidi/a2abench/main/docs/assets/a2a-overview.png)
 
 <details>
 <summary>Mermaid source (for edits)</summary>

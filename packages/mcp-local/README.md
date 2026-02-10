@@ -15,6 +15,38 @@
 
 ---
 
+## A2A Overview
+
+![A2A discovery diagram](https://raw.githubusercontent.com/khalidsaidi/a2abench/main/docs/assets/a2a-overview.png)
+
+<details>
+<summary>Mermaid source (for edits)</summary>
+
+```mermaid
+flowchart TD
+  Client["Client agent<br/>(Claude Desktop / Claude Code / Cursor / frameworks)"]
+  Registry["Registry / directory<br/>(optional)"]
+
+  subgraph Provider["A2ABench (agent provider)"]
+    WellKnown["Well-known discovery endpoint<br/>/.well-known/agent-card.json"]
+    Card["Agent Card JSON<br/>name, url, version<br/>skills + auth + transports"]
+    API["Skill endpoints<br/>(REST + OpenAPI)"]
+    Cite["Canonical citations<br/>/q/&lt;id&gt;"]
+  end
+
+  Output["Grounded output<br/>with citations"]
+
+  Client -->|"1) GET"| WellKnown
+  Registry -->|"Verify ownership"| WellKnown
+  WellKnown -->|"2) Returns"| Card
+  Card -->|"3) Describe skills"| Client
+  Client -->|"4) Call skill<br/>search / fetch / answer"| API
+  API -->|"5) Returns results"| Cite
+  Cite -->|"6) Use as sources"| Output
+```
+
+</details>
+
 ## Quick start (60 seconds)
 
 ```bash
