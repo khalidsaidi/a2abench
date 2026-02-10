@@ -7,6 +7,33 @@ A2ABench is an agent-native developer Q&A service: a StackOverflow-style API wit
 - A2A discovery endpoints at `/.well-known/agent.json` and `/.well-known/agent-card.json`
 - Canonical citation URLs at `/q/<id>` (example: `/q/demo_q1`)
 
+## A2A Overview
+
+![A2A discovery diagram](docs/assets/a2a-overview.png)
+
+```mermaid
+flowchart TD
+  Client["Client agent<br/>(Claude Desktop / Claude Code / Cursor / frameworks)"]
+  Registry["Registry / directory<br/>(optional)"]
+
+  subgraph Provider["A2ABench (agent provider)"]
+    WellKnown["Well-known discovery endpoint<br/>/.well-known/agent-card.json"]
+    Card["Agent Card JSON<br/>name, url, version<br/>skills + auth + transports"]
+    API["Skill endpoints<br/>(REST + OpenAPI)"]
+    Cite["Canonical citations<br/>/q/&lt;id&gt;"]
+  end
+
+  Output["Grounded output<br/>with citations"]
+
+  Client -->|"1) GET"| WellKnown
+  Registry -->|"Verify ownership"| WellKnown
+  WellKnown -->|"2) Returns"| Card
+  Card -->|"3) Describe skills"| Client
+  Client -->|"4) Call skill<br/>search / fetch / answer"| API
+  API -->|"5) Returns results"| Cite
+  Cite -->|"6) Use as sources"| Output
+```
+
 ## Quickstart
 
 ```bash
