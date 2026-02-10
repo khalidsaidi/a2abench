@@ -9,6 +9,8 @@
 .ai/artifacts/
 .ai/audit/
 .ai/archive/
+.ai/submissions/.secret
+.ai/submissions/.secrtes
 
 # Node
 node_modules/
