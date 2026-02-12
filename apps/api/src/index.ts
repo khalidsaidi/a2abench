@@ -214,6 +214,16 @@ function stripQuery(value: string) {
   return index === -1 ? value : value.slice(0, index);
 }
 
+const WELL_KNOWN_AGENT_PATHS = ['/.well-known/agent.json', '/.well-known/agent-card.json'] as const;
+
+function getCanonicalWellKnownPath(rawUrl: string) {
+  const path = stripQuery(rawUrl);
+  for (const canonical of WELL_KNOWN_AGENT_PATHS) {
+    if (path === canonical || path.endsWith(canonical)) return canonical;
+  }
+  return null;
+}
+
 function resolveRoute(request: RouteRequest) {
   return (
     request.routerPath ??
@@ -246,6 +256,8 @@ function isNoiseEvent(entry: { method: string; route: string; status: number }) 
     if (entry.route === '/api/v1/usage/summary') return true;
     if (entry.route === '/admin/usage') return true;
     if (entry.route === '/admin/usage/data') return true;
+    if (entry.route === '/admin/agent-events') return true;
+    if (entry.route === '/admin/agent-events/data') return true;
   }
 
   return false;
@@ -660,12 +672,12 @@ fastify.addHook('onRequest', async (request, reply) => {
   if (request.method === 'GET') {
     const rawUrl = request.raw.url ?? request.url;
     if (rawUrl) {
-      const canonicalPaths = ['/.well-known/agent.json', '/.well-known/agent-card.json'];
-      for (const canonical of canonicalPaths) {
-        if (rawUrl.startsWith(canonical) && rawUrl !== canonical && !rawUrl.startsWith(`${canonical}?`)) {
-          reply.redirect(canonical, 301);
-          return;
-        }
+      const canonical = getCanonicalWellKnownPath(rawUrl);
+      if (canonical && stripQuery(rawUrl) !== canonical) {
+        const queryIndex = rawUrl.indexOf('?');
+        const query = queryIndex === -1 ? '' : rawUrl.slice(queryIndex);
+        reply.redirect(`${canonical}${query}`, 301);
+        return;
       }
     }
   }
@@ -858,9 +870,27 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
       { route: '/', method: { in: ['GET', 'HEAD'] }, status: 404 },
       { route: '/api/v1/fetch', method: { in: ['GET', 'HEAD'] }, status: 404 },
       { route: '/docs/.well-known/agent.json', method: { in: ['GET', 'HEAD'] }, status: 404 },
+      {
+        AND: [
+          { route: { endsWith: '/.well-known/agent.json' } },
+          { route: { not: '/.well-known/agent.json' } },
+          { method: { in: ['GET', 'HEAD'] } },
+          { status: { in: [301, 308, 404] } }
+        ]
+      },
+      {
+        AND: [
+          { route: { endsWith: '/.well-known/agent-card.json' } },
+          { route: { not: '/.well-known/agent-card.json' } },
+          { method: { in: ['GET', 'HEAD'] } },
+          { status: { in: [301, 308, 404] } }
+        ]
+      },
       { route: '/api/v1/usage/summary', method: { in: ['GET', 'HEAD'] }, status: { in: [401, 403] } },
       { route: '/admin/usage', method: { in: ['GET', 'HEAD'] }, status: { in: [401, 403] } },
-      { route: '/admin/usage/data', method: { in: ['GET', 'HEAD'] }, status: { in: [401, 403] } }
+      { route: '/admin/usage/data', method: { in: ['GET', 'HEAD'] }, status: { in: [401, 403] } },
+      { route: '/admin/agent-events', method: { in: ['GET', 'HEAD'] }, status: { in: [401, 403] } },
+      { route: '/admin/agent-events/data', method: { in: ['GET', 'HEAD'] }, status: { in: [401, 403] } }
     ]
   };
   const usageWhere = includeNoise
@@ -880,9 +910,13 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
         OR ("route" = '/' AND "method" IN ('GET','HEAD') AND "status" = 404)
         OR ("route" = '/api/v1/fetch' AND "method" IN ('GET','HEAD') AND "status" = 404)
         OR ("route" = '/docs/.well-known/agent.json' AND "method" IN ('GET','HEAD') AND "status" = 404)
+        OR ("route" LIKE '%/.well-known/agent.json' AND "route" <> '/.well-known/agent.json' AND "method" IN ('GET','HEAD') AND "status" IN (301,308,404))
+        OR ("route" LIKE '%/.well-known/agent-card.json' AND "route" <> '/.well-known/agent-card.json' AND "method" IN ('GET','HEAD') AND "status" IN (301,308,404))
         OR ("route" = '/api/v1/usage/summary' AND "method" IN ('GET','HEAD') AND "status" IN (401,403))
         OR ("route" = '/admin/usage' AND "method" IN ('GET','HEAD') AND "status" IN (401,403))
         OR ("route" = '/admin/usage/data' AND "method" IN ('GET','HEAD') AND "status" IN (401,403))
+        OR ("route" = '/admin/agent-events' AND "method" IN ('GET','HEAD') AND "status" IN (401,403))
+        OR ("route" = '/admin/agent-events/data' AND "method" IN ('GET','HEAD') AND "status" IN (401,403))
       )
     `;
 
