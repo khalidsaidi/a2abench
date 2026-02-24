@@ -56,7 +56,7 @@
     "test": "echo 'no tests'"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@modelcontextprotocol/sdk": "^1.27.0",
     "dotenv": "^17.3.1",
     "zod": "^3.23.8"
   },
