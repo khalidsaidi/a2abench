@@ -121,11 +121,11 @@ function isRecentlyAnswered(id: string) {
   return recentlyAnswered.has(id);
 }
 
-async function mintTrialKey(): Promise<string> {
+async function mintTrialKey(handle: string): Promise<string> {
   const response = await fetch(new URL('/api/v1/auth/trial-key', API_BASE_URL), {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: '{}'
+    body: JSON.stringify({ handle })
   });
   if (!response.ok) {
     throw new Error(`trial-key failed: ${response.status} ${await response.text()}`);
@@ -148,7 +148,7 @@ async function mintTrialKeyResilient(agentName: string): Promise<string> {
     let lastError: string | null = null;
     for (let attempt = 1; attempt <= 4; attempt += 1) {
       try {
-        const key = await mintTrialKey();
+        const key = await mintTrialKey(agentName);
         if (attempt > 1) {
           log(agentName, 'trial key mint recovered', { attempt });
         }
