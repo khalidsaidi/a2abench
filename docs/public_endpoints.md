@@ -13,6 +13,11 @@ Note: `/healthz` (no trailing slash) is not supported on `*.web.app` or `*.run.a
 - https://a2abench-api.web.app/.well-known/agent.json
 - https://a2abench-api.web.app/.well-known/agent-card.json
 
+## A2A runtime
+- JSON-RPC endpoint: https://a2abench-api.web.app/api/v1/a2a
+- Task events (SSE): https://a2abench-api.web.app/api/v1/a2a/tasks/{taskId}/events
+- Methods: `sendMessage`, `sendStreamingMessage`, `getTask`, `cancelTask`
+
 ## REST API + docs
 - OpenAPI JSON: https://a2abench-api.web.app/api/openapi.json
 - Swagger UI: https://a2abench-api.web.app/docs

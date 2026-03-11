@@ -98,6 +98,9 @@ const DELIVERY_LOOP_INTERVAL_MS = Math.max(1000, Number(process.env.DELIVERY_LOO
 const REMINDER_LOOP_ENABLED = (process.env.REMINDER_LOOP_ENABLED ?? 'true').toLowerCase() === 'true';
 const REMINDER_LOOP_INTERVAL_MS = Math.max(5000, Number(process.env.REMINDER_LOOP_INTERVAL_MS ?? 60_000));
 const SYSTEM_BASE_URL = process.env.SYSTEM_BASE_URL || PUBLIC_BASE_URL || `http://localhost:${PORT}`;
+const A2A_TASK_TTL_MINUTES = Math.max(5, Number(process.env.A2A_TASK_TTL_MINUTES ?? 60));
+const A2A_TASK_TTL_MS = A2A_TASK_TTL_MINUTES * 60 * 1000;
+const A2A_TASK_MAX = Math.max(50, Number(process.env.A2A_TASK_MAX ?? 2000));
 const SYNTHETIC_AGENT_PREFIXES = (process.env.SYNTHETIC_AGENT_PREFIXES
   ?? 'a2a-swarm-,local-auto-trial-test,remote-auto-trial-test,prod-noauth-autotrial-check,agent-live-')
   .split(',')
@@ -685,12 +688,32 @@ async function requireAdminDashboard(request: { headers: Record<string, string |
 }
 
 function agentCard(baseUrl: string) {
+  const a2aEndpoint = `${baseUrl}/api/v1/a2a`;
   return {
     name: 'A2ABench',
-    description: 'Agent-native developer Q&A with REST + MCP + A2A discovery. Read-only endpoints do not require auth.',
+    description: 'Agent-native developer Q&A with REST + MCP + A2A runtime. Read-only endpoints do not require auth.',
     url: baseUrl,
     version: '0.1.30',
     protocolVersion: '0.1',
+    interfaces: {
+      a2a: {
+        endpoint: a2aEndpoint,
+        taskEvents: `${baseUrl}/api/v1/a2a/tasks/{taskId}/events`,
+        methods: ['sendMessage', 'sendStreamingMessage', 'getTask', 'cancelTask'],
+        defaultInput: {
+          sendMessage: {
+            action: 'next_best_job',
+            args: { agentName: 'my-agent' }
+          }
+        }
+      },
+      rest: {
+        openapi: `${baseUrl}/api/openapi.json`
+      },
+      mcp: {
+        endpoint: 'https://a2abench-mcp.web.app/mcp'
+      }
+    },
     skills: [
       {
         id: 'search',
@@ -785,6 +808,527 @@ function agentCard(baseUrl: string) {
       description: 'Read-only endpoints and MCP tools are public. Bearer API key for write endpoints. X-Admin-Token for admin endpoints.'
     }
   };
+}
+
+type A2aTaskStatus = 'submitted' | 'working' | 'completed' | 'failed' | 'canceled';
+type A2aTaskMethod = 'sendMessage' | 'sendStreamingMessage';
+type JsonObject = Record<string, unknown>;
+
+type A2aTaskEvent = {
+  id: string;
+  type: string;
+  createdAt: string;
+  data?: unknown;
+};
+
+type A2aTask = {
+  id: string;
+  method: A2aTaskMethod;
+  action: string;
+  status: A2aTaskStatus;
+  input: unknown;
+  output: unknown;
+  error: { code: string; message: string; status?: number | null } | null;
+  createdAtMs: number;
+  updatedAtMs: number;
+  expiresAtMs: number;
+  canceledAtMs: number | null;
+  completedAtMs: number | null;
+  events: A2aTaskEvent[];
+};
+
+const A2A_ACTIONS = new Set([
+  'search',
+  'fetch',
+  'answer',
+  'next_best_job',
+  'agent_quickstart',
+  'questions_unanswered',
+  'pending_acceptance',
+  'create_question',
+  'create_answer',
+  'answer_job',
+  'claim_question',
+  'release_claim',
+  'accept_answer'
+]);
+
+const a2aTasks = new Map<string, A2aTask>();
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function toA2aIso(ms: number) {
+  return new Date(ms).toISOString();
+}
+
+function normalizeA2aAction(action: string | null | undefined) {
+  const raw = (action ?? '')
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (!raw) return '';
+  const aliases: Record<string, string> = {
+    nextbestjob: 'next_best_job',
+    next_job: 'next_best_job',
+    quickstart: 'agent_quickstart',
+    unanswered: 'questions_unanswered',
+    unanswered_queue: 'questions_unanswered',
+    pendingacceptance: 'pending_acceptance',
+    createquestion: 'create_question',
+    createanswer: 'create_answer',
+    answerjob: 'answer_job',
+    claimquestion: 'claim_question',
+    releaseclaim: 'release_claim',
+    acceptanswer: 'accept_answer'
+  };
+  return aliases[raw] ?? raw;
+}
+
+function parseJsonMaybe(text: string) {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function extractA2aMessageText(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (!isJsonObject(value)) return '';
+  if (typeof value.text === 'string') return value.text.trim();
+  if (Array.isArray(value.parts)) {
+    const parts: string[] = [];
+    for (const part of value.parts) {
+      if (!isJsonObject(part)) continue;
+      if (typeof part.text === 'string') parts.push(part.text.trim());
+      if (typeof part.content === 'string') parts.push(part.content.trim());
+      if (typeof part.value === 'string') parts.push(part.value.trim());
+    }
+    return parts.filter(Boolean).join('\n').trim();
+  }
+  if (Array.isArray(value.content)) {
+    const chunks = value.content
+      .filter(isJsonObject)
+      .map((entry) => (typeof entry.text === 'string' ? entry.text.trim() : ''))
+      .filter(Boolean);
+    if (chunks.length > 0) return chunks.join('\n').trim();
+  }
+  return '';
+}
+
+function inferA2aActionFromText(messageText: string) {
+  const text = messageText.trim();
+  if (!text) return { action: '', args: {} as Record<string, unknown> };
+  const fetchMatch = text.match(/^fetch\s+([a-zA-Z0-9_-]+)$/i);
+  if (fetchMatch) {
+    return { action: 'fetch', args: { id: fetchMatch[1] } };
+  }
+  if (/next[\s_-]*best[\s_-]*job/i.test(text)) {
+    return { action: 'next_best_job', args: {} as Record<string, unknown> };
+  }
+  return { action: 'answer', args: { query: text } };
+}
+
+function resolveA2aActionInput(params: unknown) {
+  if (!isJsonObject(params)) return { action: '', args: {} as Record<string, unknown>, messageText: '' };
+  const argsCandidate = (
+    (isJsonObject(params.args) ? params.args : null)
+    ?? (isJsonObject(params.input) ? params.input : null)
+    ?? (isJsonObject(params.parameters) ? params.parameters : null)
+    ?? (isJsonObject(params.payload) ? params.payload : null)
+    ?? {}
+  ) as Record<string, unknown>;
+  const directAction = normalizeA2aAction(
+    (typeof params.action === 'string' ? params.action : '')
+      || (typeof params.skill === 'string' ? params.skill : '')
+      || (typeof params.tool === 'string' ? params.tool : '')
+      || (typeof params.name === 'string' ? params.name : '')
+  );
+
+  let action = directAction;
+  let args = { ...argsCandidate };
+  let messageText = extractA2aMessageText(params.message);
+  if (!messageText && typeof params.text === 'string') messageText = params.text.trim();
+
+  if (!action && messageText) {
+    const parsedMessage = parseJsonMaybe(messageText);
+    if (isJsonObject(parsedMessage)) {
+      const nestedAction = normalizeA2aAction(
+        (typeof parsedMessage.action === 'string' ? parsedMessage.action : '')
+          || (typeof parsedMessage.skill === 'string' ? parsedMessage.skill : '')
+      );
+      if (nestedAction) action = nestedAction;
+      const nestedArgs = (isJsonObject(parsedMessage.args) ? parsedMessage.args : null)
+        ?? (isJsonObject(parsedMessage.input) ? parsedMessage.input : null);
+      if (nestedArgs) args = { ...nestedArgs, ...args };
+    }
+  }
+
+  if (!action) {
+    const inferred = inferA2aActionFromText(messageText);
+    action = inferred.action;
+    args = { ...inferred.args, ...args };
+  }
+
+  if (!action && isJsonObject(params.message)) {
+    const nested = params.message as Record<string, unknown>;
+    const nestedAction = normalizeA2aAction(
+      (typeof nested.action === 'string' ? nested.action : '')
+        || (typeof nested.skill === 'string' ? nested.skill : '')
+    );
+    if (nestedAction) action = nestedAction;
+    if (isJsonObject(nested.args)) args = { ...nested.args, ...args };
+    if (isJsonObject(nested.input)) args = { ...nested.input, ...args };
+  }
+
+  return { action, args, messageText };
+}
+
+function pruneA2aTasks(nowMs = Date.now()) {
+  for (const [taskId, task] of a2aTasks.entries()) {
+    if (task.expiresAtMs <= nowMs) {
+      a2aTasks.delete(taskId);
+    }
+  }
+  if (a2aTasks.size <= A2A_TASK_MAX) return;
+  const oldest = Array.from(a2aTasks.values())
+    .sort((a, b) => a.createdAtMs - b.createdAtMs);
+  const removeCount = a2aTasks.size - A2A_TASK_MAX;
+  for (let index = 0; index < removeCount; index += 1) {
+    const task = oldest[index];
+    if (task) a2aTasks.delete(task.id);
+  }
+}
+
+function newA2aTask(method: A2aTaskMethod, action: string, input: unknown) {
+  pruneA2aTasks();
+  const nowMs = Date.now();
+  const task: A2aTask = {
+    id: `a2at_${crypto.randomBytes(10).toString('hex')}`,
+    method,
+    action,
+    status: 'submitted',
+    input,
+    output: null,
+    error: null,
+    createdAtMs: nowMs,
+    updatedAtMs: nowMs,
+    expiresAtMs: nowMs + A2A_TASK_TTL_MS,
+    canceledAtMs: null,
+    completedAtMs: null,
+    events: []
+  };
+  a2aTasks.set(task.id, task);
+  return task;
+}
+
+function appendA2aTaskEvent(task: A2aTask, type: string, data?: unknown) {
+  task.events.push({
+    id: crypto.randomBytes(6).toString('hex'),
+    type,
+    createdAt: new Date().toISOString(),
+    data
+  });
+  if (task.events.length > 100) {
+    task.events.splice(0, task.events.length - 100);
+  }
+  task.updatedAtMs = Date.now();
+  task.expiresAtMs = task.updatedAtMs + A2A_TASK_TTL_MS;
+}
+
+function getA2aTask(taskId: string) {
+  pruneA2aTasks();
+  return a2aTasks.get(taskId) ?? null;
+}
+
+function serializeA2aTask(task: A2aTask, baseUrl: string) {
+  return {
+    id: task.id,
+    method: task.method,
+    action: task.action,
+    status: task.status,
+    createdAt: toA2aIso(task.createdAtMs),
+    updatedAt: toA2aIso(task.updatedAtMs),
+    completedAt: task.completedAtMs ? toA2aIso(task.completedAtMs) : null,
+    canceledAt: task.canceledAtMs ? toA2aIso(task.canceledAtMs) : null,
+    expiresAt: toA2aIso(task.expiresAtMs),
+    input: task.input,
+    output: task.output,
+    error: task.error,
+    links: {
+      events: `${baseUrl}/api/v1/a2a/tasks/${task.id}/events`
+    },
+    events: task.events
+  };
+}
+
+function makeJsonRpcResponse(id: unknown, result: unknown) {
+  return {
+    jsonrpc: '2.0',
+    id: id ?? null,
+    result
+  };
+}
+
+function makeJsonRpcError(id: unknown, code: number, message: string, data?: unknown) {
+  return {
+    jsonrpc: '2.0',
+    id: id ?? null,
+    error: {
+      code,
+      message,
+      ...(data === undefined ? {} : { data })
+    }
+  };
+}
+
+function firstString(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+function optionalNumber(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function optionalBoolean(value: unknown) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true' || normalized === '1') return true;
+    if (normalized === 'false' || normalized === '0') return false;
+  }
+  return undefined;
+}
+
+function optionalStringArray(value: unknown) {
+  if (!Array.isArray(value)) return undefined;
+  const cleaned = value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter(Boolean);
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
+function encodeQuery(values: Record<string, unknown>) {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) {
+    if (value === undefined || value === null || value === '') continue;
+    search.set(key, String(value));
+  }
+  const encoded = search.toString();
+  return encoded ? `?${encoded}` : '';
+}
+
+function buildA2aActionRequest(action: string, args: Record<string, unknown>, fallbackAgentName: string | null) {
+  switch (action) {
+    case 'search': {
+      const query = firstString(args.q, args.query);
+      const tag = firstString(args.tag);
+      const sortRaw = firstString(args.sort).toLowerCase();
+      const sort = sortRaw === 'recent' ? 'recent' : sortRaw === 'quality' ? 'quality' : undefined;
+      const page = optionalNumber(args.page);
+      return {
+        method: 'GET' as const,
+        url: `/api/v1/search${encodeQuery({ q: query || undefined, tag: tag || undefined, sort, page })}`
+      };
+    }
+    case 'fetch': {
+      const id = firstString(args.id, args.questionId);
+      if (!id) throw new Error('fetch requires id or questionId');
+      return { method: 'GET' as const, url: `/api/v1/questions/${encodeURIComponent(id)}` };
+    }
+    case 'answer': {
+      const query = firstString(args.query, args.q);
+      if (!query) throw new Error('answer requires query');
+      return {
+        method: 'POST' as const,
+        url: '/answer',
+        payload: {
+          query,
+          top_k: optionalNumber(args.top_k ?? args.topK),
+          include_evidence: optionalBoolean(args.include_evidence ?? args.includeEvidence),
+          mode: firstString(args.mode) || undefined,
+          max_chars_per_evidence: optionalNumber(args.max_chars_per_evidence ?? args.maxCharsPerEvidence)
+        }
+      };
+    }
+    case 'next_best_job': {
+      const agentName = firstString(args.agentName, args.agent, fallbackAgentName);
+      return {
+        method: 'GET' as const,
+        url: `/api/v1/agent/next-best-job${encodeQuery({ agentName: agentName || undefined })}`
+      };
+    }
+    case 'agent_quickstart': {
+      const agentName = firstString(args.agentName, args.agent, fallbackAgentName);
+      return {
+        method: 'GET' as const,
+        url: `/api/v1/agent/quickstart${encodeQuery({ agentName: agentName || undefined })}`
+      };
+    }
+    case 'questions_unanswered': {
+      const tag = firstString(args.tag);
+      return {
+        method: 'GET' as const,
+        url: `/api/v1/questions/unanswered${encodeQuery({
+          tag: tag || undefined,
+          page: optionalNumber(args.page),
+          limit: optionalNumber(args.limit)
+        })}`
+      };
+    }
+    case 'pending_acceptance': {
+      const agentName = firstString(args.agentName, args.agent, fallbackAgentName);
+      return {
+        method: 'GET' as const,
+        url: `/api/v1/questions/pending-acceptance${encodeQuery({
+          agentName: agentName || undefined,
+          limit: optionalNumber(args.limit),
+          minAnswerAgeMinutes: optionalNumber(args.minAnswerAgeMinutes)
+        })}`
+      };
+    }
+    case 'create_question': {
+      const title = firstString(args.title);
+      const bodyMd = firstString(args.bodyMd, args.body, args.markdown);
+      if (!title || !bodyMd) throw new Error('create_question requires title and bodyMd');
+      return {
+        method: 'POST' as const,
+        url: '/api/v1/questions',
+        payload: {
+          title,
+          bodyMd,
+          tags: optionalStringArray(args.tags),
+          force: optionalBoolean(args.force)
+        }
+      };
+    }
+    case 'create_answer': {
+      const id = firstString(args.id, args.questionId);
+      const bodyMd = firstString(args.bodyMd, args.body, args.markdown);
+      if (!id || !bodyMd) throw new Error('create_answer requires question id and bodyMd');
+      return {
+        method: 'POST' as const,
+        url: `/api/v1/questions/${encodeURIComponent(id)}/answers`,
+        payload: { bodyMd }
+      };
+    }
+    case 'answer_job': {
+      const id = firstString(args.id, args.questionId);
+      const bodyMd = firstString(args.bodyMd, args.body, args.markdown);
+      if (!id || !bodyMd) throw new Error('answer_job requires question id and bodyMd');
+      return {
+        method: 'POST' as const,
+        url: `/api/v1/questions/${encodeURIComponent(id)}/answer-job`,
+        payload: {
+          bodyMd,
+          ttlMinutes: optionalNumber(args.ttlMinutes),
+          forceTakeover: optionalBoolean(args.forceTakeover),
+          acceptToken: firstString(args.acceptToken) || undefined,
+          acceptIfOwner: optionalBoolean(args.acceptIfOwner),
+          autoVerify: optionalBoolean(args.autoVerify)
+        }
+      };
+    }
+    case 'claim_question': {
+      const id = firstString(args.id, args.questionId);
+      if (!id) throw new Error('claim_question requires question id');
+      return {
+        method: 'POST' as const,
+        url: `/api/v1/questions/${encodeURIComponent(id)}/claim`,
+        payload: {
+          ttlMinutes: optionalNumber(args.ttlMinutes),
+          agentName: firstString(args.agentName, args.agent, fallbackAgentName) || undefined
+        }
+      };
+    }
+    case 'release_claim': {
+      const id = firstString(args.id, args.questionId);
+      const claimId = firstString(args.claimId);
+      if (!id || !claimId) throw new Error('release_claim requires question id and claimId');
+      return {
+        method: 'POST' as const,
+        url: `/api/v1/questions/${encodeURIComponent(id)}/claims/${encodeURIComponent(claimId)}/release`
+      };
+    }
+    case 'accept_answer': {
+      const id = firstString(args.id, args.questionId);
+      const answerId = firstString(args.answerId);
+      if (!id || !answerId) throw new Error('accept_answer requires question id and answerId');
+      return {
+        method: 'POST' as const,
+        url: `/api/v1/questions/${encodeURIComponent(id)}/accept/${encodeURIComponent(answerId)}`
+      };
+    }
+    default:
+      throw new Error(`Unsupported action: ${action}`);
+  }
+}
+
+function parseInjectedBody(responseBody: string, contentType: string | undefined) {
+  const trimmed = responseBody.trim();
+  if (!trimmed) return null;
+  const shouldParseJson = (contentType ?? '').includes('application/json') || trimmed.startsWith('{') || trimmed.startsWith('[');
+  if (!shouldParseJson) return trimmed;
+  return parseJsonMaybe(trimmed) ?? trimmed;
+}
+
+async function runA2aActionViaInject(request: {
+  headers: Record<string, string | string[] | undefined>;
+}, action: string, args: Record<string, unknown>, fallbackAgentName: string | null) {
+  const call = buildA2aActionRequest(action, args, fallbackAgentName);
+  const passThroughHeaders = [
+    'authorization',
+    'x-agent-name',
+    'x-agent-signature',
+    'x-agent-timestamp',
+    'x-client-name',
+    'x-mcp-client-name',
+    'mcp-client-name',
+    'user-agent'
+  ];
+  const headers: Record<string, string> = {};
+  for (const key of passThroughHeaders) {
+    const value = normalizeHeader(request.headers[key]);
+    if (value) headers[key] = value;
+  }
+  headers['x-a2a-proxy'] = '1';
+  const injected = await fastify.inject({
+    method: call.method,
+    url: call.url,
+    headers,
+    ...(call.payload !== undefined ? { payload: call.payload } : {})
+  });
+  const payload = parseInjectedBody(injected.body, injected.headers['content-type']);
+  return {
+    statusCode: injected.statusCode,
+    ok: injected.statusCode >= 200 && injected.statusCode < 300,
+    payload,
+    route: call.url,
+    method: call.method
+  };
+}
+
+function markA2aTaskTerminal(task: A2aTask, status: Extract<A2aTaskStatus, 'completed' | 'failed' | 'canceled'>) {
+  task.status = status;
+  task.updatedAtMs = Date.now();
+  task.completedAtMs = task.updatedAtMs;
+  task.expiresAtMs = task.updatedAtMs + A2A_TASK_TTL_MS;
+}
+
+function isTerminalA2aStatus(status: A2aTaskStatus) {
+  return status === 'completed' || status === 'failed' || status === 'canceled';
 }
 
 
@@ -1029,6 +1573,8 @@ function allowLlmByQuota(request: RouteRequest, agentName: string | null) {
 }
 
 const CAPTURED_ROUTES = new Set([
+  '/api/v1/a2a',
+  '/api/v1/a2a/tasks/:id/events',
   '/api/v1/auth/trial-key',
   '/api/v1/questions',
   '/api/v1/questions/:id',
@@ -2855,6 +3401,261 @@ fastify.get('/.well-known/agent.json', async (request) => {
 
 fastify.get('/.well-known/agent-card.json', async (request) => {
   return agentCard(getBaseUrl(request));
+});
+
+fastify.post('/api/v1/a2a', {
+  schema: {
+    tags: ['a2a'],
+    body: {
+      oneOf: [
+        {
+          type: 'object',
+          properties: {
+            jsonrpc: { type: 'string' },
+            id: {},
+            method: { type: 'string' },
+            params: {}
+          },
+          required: ['jsonrpc', 'method']
+        },
+        {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              jsonrpc: { type: 'string' },
+              id: {},
+              method: { type: 'string' },
+              params: {}
+            },
+            required: ['jsonrpc', 'method']
+          }
+        }
+      ]
+    }
+  }
+}, async (request, reply) => {
+  const processOne = async (input: unknown) => {
+    if (!isJsonObject(input)) {
+      return makeJsonRpcError(null, -32600, 'Invalid Request', { detail: 'Expected object request.' });
+    }
+    const id = input.id ?? null;
+    if (input.jsonrpc !== '2.0') {
+      return makeJsonRpcError(id, -32600, 'Invalid Request', { detail: 'jsonrpc must be "2.0".' });
+    }
+    const method = normalizeHeader(typeof input.method === 'string' ? input.method : '');
+    if (!method) {
+      return makeJsonRpcError(id, -32600, 'Invalid Request', { detail: 'method is required.' });
+    }
+
+    if (method === 'sendMessage' || method === 'sendStreamingMessage') {
+      const { action, args, messageText } = resolveA2aActionInput(input.params);
+      if (!action) {
+        return makeJsonRpcError(id, -32602, 'Invalid params', {
+          detail: 'sendMessage requires action/skill/tool or a text message.',
+          methods: ['sendMessage', 'sendStreamingMessage'],
+          supportedActions: Array.from(A2A_ACTIONS)
+        });
+      }
+      if (!A2A_ACTIONS.has(action)) {
+        return makeJsonRpcError(id, -32602, 'Invalid params', {
+          detail: `Unsupported action "${action}"`,
+          supportedActions: Array.from(A2A_ACTIONS)
+        });
+      }
+
+      const agentName = normalizeAgentOrNull(
+        firstString(
+          isJsonObject(input.params) ? input.params.agentName : null,
+          getAgentName(request.headers)
+        )
+      );
+      const task = newA2aTask(method, action, {
+        args,
+        messageText: messageText || null
+      });
+      appendA2aTaskEvent(task, 'task.created', { status: task.status, action });
+      task.status = 'working';
+      appendA2aTaskEvent(task, 'task.started', { status: task.status, action });
+
+      try {
+        const result = await runA2aActionViaInject(request, action, args, agentName);
+        if (!result.ok) {
+          task.error = {
+            code: 'action_failed',
+            message: isJsonObject(result.payload) && typeof result.payload.error === 'string'
+              ? result.payload.error
+              : `Action failed with status ${result.statusCode}`,
+            status: result.statusCode
+          };
+          task.output = {
+            ok: false,
+            route: result.route,
+            method: result.method,
+            statusCode: result.statusCode,
+            payload: result.payload
+          };
+          markA2aTaskTerminal(task, 'failed');
+          appendA2aTaskEvent(task, 'task.failed', task.error);
+        } else {
+          task.output = {
+            ok: true,
+            route: result.route,
+            method: result.method,
+            statusCode: result.statusCode,
+            payload: result.payload
+          };
+          markA2aTaskTerminal(task, 'completed');
+          appendA2aTaskEvent(task, 'task.completed', { statusCode: result.statusCode });
+        }
+      } catch (err) {
+        task.error = {
+          code: 'internal_error',
+          message: err instanceof Error ? err.message : 'Unknown error while executing action',
+          status: null
+        };
+        task.output = {
+          ok: false,
+          payload: null
+        };
+        markA2aTaskTerminal(task, 'failed');
+        appendA2aTaskEvent(task, 'task.failed', task.error);
+      }
+
+      const baseUrl = getBaseUrl(request);
+      return makeJsonRpcResponse(id, {
+        task: serializeA2aTask(task, baseUrl),
+        stream: method === 'sendStreamingMessage'
+          ? {
+              events: `${baseUrl}/api/v1/a2a/tasks/${task.id}/events`
+            }
+          : undefined
+      });
+    }
+
+    if (method === 'getTask') {
+      const params = isJsonObject(input.params) ? input.params : {};
+      const taskId = firstString(params.taskId, params.id);
+      if (!taskId) {
+        return makeJsonRpcError(id, -32602, 'Invalid params', { detail: 'getTask requires taskId or id.' });
+      }
+      const task = getA2aTask(taskId);
+      if (!task) {
+        return makeJsonRpcError(id, -32004, 'Task not found', { taskId });
+      }
+      return makeJsonRpcResponse(id, {
+        task: serializeA2aTask(task, getBaseUrl(request))
+      });
+    }
+
+    if (method === 'cancelTask') {
+      const params = isJsonObject(input.params) ? input.params : {};
+      const taskId = firstString(params.taskId, params.id);
+      if (!taskId) {
+        return makeJsonRpcError(id, -32602, 'Invalid params', { detail: 'cancelTask requires taskId or id.' });
+      }
+      const task = getA2aTask(taskId);
+      if (!task) {
+        return makeJsonRpcError(id, -32004, 'Task not found', { taskId });
+      }
+      if (!isTerminalA2aStatus(task.status)) {
+        task.canceledAtMs = Date.now();
+        task.error = {
+          code: 'task_canceled',
+          message: 'Task canceled by client.',
+          status: null
+        };
+        markA2aTaskTerminal(task, 'canceled');
+        appendA2aTaskEvent(task, 'task.canceled');
+      }
+      return makeJsonRpcResponse(id, {
+        task: serializeA2aTask(task, getBaseUrl(request))
+      });
+    }
+
+    return makeJsonRpcError(id, -32601, 'Method not found', {
+      method,
+      supportedMethods: ['sendMessage', 'sendStreamingMessage', 'getTask', 'cancelTask']
+    });
+  };
+
+  if (Array.isArray(request.body)) {
+    if (request.body.length === 0) {
+      reply.code(400).send(makeJsonRpcError(null, -32600, 'Invalid Request', { detail: 'Batch cannot be empty.' }));
+      return;
+    }
+    const responses = await Promise.all(request.body.map((entry) => processOne(entry)));
+    reply.code(200).send(responses);
+    return;
+  }
+
+  const response = await processOne(request.body);
+  reply.code(200).send(response);
+});
+
+fastify.get('/api/v1/a2a/tasks/:id/events', {
+  schema: {
+    tags: ['a2a'],
+    params: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id']
+    }
+  }
+}, async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const task = getA2aTask(id);
+  if (!task) {
+    reply.code(404).send({ error: 'Task not found' });
+    return;
+  }
+
+  const baseUrl = getBaseUrl(request);
+  reply.hijack();
+  reply.raw.setHeader('Content-Type', 'text/event-stream');
+  reply.raw.setHeader('Cache-Control', 'no-cache, no-transform');
+  reply.raw.setHeader('Connection', 'keep-alive');
+
+  let cursor = 0;
+  const pushEvent = (event: string, data: unknown, eventId?: string) => {
+    if (eventId) reply.raw.write(`id: ${eventId}\n`);
+    reply.raw.write(`event: ${event}\n`);
+    reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+  const flushFromCursor = () => {
+    const current = getA2aTask(id);
+    if (!current) return null;
+    while (cursor < current.events.length) {
+      const event = current.events[cursor];
+      cursor += 1;
+      pushEvent(event.type, event, event.id);
+    }
+    return current;
+  };
+
+  pushEvent('task.snapshot', { task: serializeA2aTask(task, baseUrl) });
+  flushFromCursor();
+
+  const interval = setInterval(() => {
+    const current = flushFromCursor();
+    if (!current) {
+      pushEvent('task.missing', { id });
+      clearInterval(interval);
+      reply.raw.end();
+      return;
+    }
+    if (isTerminalA2aStatus(current.status) && cursor >= current.events.length) {
+      pushEvent('task.done', { id: current.id, status: current.status });
+      clearInterval(interval);
+      reply.raw.end();
+      return;
+    }
+    reply.raw.write(': heartbeat\n\n');
+  }, 1000);
+
+  request.raw.on('close', () => {
+    clearInterval(interval);
+  });
 });
 
 fastify.get('/api/v1/health', {
