@@ -11,6 +11,7 @@ const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL ?? API_BASE_URL;
 const PUBLIC_MCP_URL =
   process.env.PUBLIC_MCP_URL ?? 'https://a2abench-mcp.web.app/mcp';
 const API_KEY = process.env.API_KEY ?? '';
+const MCP_AUTO_TRIAL_KEYS = (process.env.MCP_AUTO_TRIAL_KEYS ?? 'true').toLowerCase() === 'true';
 const PORT = Number(process.env.PORT ?? process.env.MCP_PORT ?? 4000);
 const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-remote';
 const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.30';
@@ -24,6 +25,9 @@ const ALLOWED_ORIGINS = (process.env.MCP_ALLOWED_ORIGINS ?? '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+const TRIAL_KEY_HINT = 'Get a trial key at /api/v1/auth/trial-key';
+const TRIAL_KEY_CACHE_MS = 55 * 60 * 1000;
+const trialKeyCache = new Map<string, { authHeader: string; expiresAtMs: number }>();
 
 const requestContext = new AsyncLocalStorage<{
   agentName?: string;
@@ -178,7 +182,7 @@ async function postAgentEvent(payload: Record<string, unknown>) {
   }
 }
 
-async function apiGet(path: string, params?: Record<string, string>) {
+async function apiGet(path: string, params?: Record<string, string>, authHeaderOverride?: string) {
   const url = new URL(path, API_BASE_URL);
   if (params) {
     Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
@@ -189,17 +193,31 @@ async function apiGet(path: string, params?: Record<string, string>) {
   if (agentName) {
     headers['X-Agent-Name'] = agentName;
   }
-  const ctxAuth = requestContext.getStore()?.authHeader;
-  if (ctxAuth) {
-    headers.authorization = ctxAuth;
+  if (authHeaderOverride) {
+    headers.authorization = authHeaderOverride;
   } else if (API_KEY) {
-    headers.authorization = `Bearer ${API_KEY}`;
+    const ctxAuth = requestContext.getStore()?.authHeader;
+    if (ctxAuth) {
+      headers.authorization = ctxAuth;
+    } else {
+      headers.authorization = `Bearer ${API_KEY}`;
+    }
+  } else {
+    const ctxAuth = requestContext.getStore()?.authHeader;
+    if (ctxAuth) {
+      headers.authorization = ctxAuth;
+    }
   }
   const response = await fetch(url, { headers });
   return response;
 }
 
-async function apiPost(path: string, body: Record<string, unknown>, query?: Record<string, string>) {
+async function apiPost(
+  path: string,
+  body: Record<string, unknown>,
+  query?: Record<string, string>,
+  authHeaderOverride?: string
+) {
   const url = new URL(path, API_BASE_URL);
   if (query) {
     Object.entries(query).forEach(([key, value]) => url.searchParams.set(key, value));
@@ -213,11 +231,15 @@ async function apiPost(path: string, body: Record<string, unknown>, query?: Reco
   if (agentName) {
     headers['X-Agent-Name'] = agentName;
   }
-  const ctxAuth = requestContext.getStore()?.authHeader;
-  if (ctxAuth) {
-    headers.authorization = ctxAuth;
-  } else if (API_KEY) {
-    headers.authorization = `Bearer ${API_KEY}`;
+  if (authHeaderOverride) {
+    headers.authorization = authHeaderOverride;
+  } else {
+    const ctxAuth = requestContext.getStore()?.authHeader;
+    if (ctxAuth) {
+      headers.authorization = ctxAuth;
+    } else if (API_KEY) {
+      headers.authorization = `Bearer ${API_KEY}`;
+    }
   }
   if (path === '/answer') {
     const ctx = requestContext.getStore();
@@ -226,6 +248,190 @@ async function apiPost(path: string, body: Record<string, unknown>, query?: Reco
     if (ctx?.llmModel) headers['x-llm-model'] = ctx.llmModel;
   }
   return fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+}
+
+function getWriteCacheKey() {
+  const ctx = requestContext.getStore();
+  const agentName = (ctx?.agentName ?? MCP_AGENT_NAME).trim().toLowerCase() || 'unknown';
+  const ip = (ctx?.ip ?? '').trim();
+  return `${agentName}|${ip}`;
+}
+
+function sanitizeHandle(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+}
+
+function getCachedTrialAuth() {
+  const key = getWriteCacheKey();
+  const entry = trialKeyCache.get(key);
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAtMs) {
+    trialKeyCache.delete(key);
+    return null;
+  }
+  return entry.authHeader;
+}
+
+function cacheTrialAuth(authHeader: string, expiresAt?: string | null) {
+  const key = getWriteCacheKey();
+  const parsedMs = expiresAt ? Date.parse(expiresAt) : Number.NaN;
+  const expiresAtMs = Number.isFinite(parsedMs) ? parsedMs : Date.now() + TRIAL_KEY_CACHE_MS;
+  trialKeyCache.set(key, { authHeader, expiresAtMs });
+}
+
+async function mintTrialAuthHeader(forceRefresh = false) {
+  if (!MCP_AUTO_TRIAL_KEYS) return null;
+  if (!forceRefresh) {
+    const cached = getCachedTrialAuth();
+    if (cached) return cached;
+  }
+  const ctxAgent = requestContext.getStore()?.agentName;
+  const agentName = (ctxAgent ?? MCP_AGENT_NAME).trim();
+  const handle = sanitizeHandle(agentName);
+  const payload = handle.length >= 3 ? { handle } : {};
+  const response = await fetch(new URL('/api/v1/auth/trial-key', API_BASE_URL), {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json',
+      ...(agentName ? { 'X-Agent-Name': agentName } : {})
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error(`trial-key mint failed: ${response.status} ${await response.text()}`);
+  }
+  const json = (await response.json()) as { apiKey?: string; expiresAt?: string };
+  if (!json.apiKey) {
+    throw new Error('trial-key mint failed: missing apiKey');
+  }
+  const authHeader = `Bearer ${json.apiKey}`;
+  cacheTrialAuth(authHeader, json.expiresAt);
+  return authHeader;
+}
+
+function isAuthOrLimitFailure(status: number, bodyText: string) {
+  if (status === 401) return true;
+  if (status !== 429) return false;
+  const lower = bodyText.toLowerCase();
+  return (
+    lower.includes('daily') ||
+    lower.includes('limit') ||
+    lower.includes('too many requests') ||
+    lower.includes('rate limit')
+  );
+}
+
+async function postWriteWithAutoTrial(
+  path: string,
+  body: Record<string, unknown>,
+  query?: Record<string, string>
+) {
+  const requestAuth = requestContext.getStore()?.authHeader?.trim() ?? '';
+  let authHeader = requestAuth || (API_KEY ? `Bearer ${API_KEY}` : '');
+  let usedTrialKey = false;
+
+  if (!authHeader && MCP_AUTO_TRIAL_KEYS) {
+    try {
+      const minted = await mintTrialAuthHeader();
+      if (minted) {
+        authHeader = minted;
+        usedTrialKey = true;
+      }
+    } catch (error) {
+      logEvent('warn', {
+        kind: 'trial_key_mint_failed',
+        error: error instanceof Error ? error.message : 'unknown'
+      });
+    }
+  }
+
+  if (!authHeader) {
+    const bodyText = JSON.stringify({ error: 'Missing API key', hint: TRIAL_KEY_HINT });
+    return {
+      response: new Response(bodyText, {
+        status: 401,
+        headers: { 'content-type': 'application/json' }
+      }),
+      usedTrialKey
+    };
+  }
+
+  let response = await apiPost(path, body, query, authHeader);
+  const failureText = await response.clone().text();
+  if (isAuthOrLimitFailure(response.status, failureText) && MCP_AUTO_TRIAL_KEYS) {
+    const shouldForceRefresh = usedTrialKey || response.status === 429;
+    try {
+      const minted = await mintTrialAuthHeader(shouldForceRefresh);
+      if (minted && (minted !== authHeader || shouldForceRefresh)) {
+        authHeader = minted;
+        usedTrialKey = true;
+        response = await apiPost(path, body, query, authHeader);
+      }
+    } catch (error) {
+      logEvent('warn', {
+        kind: 'trial_key_retry_failed',
+        status: response.status,
+        error: error instanceof Error ? error.message : 'unknown'
+      });
+    }
+  }
+
+  return { response, usedTrialKey };
+}
+
+async function getProtectedWithAutoTrial(path: string, query?: Record<string, string>) {
+  const requestAuth = requestContext.getStore()?.authHeader?.trim() ?? '';
+  let authHeader = requestAuth || (API_KEY ? `Bearer ${API_KEY}` : '');
+  let usedTrialKey = false;
+
+  if (!authHeader && MCP_AUTO_TRIAL_KEYS) {
+    try {
+      const minted = await mintTrialAuthHeader();
+      if (minted) {
+        authHeader = minted;
+        usedTrialKey = true;
+      }
+    } catch (error) {
+      logEvent('warn', {
+        kind: 'trial_key_mint_failed',
+        error: error instanceof Error ? error.message : 'unknown'
+      });
+    }
+  }
+
+  if (!authHeader) {
+    const bodyText = JSON.stringify({ error: 'Missing API key', hint: TRIAL_KEY_HINT });
+    return {
+      response: new Response(bodyText, {
+        status: 401,
+        headers: { 'content-type': 'application/json' }
+      }),
+      usedTrialKey
+    };
+  }
+
+  let response = await apiGet(path, query, authHeader);
+  const failureText = await response.clone().text();
+  if (isAuthOrLimitFailure(response.status, failureText) && MCP_AUTO_TRIAL_KEYS) {
+    const shouldForceRefresh = usedTrialKey || response.status === 429;
+    try {
+      const minted = await mintTrialAuthHeader(shouldForceRefresh);
+      if (minted && (minted !== authHeader || shouldForceRefresh)) {
+        authHeader = minted;
+        usedTrialKey = true;
+        response = await apiGet(path, query, authHeader);
+      }
+    } catch (error) {
+      logEvent('warn', {
+        kind: 'trial_key_retry_failed',
+        status: response.status,
+        error: error instanceof Error ? error.message : 'unknown'
+      });
+    }
+  }
+
+  return { response, usedTrialKey };
 }
 
 function createMcpServer() {
@@ -292,6 +498,126 @@ function registerTools(server: McpServer) {
           {
             type: 'text',
             text: JSON.stringify({ results })
+          }
+        ]
+      };
+    }
+  );
+
+  server.registerTool(
+    'quickstart',
+    {
+      title: 'Agent quickstart',
+      description: 'Get immediate demand summary and the best open question to answer next.',
+      inputSchema: {
+        agentName: z.string().min(1).optional()
+      }
+    },
+    async ({ agentName }) => {
+      const toolStart = Date.now();
+      const requestId = requestContext.getStore()?.requestId ?? null;
+      const params: Record<string, string> = {};
+      if (agentName) params.agentName = agentName;
+      const response = await apiGet('/api/v1/agent/quickstart', params);
+      if (!response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'quickstart');
+        bumpMap(metrics.toolErrors, 'quickstart');
+        const text = await response.text();
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'quickstart',
+          status: response.status,
+          durationMs: Date.now() - toolStart,
+          requestId
+        });
+        captureToolEvent('quickstart', { agentName }, { error: text || 'Failed to load quickstart' }, response.status, Date.now() - toolStart);
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ error: text || 'Failed to load quickstart', status: response.status })
+            }
+          ]
+        };
+      }
+      const data = (await response.json()) as Record<string, unknown>;
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, 'quickstart');
+      logEvent('info', {
+        kind: 'mcp_tool',
+        tool: 'quickstart',
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
+      captureToolEvent('quickstart', { agentName }, data, response.status, Date.now() - toolStart);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(data)
+          }
+        ]
+      };
+    }
+  );
+
+  server.registerTool(
+    'next_best_job',
+    {
+      title: 'Next best job',
+      description: 'Get a personalized, scored next question to answer.',
+      inputSchema: {
+        agentName: z.string().min(1).optional()
+      }
+    },
+    async ({ agentName }) => {
+      const toolStart = Date.now();
+      const requestId = requestContext.getStore()?.requestId ?? null;
+      const params: Record<string, string> = {};
+      if (agentName) params.agentName = agentName;
+      const response = await apiGet('/api/v1/agent/next-best-job', params);
+      if (!response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'next_best_job');
+        bumpMap(metrics.toolErrors, 'next_best_job');
+        const text = await response.text();
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'next_best_job',
+          status: response.status,
+          durationMs: Date.now() - toolStart,
+          requestId
+        });
+        captureToolEvent('next_best_job', { agentName }, { error: text || 'Failed to load next best job' }, response.status, Date.now() - toolStart);
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ error: text || 'Failed to load next best job', status: response.status })
+            }
+          ]
+        };
+      }
+      const data = (await response.json()) as Record<string, unknown>;
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, 'next_best_job');
+      logEvent('info', {
+        kind: 'mcp_tool',
+        tool: 'next_best_job',
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
+      captureToolEvent('next_best_job', { agentName }, data, response.status, Date.now() - toolStart);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(data)
           }
         ]
       };
@@ -434,7 +760,7 @@ function registerTools(server: McpServer) {
     'create_question',
     {
       title: 'Create question',
-      description: 'Create a new question thread (requires API key).',
+      description: 'Create a new question thread (auto-mints a trial key when missing).',
       inputSchema: {
         title: z.string().min(8),
         bodyMd: z.string().min(3),
@@ -445,38 +771,18 @@ function registerTools(server: McpServer) {
     async ({ title, bodyMd, tags, force }) => {
       const toolStart = Date.now();
       const requestId = requestContext.getStore()?.requestId ?? null;
-      const authHeader = requestContext.getStore()?.authHeader ?? (API_KEY ? `Bearer ${API_KEY}` : '');
-      if (!authHeader) {
-        metrics.totalToolCalls += 1;
-        bumpMap(metrics.byTool, 'create_question');
-        bumpMap(metrics.toolErrors, 'create_question');
-        captureToolEvent(
-          'create_question',
-          { title, bodyMd, tags, force },
-          { error: 'Missing API key' },
-          401,
-          Date.now() - toolStart
-        );
-        return {
-          isError: true,
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({
-                error: 'Missing API key',
-                hint: 'Get a trial key at /api/v1/auth/trial-key'
-              })
-            }
-          ]
-        };
-      }
-      const response = await apiPost('/api/v1/questions', { title, bodyMd, tags }, force ? { force: '1' } : undefined);
+      const writeResult = await postWriteWithAutoTrial(
+        '/api/v1/questions',
+        { title, bodyMd, tags },
+        force ? { force: '1' } : undefined
+      );
+      const response = writeResult.response;
       if (!response.ok) {
         metrics.totalToolCalls += 1;
         bumpMap(metrics.byTool, 'create_question');
         bumpMap(metrics.toolErrors, 'create_question');
         const text = await response.text();
-        const hint = response.status === 401 ? 'Get a trial key at /api/v1/auth/trial-key' : undefined;
+        const hint = response.status === 401 ? TRIAL_KEY_HINT : undefined;
         logEvent('warn', {
           kind: 'mcp_tool',
           tool: 'create_question',
@@ -518,6 +824,7 @@ function registerTools(server: McpServer) {
             type: 'text',
             text: JSON.stringify({
               ...data,
+              auth: writeResult.usedTrialKey ? 'trial_key' : 'provided_key',
               url: `${PUBLIC_BASE_URL}/q/${data.id}`
             })
           }
@@ -530,7 +837,7 @@ function registerTools(server: McpServer) {
     'create_answer',
     {
       title: 'Create answer',
-      description: 'Create an answer for a question (requires API key).',
+      description: 'Create an answer for a question (auto-mints a trial key when missing).',
       inputSchema: {
         id: z.string().min(1),
         bodyMd: z.string().min(3)
@@ -539,38 +846,14 @@ function registerTools(server: McpServer) {
     async ({ id, bodyMd }) => {
       const toolStart = Date.now();
       const requestId = requestContext.getStore()?.requestId ?? null;
-      const authHeader = requestContext.getStore()?.authHeader ?? (API_KEY ? `Bearer ${API_KEY}` : '');
-      if (!authHeader) {
-        metrics.totalToolCalls += 1;
-        bumpMap(metrics.byTool, 'create_answer');
-        bumpMap(metrics.toolErrors, 'create_answer');
-        captureToolEvent(
-          'create_answer',
-          { id, bodyMd },
-          { error: 'Missing API key' },
-          401,
-          Date.now() - toolStart
-        );
-        return {
-          isError: true,
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({
-                error: 'Missing API key',
-                hint: 'Get a trial key at /api/v1/auth/trial-key'
-              })
-            }
-          ]
-        };
-      }
-      const response = await apiPost(`/api/v1/questions/${id}/answers`, { bodyMd });
+      const writeResult = await postWriteWithAutoTrial(`/api/v1/questions/${id}/answers`, { bodyMd });
+      const response = writeResult.response;
       if (!response.ok) {
         metrics.totalToolCalls += 1;
         bumpMap(metrics.byTool, 'create_answer');
         bumpMap(metrics.toolErrors, 'create_answer');
         const text = await response.text();
-        const hint = response.status === 401 ? 'Get a trial key at /api/v1/auth/trial-key' : undefined;
+        const hint = response.status === 401 ? TRIAL_KEY_HINT : undefined;
         logEvent('warn', {
           kind: 'mcp_tool',
           tool: 'create_answer',
@@ -612,10 +895,595 @@ function registerTools(server: McpServer) {
             type: 'text',
             text: JSON.stringify({
               ...data,
+              auth: writeResult.usedTrialKey ? 'trial_key' : 'provided_key',
               url: `${PUBLIC_BASE_URL}/q/${id}`
             })
           }
         ]
+      };
+    }
+  );
+
+  server.registerTool(
+    'answer_job',
+    {
+      title: 'Answer job',
+      description: 'One-step flow: claim, submit, and verify completion (with optional immediate acceptance).',
+      inputSchema: {
+        questionId: z.string().min(1),
+        bodyMd: z.string().min(3),
+        ttlMinutes: z.number().int().min(5).max(240).optional(),
+        forceTakeover: z.boolean().optional(),
+        acceptToken: z.string().max(4000).optional(),
+        acceptIfOwner: z.boolean().optional(),
+        autoVerify: z.boolean().optional()
+      }
+    },
+    async ({ questionId, bodyMd, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify }) => {
+      const toolStart = Date.now();
+      const requestId = requestContext.getStore()?.requestId ?? null;
+      const payload: Record<string, unknown> = { bodyMd };
+      if (ttlMinutes !== undefined) payload.ttlMinutes = ttlMinutes;
+      if (forceTakeover !== undefined) payload.forceTakeover = forceTakeover;
+      if (acceptToken !== undefined) payload.acceptToken = acceptToken;
+      if (acceptIfOwner !== undefined) payload.acceptIfOwner = acceptIfOwner;
+      if (autoVerify !== undefined) payload.autoVerify = autoVerify;
+      const writeResult = await postWriteWithAutoTrial(`/api/v1/questions/${questionId}/answer-job`, payload);
+      const response = writeResult.response;
+      if (!response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'answer_job');
+        bumpMap(metrics.toolErrors, 'answer_job');
+        const text = await response.text();
+        const hint = response.status === 401 ? TRIAL_KEY_HINT : undefined;
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'answer_job',
+          status: response.status,
+          durationMs: Date.now() - toolStart,
+          requestId
+        });
+        captureToolEvent(
+          'answer_job',
+          { questionId, bodyMd, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+          { error: text || 'Failed to complete answer job', status: response.status, hint },
+          response.status,
+          Date.now() - toolStart
+        );
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ error: text || 'Failed to complete answer job', status: response.status, hint })
+            }
+          ]
+        };
+      }
+      const data = (await response.json()) as Record<string, unknown>;
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, 'answer_job');
+      logEvent('info', {
+        kind: 'mcp_tool',
+        tool: 'answer_job',
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
+      captureToolEvent('answer_job', { questionId, bodyMd, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify }, data, response.status, Date.now() - toolStart);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              ...data,
+              auth: writeResult.usedTrialKey ? 'trial_key' : 'provided_key',
+              url: `${PUBLIC_BASE_URL}/q/${questionId}`
+            })
+          }
+        ]
+      };
+    }
+  );
+
+  server.registerTool(
+    'claim_question',
+    {
+      title: 'Claim question',
+      description: 'Claim a question before answering (auto-mints a trial key when missing).',
+      inputSchema: {
+        questionId: z.string().min(1),
+        ttlMinutes: z.number().int().min(5).max(240).optional()
+      }
+    },
+    async ({ questionId, ttlMinutes }) => {
+      const toolStart = Date.now();
+      const requestId = requestContext.getStore()?.requestId ?? null;
+      const body: Record<string, unknown> = {};
+      if (ttlMinutes !== undefined) body.ttlMinutes = ttlMinutes;
+      const writeResult = await postWriteWithAutoTrial(`/api/v1/questions/${questionId}/claim`, body);
+      const response = writeResult.response;
+      if (!response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'claim_question');
+        bumpMap(metrics.toolErrors, 'claim_question');
+        const text = await response.text();
+        const hint = response.status === 401 ? TRIAL_KEY_HINT : undefined;
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'claim_question',
+          status: response.status,
+          durationMs: Date.now() - toolStart,
+          requestId
+        });
+        captureToolEvent(
+          'claim_question',
+          { questionId, ttlMinutes },
+          { error: text || 'Failed to claim question', status: response.status, hint },
+          response.status,
+          Date.now() - toolStart
+        );
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ error: text || 'Failed to claim question', status: response.status, hint })
+            }
+          ]
+        };
+      }
+      const data = (await response.json()) as Record<string, unknown>;
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, 'claim_question');
+      logEvent('info', {
+        kind: 'mcp_tool',
+        tool: 'claim_question',
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
+      captureToolEvent('claim_question', { questionId, ttlMinutes }, data, response.status, Date.now() - toolStart);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              ...data,
+              auth: writeResult.usedTrialKey ? 'trial_key' : 'provided_key'
+            })
+          }
+        ]
+      };
+    }
+  );
+
+  server.registerTool(
+    'release_claim',
+    {
+      title: 'Release claim',
+      description: 'Release a question claim you currently hold (auto-mints a trial key when missing).',
+      inputSchema: {
+        questionId: z.string().min(1),
+        claimId: z.string().min(1)
+      }
+    },
+    async ({ questionId, claimId }) => {
+      const toolStart = Date.now();
+      const requestId = requestContext.getStore()?.requestId ?? null;
+      const writeResult = await postWriteWithAutoTrial(`/api/v1/questions/${questionId}/claims/${claimId}/release`, {});
+      const response = writeResult.response;
+      if (!response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'release_claim');
+        bumpMap(metrics.toolErrors, 'release_claim');
+        const text = await response.text();
+        const hint = response.status === 401 ? TRIAL_KEY_HINT : undefined;
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'release_claim',
+          status: response.status,
+          durationMs: Date.now() - toolStart,
+          requestId
+        });
+        captureToolEvent(
+          'release_claim',
+          { questionId, claimId },
+          { error: text || 'Failed to release claim', status: response.status, hint },
+          response.status,
+          Date.now() - toolStart
+        );
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ error: text || 'Failed to release claim', status: response.status, hint })
+            }
+          ]
+        };
+      }
+      const data = (await response.json()) as Record<string, unknown>;
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, 'release_claim');
+      logEvent('info', {
+        kind: 'mcp_tool',
+        tool: 'release_claim',
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
+      captureToolEvent('release_claim', { questionId, claimId }, data, response.status, Date.now() - toolStart);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              ...data,
+              auth: writeResult.usedTrialKey ? 'trial_key' : 'provided_key'
+            })
+          }
+        ]
+      };
+    }
+  );
+
+  server.registerTool(
+    'pending_acceptance',
+    {
+      title: 'Pending acceptance',
+      description: 'List your open questions with answers that still need acceptance.',
+      inputSchema: {
+        limit: z.number().int().min(1).max(100).optional(),
+        minAnswerAgeMinutes: z.number().int().min(0).max(10080).optional()
+      }
+    },
+    async ({ limit, minAnswerAgeMinutes }) => {
+      const toolStart = Date.now();
+      const requestId = requestContext.getStore()?.requestId ?? null;
+      const params: Record<string, string> = {};
+      if (limit) params.limit = String(limit);
+      if (minAnswerAgeMinutes !== undefined) params.minAnswerAgeMinutes = String(minAnswerAgeMinutes);
+      const readResult = await getProtectedWithAutoTrial('/api/v1/questions/pending-acceptance', params);
+      const response = readResult.response;
+      if (!response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'pending_acceptance');
+        bumpMap(metrics.toolErrors, 'pending_acceptance');
+        const text = await response.text();
+        const hint = response.status === 401 ? TRIAL_KEY_HINT : undefined;
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'pending_acceptance',
+          status: response.status,
+          durationMs: Date.now() - toolStart,
+          requestId
+        });
+        captureToolEvent(
+          'pending_acceptance',
+          { limit, minAnswerAgeMinutes },
+          { error: text || 'Failed to fetch pending acceptance queue', status: response.status, hint },
+          response.status,
+          Date.now() - toolStart
+        );
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ error: text || 'Failed to fetch pending acceptance queue', status: response.status, hint })
+            }
+          ]
+        };
+      }
+      const data = (await response.json()) as Record<string, unknown>;
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, 'pending_acceptance');
+      logEvent('info', {
+        kind: 'mcp_tool',
+        tool: 'pending_acceptance',
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
+      captureToolEvent('pending_acceptance', { limit, minAnswerAgeMinutes }, data, response.status, Date.now() - toolStart);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              ...data,
+              auth: readResult.usedTrialKey ? 'trial_key' : 'provided_key'
+            })
+          }
+        ]
+      };
+    }
+  );
+
+  server.registerTool(
+    'unanswered',
+    {
+      title: 'Unanswered queue',
+      description: 'List unanswered questions, prioritized by bounty.',
+      inputSchema: {
+        tag: z.string().optional(),
+        page: z.number().int().min(1).optional(),
+        limit: z.number().int().min(1).max(100).optional()
+      }
+    },
+    async ({ tag, page, limit }) => {
+      const toolStart = Date.now();
+      const requestId = requestContext.getStore()?.requestId ?? null;
+      const params: Record<string, string> = {};
+      if (tag) params.tag = tag;
+      if (page) params.page = String(page);
+      if (limit) params.limit = String(limit);
+      const response = await apiGet('/api/v1/questions/unanswered', params);
+      if (!response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'unanswered');
+        bumpMap(metrics.toolErrors, 'unanswered');
+        const text = await response.text();
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'unanswered',
+          status: response.status,
+          durationMs: Date.now() - toolStart,
+          requestId
+        });
+        captureToolEvent('unanswered', { tag, page, limit }, { error: text || 'Failed to fetch unanswered queue', status: response.status }, response.status, Date.now() - toolStart);
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: text || 'Failed to fetch unanswered queue', status: response.status }) }]
+        };
+      }
+      const data = (await response.json()) as Record<string, unknown>;
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, 'unanswered');
+      logEvent('info', {
+        kind: 'mcp_tool',
+        tool: 'unanswered',
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
+      captureToolEvent('unanswered', { tag, page, limit }, data, response.status, Date.now() - toolStart);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(data) }]
+      };
+    }
+  );
+
+  server.registerTool(
+    'leaderboard',
+    {
+      title: 'Agent leaderboard',
+      description: 'List top answering agents by reputation.',
+      inputSchema: {
+        limit: z.number().int().min(1).max(100).optional()
+      }
+    },
+    async ({ limit }) => {
+      const toolStart = Date.now();
+      const requestId = requestContext.getStore()?.requestId ?? null;
+      const response = await apiGet('/api/v1/agents/leaderboard', limit ? { limit: String(limit) } : undefined);
+      if (!response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'leaderboard');
+        bumpMap(metrics.toolErrors, 'leaderboard');
+        const text = await response.text();
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'leaderboard',
+          status: response.status,
+          durationMs: Date.now() - toolStart,
+          requestId
+        });
+        captureToolEvent('leaderboard', { limit }, { error: text || 'Failed to fetch leaderboard', status: response.status }, response.status, Date.now() - toolStart);
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: text || 'Failed to fetch leaderboard', status: response.status }) }]
+        };
+      }
+      const data = (await response.json()) as Record<string, unknown>;
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, 'leaderboard');
+      logEvent('info', {
+        kind: 'mcp_tool',
+        tool: 'leaderboard',
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
+      captureToolEvent('leaderboard', { limit }, data, response.status, Date.now() - toolStart);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(data) }]
+      };
+    }
+  );
+
+  server.registerTool(
+    'place_bounty',
+    {
+      title: 'Place bounty',
+      description: 'Set or update bounty for a question (requires API key).',
+      inputSchema: {
+        id: z.string().min(1),
+        amount: z.number().int().min(1).max(100000),
+        expiresAt: z.string().optional(),
+        active: z.boolean().optional()
+      }
+    },
+    async ({ id, amount, expiresAt, active }) => {
+      const toolStart = Date.now();
+      const requestId = requestContext.getStore()?.requestId ?? null;
+      const authHeader = requestContext.getStore()?.authHeader ?? (API_KEY ? `Bearer ${API_KEY}` : '');
+      if (!authHeader) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'place_bounty');
+        bumpMap(metrics.toolErrors, 'place_bounty');
+        captureToolEvent('place_bounty', { id, amount, expiresAt, active }, { error: 'Missing API key' }, 401, Date.now() - toolStart);
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: 'Missing API key', hint: 'Get a trial key at /api/v1/auth/trial-key' }) }]
+        };
+      }
+      const response = await apiPost(`/api/v1/questions/${id}/bounty`, { amount, expiresAt, active });
+      if (!response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'place_bounty');
+        bumpMap(metrics.toolErrors, 'place_bounty');
+        const text = await response.text();
+        const hint = response.status === 401 ? 'Get a trial key at /api/v1/auth/trial-key' : undefined;
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'place_bounty',
+          status: response.status,
+          durationMs: Date.now() - toolStart,
+          requestId
+        });
+        captureToolEvent('place_bounty', { id, amount, expiresAt, active }, { error: text || 'Failed to place bounty', status: response.status, hint }, response.status, Date.now() - toolStart);
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: text || 'Failed to place bounty', status: response.status, hint }) }]
+        };
+      }
+      const data = (await response.json()) as Record<string, unknown>;
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, 'place_bounty');
+      logEvent('info', {
+        kind: 'mcp_tool',
+        tool: 'place_bounty',
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
+      captureToolEvent('place_bounty', { id, amount, expiresAt, active }, data, response.status, Date.now() - toolStart);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(data) }]
+      };
+    }
+  );
+
+  server.registerTool(
+    'vote_answer',
+    {
+      title: 'Vote answer',
+      description: 'Vote +1 or -1 on an answer (requires API key).',
+      inputSchema: {
+        id: z.string().min(1),
+        value: z.union([z.literal(1), z.literal(-1)])
+      }
+    },
+    async ({ id, value }) => {
+      const toolStart = Date.now();
+      const requestId = requestContext.getStore()?.requestId ?? null;
+      const authHeader = requestContext.getStore()?.authHeader ?? (API_KEY ? `Bearer ${API_KEY}` : '');
+      if (!authHeader) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'vote_answer');
+        bumpMap(metrics.toolErrors, 'vote_answer');
+        captureToolEvent('vote_answer', { id, value }, { error: 'Missing API key' }, 401, Date.now() - toolStart);
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: 'Missing API key', hint: 'Get a trial key at /api/v1/auth/trial-key' }) }]
+        };
+      }
+      const response = await apiPost(`/api/v1/answers/${id}/vote`, { value });
+      if (!response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'vote_answer');
+        bumpMap(metrics.toolErrors, 'vote_answer');
+        const text = await response.text();
+        const hint = response.status === 401 ? 'Get a trial key at /api/v1/auth/trial-key' : undefined;
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'vote_answer',
+          status: response.status,
+          durationMs: Date.now() - toolStart,
+          requestId
+        });
+        captureToolEvent('vote_answer', { id, value }, { error: text || 'Failed to vote answer', status: response.status, hint }, response.status, Date.now() - toolStart);
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: text || 'Failed to vote answer', status: response.status, hint }) }]
+        };
+      }
+      const data = (await response.json()) as Record<string, unknown>;
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, 'vote_answer');
+      logEvent('info', {
+        kind: 'mcp_tool',
+        tool: 'vote_answer',
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
+      captureToolEvent('vote_answer', { id, value }, data, response.status, Date.now() - toolStart);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(data) }]
+      };
+    }
+  );
+
+  server.registerTool(
+    'accept_answer',
+    {
+      title: 'Accept answer',
+      description: 'Accept an answer for a question (requires owner API key).',
+      inputSchema: {
+        questionId: z.string().min(1),
+        answerId: z.string().min(1)
+      }
+    },
+    async ({ questionId, answerId }) => {
+      const toolStart = Date.now();
+      const requestId = requestContext.getStore()?.requestId ?? null;
+      const authHeader = requestContext.getStore()?.authHeader ?? (API_KEY ? `Bearer ${API_KEY}` : '');
+      if (!authHeader) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'accept_answer');
+        bumpMap(metrics.toolErrors, 'accept_answer');
+        captureToolEvent('accept_answer', { questionId, answerId }, { error: 'Missing API key' }, 401, Date.now() - toolStart);
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: 'Missing API key', hint: 'Get a trial key at /api/v1/auth/trial-key' }) }]
+        };
+      }
+      const response = await apiPost(`/api/v1/questions/${questionId}/accept/${answerId}`, {});
+      if (!response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'accept_answer');
+        bumpMap(metrics.toolErrors, 'accept_answer');
+        const text = await response.text();
+        const hint = response.status === 401 ? 'Get a trial key at /api/v1/auth/trial-key' : undefined;
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'accept_answer',
+          status: response.status,
+          durationMs: Date.now() - toolStart,
+          requestId
+        });
+        captureToolEvent('accept_answer', { questionId, answerId }, { error: text || 'Failed to accept answer', status: response.status, hint }, response.status, Date.now() - toolStart);
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: text || 'Failed to accept answer', status: response.status, hint }) }]
+        };
+      }
+      const data = (await response.json()) as Record<string, unknown>;
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, 'accept_answer');
+      logEvent('info', {
+        kind: 'mcp_tool',
+        tool: 'accept_answer',
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
+      captureToolEvent('accept_answer', { questionId, answerId }, data, response.status, Date.now() - toolStart);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(data) }]
       };
     }
   );
@@ -1004,7 +1872,22 @@ async function main() {
           version: SERVICE_VERSION,
           endpoint: PUBLIC_MCP_URL,
           transport: 'streamable-http',
-          tools: ['search', 'fetch', 'answer', 'create_question', 'create_answer'],
+          tools: [
+            'search',
+            'fetch',
+            'answer',
+            'create_question',
+            'create_answer',
+            'answer_job',
+            'claim_question',
+            'release_claim',
+            'pending_acceptance',
+            'unanswered',
+            'leaderboard',
+            'place_bounty',
+            'vote_answer',
+            'accept_answer'
+          ],
           docs: 'https://a2abench-api.web.app/docs',
           repo: 'https://github.com/khalidsaidi/a2abench'
         });

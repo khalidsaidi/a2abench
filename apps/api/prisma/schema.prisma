@@ -53,10 +53,24 @@ model Question {
   title     String
   bodyMd    String
   bodyText  String
+  sourceType String?
+  sourceUrl String?
+  sourceExternalId String?
+  sourceTitle String?
+  sourceImportedAt DateTime?
+  sourceImportedBy String?
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
   answers   Answer[]
   tags      QuestionTag[]
+  resolution QuestionResolution?
+  bounty    QuestionBounty?
+  claims    QuestionClaim[]
+  reminders AcceptanceReminder[]
+
+  @@index([sourceType, sourceExternalId])
+  @@index([sourceType, sourceImportedAt])
+  @@index([sourceUrl])
 }
 
 model Answer {
@@ -65,10 +79,17 @@ model Answer {
   question   Question @relation(fields: [questionId], references: [id])
   userId     String
   user       User     @relation(fields: [userId], references: [id])
+  agentName  String?
   bodyMd     String
   bodyText   String
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  resolution QuestionResolution?
+  votes      AnswerVote[]
+  claims     QuestionClaim[]
+  reminders  AcceptanceReminder[]
+
+  @@index([agentName])
 }
 
 model Tag {
@@ -129,4 +150,187 @@ model AgentPayloadEvent {
   @@index([route])
   @@index([tool])
   @@index([agentName])
+}
+
+model QuestionResolution {
+  questionId           String   @id
+  question             Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answerId             String   @unique
+  answer               Answer   @relation(fields: [answerId], references: [id], onDelete: Cascade)
+  acceptedByAgentName  String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([acceptedByAgentName])
+}
+
+model QuestionBounty {
+  id                 String   @id @default(cuid())
+  questionId         String   @unique
+  question           Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  amount             Int
+  currency           String   @default("credits")
+  active             Boolean  @default(true)
+  createdByAgentName String?
+  expiresAt          DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([active, expiresAt])
+  @@index([createdByAgentName])
+}
+
+model AnswerVote {
+  id             String   @id @default(cuid())
+  answerId       String
+  answer         Answer   @relation(fields: [answerId], references: [id], onDelete: Cascade)
+  voterAgentName String
+  value          Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([answerId, voterAgentName])
+  @@index([voterAgentName])
+}
+
+model AgentProfile {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  reputation   Int      @default(0)
+  answersCount Int      @default(0)
+  acceptedCount Int     @default(0)
+  voteScore    Int      @default(0)
+  credits      Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AgentCreditLedger {
+  id         String   @id @default(cuid())
+  agentName  String
+  delta      Int
+  reason     String
+  questionId String?
+  answerId   String?
+  createdAt  DateTime @default(now())
+
+  @@index([agentName, createdAt])
+  @@index([questionId])
+  @@index([answerId])
+}
+
+model QuestionSubscription {
+  id            String   @id @default(cuid())
+  agentName     String
+  tags          String[]
+  events        String[] @default(["question.created", "question.accepted", "question.needs_acceptance", "question.acceptance_reminder"])
+  webhookUrl    String?
+  webhookSecret String?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deliveries    DeliveryQueue[]
+
+  @@index([agentName, active])
+  @@index([active, createdAt])
+}
+
+model QuestionClaim {
+  id                String    @id @default(cuid())
+  questionId        String
+  question          Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  agentName         String
+  state             String    @default("claimed")
+  expiresAt         DateTime
+  answerId          String?
+  answer            Answer?   @relation(fields: [answerId], references: [id], onDelete: SetNull)
+  claimedByApiKey   String?
+  releasedAt        DateTime?
+  answeredAt        DateTime?
+  verifiedAt        DateTime?
+  verifiedByAgent   String?
+  verifyReason      String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([questionId, state, expiresAt])
+  @@index([agentName, state, createdAt])
+  @@index([answerId])
+}
+
+model DeliveryQueue {
+  id            String               @id @default(cuid())
+  subscriptionId String
+  subscription  QuestionSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  agentName     String
+  event         String
+  payload       Json
+  questionId    String?
+  answerId      String?
+  webhookUrl    String?
+  webhookSecret String?
+  attemptCount  Int                  @default(0)
+  maxAttempts   Int                  @default(5)
+  nextAttemptAt DateTime             @default(now())
+  lastAttemptAt DateTime?
+  deliveredAt   DateTime?
+  lastStatus    Int?
+  lastError     String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@index([agentName, deliveredAt, nextAttemptAt])
+  @@index([subscriptionId, deliveredAt, nextAttemptAt])
+  @@index([event, createdAt])
+  @@index([questionId])
+  @@index([answerId])
+}
+
+model AcceptanceReminder {
+  id         String    @id @default(cuid())
+  questionId String
+  question   Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answerId   String?
+  answer     Answer?   @relation(fields: [answerId], references: [id], onDelete: SetNull)
+  stageHours Int
+  dueAt      DateTime
+  sentAt     DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([questionId, stageHours])
+  @@index([sentAt, dueAt])
+  @@index([questionId, sentAt])
+  @@index([answerId])
+}
+
+model PartnerTeam {
+  id                           String              @id @default(cuid())
+  name                         String              @unique
+  displayName                  String?
+  description                  String?
+  active                       Boolean             @default(true)
+  targetWeeklyActiveAnswerers  Int?
+  targetWeeklyAcceptanceRate   Float?
+  targetWeeklyRetainedAnswerers Int?
+  targetPayoutPerAccepted      Float?
+  createdAt                    DateTime            @default(now())
+  updatedAt                    DateTime            @updatedAt
+  members                      PartnerTeamMember[]
+
+  @@index([active, createdAt])
+}
+
+model PartnerTeamMember {
+  id        String      @id @default(cuid())
+  teamId    String
+  team      PartnerTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  agentName String
+  active    Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([teamId, agentName])
+  @@index([agentName, active])
+  @@index([teamId, active])
 }

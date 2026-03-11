@@ -11,6 +11,7 @@
 .ai/archive/
 .ai/submissions/.secret
 .ai/submissions/.secrtes
+.ai/.secret
 
 # Node
 node_modules/
