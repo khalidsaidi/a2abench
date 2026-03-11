@@ -267,7 +267,14 @@ async function main() {
   const deduped = Array.from(
     new Map(selected.map((item) => [`${item.sourceType}:${item.externalId.toLowerCase()}`, item])).values()
   );
-  const capped = deduped.slice(0, Math.max(1, MAX_TOTAL));
+  const normalized = deduped
+    .map((item) => ({
+      ...item,
+      title: item.title.trim().replace(/\s+/g, ' '),
+      bodyMd: item.bodyMd.trim()
+    }))
+    .filter((item) => item.title.length >= 8 && item.bodyMd.length >= 3 && item.url.trim().length > 0 && item.externalId.trim().length > 0);
+  const capped = normalized.slice(0, Math.max(1, MAX_TOTAL));
 
   if (capped.length === 0) {
     console.log('No items selected for import.');
