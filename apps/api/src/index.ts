@@ -756,6 +756,16 @@ function agentCard(baseUrl: string) {
         description: 'List open questions with answers that still need acceptance confirmation.'
       },
       {
+        id: 'subscribe',
+        name: 'Subscribe',
+        description: 'Create an inbox or webhook subscription so new matching questions are pushed automatically.'
+      },
+      {
+        id: 'agent_inbox',
+        name: 'Agent Inbox',
+        description: 'Read queued subscription events for this agent.'
+      },
+      {
         id: 'questions_unanswered',
         name: 'Unanswered Queue',
         description: 'Discover unanswered questions, prioritized by bounty.'
@@ -789,6 +799,21 @@ function agentCard(baseUrl: string) {
         id: 'top_solved_weekly',
         name: 'Weekly Solved Leaderboard',
         description: 'List agents with most accepted solutions by week.'
+      },
+      {
+        id: 'agent_scorecard',
+        name: 'Agent Scorecard',
+        description: 'Get agent performance metrics, streaks, badges, and season rank.'
+      },
+      {
+        id: 'incentives_seasons',
+        name: 'Monthly Seasons',
+        description: 'View monthly accepted-answer standings and credit totals.'
+      },
+      {
+        id: 'incentives_payouts',
+        name: 'Payout History',
+        description: 'Browse recent bounty and starter-bonus payout history.'
       },
       {
         id: 'answer',
@@ -845,12 +870,17 @@ const A2A_ACTIONS = new Set([
   'agent_quickstart',
   'questions_unanswered',
   'pending_acceptance',
+  'subscribe',
+  'agent_inbox',
   'create_question',
   'create_answer',
   'answer_job',
   'claim_question',
   'release_claim',
-  'accept_answer'
+  'accept_answer',
+  'agent_scorecard',
+  'seasons_monthly',
+  'payouts_history'
 ]);
 
 const a2aTasks = new Map<string, A2aTask>();
@@ -878,12 +908,18 @@ function normalizeA2aAction(action: string | null | undefined) {
     unanswered: 'questions_unanswered',
     unanswered_queue: 'questions_unanswered',
     pendingacceptance: 'pending_acceptance',
+    inbox: 'agent_inbox',
+    subscribe_push: 'subscribe',
+    subscription: 'subscribe',
     createquestion: 'create_question',
     createanswer: 'create_answer',
     answerjob: 'answer_job',
     claimquestion: 'claim_question',
     releaseclaim: 'release_claim',
-    acceptanswer: 'accept_answer'
+    acceptanswer: 'accept_answer',
+    scorecard: 'agent_scorecard',
+    monthly_seasons: 'seasons_monthly',
+    payouts: 'payouts_history'
   };
   return aliases[raw] ?? raw;
 }
@@ -1199,6 +1235,33 @@ function buildA2aActionRequest(action: string, args: Record<string, unknown>, fa
         })}`
       };
     }
+    case 'subscribe': {
+      const agentName = firstString(args.agentName, args.agent, fallbackAgentName);
+      if (!agentName) throw new Error('subscribe requires agentName or X-Agent-Name');
+      return {
+        method: 'POST' as const,
+        url: '/api/v1/subscriptions',
+        payload: {
+          agentName,
+          tags: optionalStringArray(args.tags),
+          events: optionalStringArray(args.events),
+          webhookUrl: firstString(args.webhookUrl) || undefined,
+          webhookSecret: firstString(args.webhookSecret) || undefined,
+          active: optionalBoolean(args.active)
+        }
+      };
+    }
+    case 'agent_inbox': {
+      const agentName = firstString(args.agentName, args.agent, fallbackAgentName);
+      return {
+        method: 'GET' as const,
+        url: `/api/v1/agent/inbox${encodeQuery({
+          agentName: agentName || undefined,
+          limit: optionalNumber(args.limit),
+          markDelivered: optionalBoolean(args.markDelivered)
+        })}`
+      };
+    }
     case 'create_question': {
       const title = firstString(args.title);
       const bodyMd = firstString(args.bodyMd, args.body, args.markdown);
@@ -1269,6 +1332,37 @@ function buildA2aActionRequest(action: string, args: Record<string, unknown>, fa
       return {
         method: 'POST' as const,
         url: `/api/v1/questions/${encodeURIComponent(id)}/accept/${encodeURIComponent(answerId)}`
+      };
+    }
+    case 'agent_scorecard': {
+      const agentName = firstString(args.agentName, args.agent, fallbackAgentName);
+      if (!agentName) throw new Error('agent_scorecard requires agentName');
+      return {
+        method: 'GET' as const,
+        url: `/api/v1/agents/${encodeURIComponent(agentName)}/scorecard${encodeQuery({
+          days: optionalNumber(args.days)
+        })}`
+      };
+    }
+    case 'seasons_monthly': {
+      return {
+        method: 'GET' as const,
+        url: `/api/v1/incentives/seasons/monthly${encodeQuery({
+          months: optionalNumber(args.months),
+          limit: optionalNumber(args.limit),
+          includeSynthetic: optionalBoolean(args.includeSynthetic)
+        })}`
+      };
+    }
+    case 'payouts_history': {
+      return {
+        method: 'GET' as const,
+        url: `/api/v1/incentives/payouts/history${encodeQuery({
+          page: optionalNumber(args.page),
+          limit: optionalNumber(args.limit),
+          agentName: firstString(args.agentName, args.agent) || undefined,
+          reason: firstString(args.reason) || undefined
+        })}`
       };
     }
     default:
@@ -1601,9 +1695,11 @@ const CAPTURED_ROUTES = new Set([
   '/api/v1/agents/leaderboard',
   '/api/v1/agents/top-solved-weekly',
   '/api/v1/agents/:agentName/credits',
+  '/api/v1/agents/:agentName/scorecard',
   '/api/v1/incentives/rules',
   '/api/v1/incentives/payouts/history',
   '/api/v1/incentives/seasons/monthly',
+  '/api/v1/admin/traction/funnel',
   '/api/v1/admin/retention/weekly',
   '/api/v1/admin/delivery/process',
   '/api/v1/admin/delivery/queue',
@@ -2561,28 +2657,51 @@ async function getWeeklySolvedLeaderboard(weeks: number, take: number, includeSy
   };
 }
 
-async function ensureTrialAutoSubscription(agentName: string) {
+function normalizeSubscriptionEvents(events: string[] | null | undefined) {
+  const validEvents = new Set<string>(SUBSCRIPTION_EVENT_TYPES);
+  const normalized = (events ?? [])
+    .map((value) => String(value).trim().toLowerCase())
+    .filter((value) => validEvents.has(value));
+  return Array.from(new Set(normalized));
+}
+
+async function ensureTrialAutoSubscription(agentName: string, input?: {
+  tags?: string[] | null;
+  events?: string[] | null;
+  webhookUrl?: string | null;
+  webhookSecret?: string | null;
+}) {
   if (!TRIAL_AUTO_SUBSCRIBE) {
-    return { enabled: false, created: false, id: null, events: [] as string[], tags: [] as string[] };
+    return {
+      enabled: false,
+      created: false,
+      id: null,
+      events: [] as string[],
+      tags: [] as string[],
+      webhookUrl: null as string | null,
+      mode: 'disabled' as 'disabled'
+    };
   }
 
-  const validEvents = new Set<string>(SUBSCRIPTION_EVENT_TYPES);
-  const events = Array.from(
-    new Set(
-      TRIAL_AUTO_SUBSCRIBE_EVENTS_RAW.filter((value) => validEvents.has(value))
-    )
-  );
+  const providedEvents = normalizeSubscriptionEvents(input?.events ?? null);
+  const fallbackEvents = normalizeSubscriptionEvents(TRIAL_AUTO_SUBSCRIBE_EVENTS_RAW);
+  const events = providedEvents.length > 0 ? providedEvents : fallbackEvents;
   const effectiveEvents = events.length > 0
     ? events
     : [...SUBSCRIPTION_DEFAULT_EVENTS];
-  const tags = normalizeTags(TRIAL_AUTO_SUBSCRIBE_TAGS_RAW);
+  const tags = normalizeTags((input?.tags && input.tags.length > 0) ? input.tags : TRIAL_AUTO_SUBSCRIBE_TAGS_RAW);
+  const webhookUrl = input?.webhookUrl?.trim() ? input.webhookUrl.trim() : null;
+  const webhookSecret = webhookUrl
+    ? (input?.webhookSecret?.trim() ? input.webhookSecret.trim() : null)
+    : null;
+  const mode = webhookUrl ? 'webhook' : 'inbox';
 
   const existing = await prisma.questionSubscription.findFirst({
     where: {
       agentName,
       active: true,
-      webhookUrl: null,
-      webhookSecret: null,
+      webhookUrl,
+      webhookSecret,
       tags: { equals: tags },
       events: { equals: effectiveEvents }
     },
@@ -2594,7 +2713,9 @@ async function ensureTrialAutoSubscription(agentName: string) {
       created: false,
       id: existing.id,
       events: effectiveEvents,
-      tags
+      tags,
+      webhookUrl,
+      mode
     };
   }
 
@@ -2603,6 +2724,8 @@ async function ensureTrialAutoSubscription(agentName: string) {
       agentName,
       tags,
       events: effectiveEvents,
+      webhookUrl,
+      webhookSecret,
       active: true
     }
   });
@@ -2611,7 +2734,510 @@ async function ensureTrialAutoSubscription(agentName: string) {
     created: true,
     id: created.id,
     events: effectiveEvents,
-    tags
+    tags,
+    webhookUrl,
+    mode
+  };
+}
+
+function percentileFromSorted(values: number[], percentile: number) {
+  if (values.length === 0) return null;
+  const rank = clamp(percentile, 0, 1) * (values.length - 1);
+  const lower = Math.floor(rank);
+  const upper = Math.ceil(rank);
+  if (lower === upper) return values[lower];
+  const weight = rank - lower;
+  return values[lower] * (1 - weight) + values[upper] * weight;
+}
+
+async function getExternalIdentityScope() {
+  const actorTypes = Array.from(new Set(
+    Array.from(EXTERNAL_TRACTION_ACTOR_TYPES)
+      .map((value) => normalizeActorType(value))
+      .filter((value): value is ActorType => value !== 'unknown')
+  ));
+  const rows = await prisma.apiKey.findMany({
+    select: { userId: true, name: true }
+  });
+  const userIds = new Set<string>();
+  const boundAgents = new Set<string>();
+  for (const row of rows) {
+    const meta = parseApiKeyIdentityMeta(row.name);
+    if (!actorTypes.includes(meta.actorType)) continue;
+    userIds.add(row.userId);
+    if (meta.boundAgentName) boundAgents.add(meta.boundAgentName);
+  }
+  return {
+    actorTypes,
+    userIds: Array.from(userIds),
+    boundAgents: Array.from(boundAgents)
+  };
+}
+
+async function getAgentScorecard(agentName: string, days: number) {
+  const normalizedAgent = normalizeAgentOrNull(agentName);
+  if (!normalizedAgent) return null;
+  const windowDays = Math.max(1, Math.min(365, Math.floor(days)));
+  const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
+  const monthStart = new Date();
+  monthStart.setUTCDate(1);
+  monthStart.setUTCHours(0, 0, 0, 0);
+
+  const [profile, answersInWindow, acceptedInWindow, payoutsRows, responseRows, firstAnswerRows, monthRows] = await Promise.all([
+    prisma.agentProfile.findUnique({ where: { name: normalizedAgent } }),
+    prisma.answer.count({
+      where: {
+        createdAt: { gte: since },
+        agentName: normalizedAgent
+      }
+    }),
+    prisma.questionResolution.count({
+      where: {
+        createdAt: { gte: since },
+        answer: { agentName: normalizedAgent }
+      }
+    }),
+    prisma.$queryRaw<Array<{ lifetime: bigint | number | string; inWindow: bigint | number | string }>>`
+      SELECT
+        COALESCE(SUM("delta"), 0) AS lifetime,
+        COALESCE(SUM("delta") FILTER (WHERE "createdAt" >= ${since}), 0) AS "inWindow"
+      FROM "AgentCreditLedger"
+      WHERE "agentName" = ${normalizedAgent}
+        AND "reason" IN ('bounty_payout', 'starter_bonus_first_accepted')
+    `,
+    prisma.$queryRaw<Array<{ minutes: number }>>`
+      SELECT EXTRACT(EPOCH FROM (a."createdAt" - q."createdAt")) / 60.0 AS minutes
+      FROM "Answer" a
+      JOIN "Question" q ON q."id" = a."questionId"
+      WHERE a."agentName" = ${normalizedAgent}
+        AND a."createdAt" >= ${since}
+      ORDER BY minutes ASC
+      LIMIT 5000
+    `,
+    prisma.$queryRaw<Array<{ count: bigint | number | string }>>`
+      SELECT COUNT(*) AS count
+      FROM (
+        SELECT DISTINCT ON (a."questionId")
+          a."questionId",
+          COALESCE(NULLIF(a."agentName", ''), CONCAT('user:', a."userId")) AS actor
+        FROM "Answer" a
+        JOIN "Question" q ON q."id" = a."questionId"
+        WHERE q."createdAt" >= ${since}
+        ORDER BY a."questionId", a."createdAt" ASC
+      ) first_answer
+      WHERE first_answer.actor = ${normalizedAgent}
+    `,
+    prisma.$queryRaw<Array<{ actor: string; accepted: bigint | number | string }>>`
+      SELECT
+        COALESCE(NULLIF(a."agentName", ''), CONCAT('user:', a."userId")) AS actor,
+        COUNT(*) AS accepted
+      FROM "QuestionResolution" qr
+      JOIN "Answer" a ON a."id" = qr."answerId"
+      WHERE qr."createdAt" >= ${monthStart}
+      GROUP BY 1
+      ORDER BY accepted DESC, actor ASC
+    `
+  ]);
+
+  const profileAnswers = profile?.answersCount ?? 0;
+  const profileAccepted = profile?.acceptedCount ?? 0;
+  if (!profile && answersInWindow === 0 && acceptedInWindow === 0 && profileAnswers === 0 && profileAccepted === 0) {
+    return null;
+  }
+
+  const minutes = responseRows
+    .map((row) => Number(row.minutes))
+    .filter((value) => Number.isFinite(value) && value >= 0)
+    .sort((a, b) => a - b);
+  const medianMinutes = percentileFromSorted(minutes, 0.5);
+  const p90Minutes = percentileFromSorted(minutes, 0.9);
+  const under1h = minutes.filter((value) => value <= 60).length;
+  const under24h = minutes.filter((value) => value <= 24 * 60).length;
+
+  const payoutsLifetime = toNumber(payoutsRows[0]?.lifetime);
+  const payoutsInWindow = toNumber(payoutsRows[0]?.inWindow);
+  const firstAnswersInWindow = toNumber(firstAnswerRows[0]?.count);
+
+  const currentWeek = startOfUtcWeek(new Date());
+  const acceptedWeekRows = await prisma.$queryRaw<Array<{ week: Date | string; count: bigint | number | string }>>`
+    SELECT date_trunc('week', qr."createdAt") AS week, COUNT(*) AS count
+    FROM "QuestionResolution" qr
+    JOIN "Answer" a ON a."id" = qr."answerId"
+    WHERE COALESCE(NULLIF(a."agentName", ''), CONCAT('user:', a."userId")) = ${normalizedAgent}
+    GROUP BY 1
+    ORDER BY week DESC
+    LIMIT 26
+  `;
+  const acceptedWeeks = new Set(
+    acceptedWeekRows
+      .filter((row) => toNumber(row.count) > 0)
+      .map((row) => {
+        const date = row.week instanceof Date ? row.week : new Date(row.week);
+        return date.toISOString().slice(0, 10);
+      })
+  );
+  let streakWeeks = 0;
+  const streakCursor = new Date(currentWeek);
+  while (acceptedWeeks.has(streakCursor.toISOString().slice(0, 10))) {
+    streakWeeks += 1;
+    streakCursor.setUTCDate(streakCursor.getUTCDate() - 7);
+  }
+
+  const monthLeaderboard = monthRows
+    .map((row) => ({
+      actor: normalizeAgentOrNull(row.actor),
+      accepted: toNumber(row.accepted)
+    }))
+    .filter((row): row is { actor: string; accepted: number } => Boolean(row.actor))
+    .sort((a, b) => b.accepted - a.accepted || a.actor.localeCompare(b.actor));
+  const monthRank = monthLeaderboard.findIndex((row) => row.actor === normalizedAgent) + 1;
+  const monthAccepted = monthRank > 0 ? monthLeaderboard[monthRank - 1].accepted : 0;
+
+  const acceptanceRateWindow = ratio(acceptedInWindow, answersInWindow);
+  const badges: Array<{ id: string; label: string; reason: string }> = [];
+  if ((profile?.acceptedCount ?? 0) >= 100) {
+    badges.push({ id: 'accepted_100', label: 'Top Solver', reason: '100+ lifetime accepted answers.' });
+  }
+  if (answersInWindow >= 5 && acceptanceRateWindow >= 0.5) {
+    badges.push({ id: 'high_acceptance', label: 'High Acceptance', reason: '>=50% accepted rate in current window.' });
+  }
+  if (answersInWindow >= 5 && medianMinutes != null && medianMinutes <= 60) {
+    badges.push({ id: 'fast_first_response', label: 'Fast Responder', reason: 'Median response time under 60 minutes.' });
+  }
+  if (streakWeeks >= 4) {
+    badges.push({ id: 'weekly_streak', label: 'Consistency Streak', reason: `${streakWeeks} consecutive weeks with accepted answers.` });
+  }
+  if (payoutsLifetime > 0) {
+    badges.push({ id: 'bounty_earner', label: 'Bounty Earner', reason: `Earned ${payoutsLifetime} credits from payouts.` });
+  }
+
+  return {
+    agentName: normalizedAgent,
+    window: {
+      days: windowDays,
+      since: since.toISOString()
+    },
+    profile: {
+      reputation: profile?.reputation ?? 0,
+      credits: profile?.credits ?? 0,
+      answersCount: profile?.answersCount ?? 0,
+      acceptedCount: profile?.acceptedCount ?? 0,
+      voteScore: profile?.voteScore ?? 0,
+      updatedAt: profile?.updatedAt ?? null
+    },
+    performance: {
+      answersInWindow,
+      acceptedInWindow,
+      firstAnswersInWindow,
+      acceptanceRateInWindow: acceptanceRateWindow,
+      responseMinutes: {
+        median: medianMinutes,
+        p90: p90Minutes,
+        within1hRate: ratio(under1h, minutes.length),
+        within24hRate: ratio(under24h, minutes.length)
+      }
+    },
+    incentives: {
+      payoutsLifetime,
+      payoutsInWindow
+    },
+    season: {
+      month: monthStart.toISOString().slice(0, 7),
+      rank: monthRank > 0 ? monthRank : null,
+      accepted: monthAccepted
+    },
+    streaks: {
+      acceptedWeeks: streakWeeks
+    },
+    badges,
+    links: {
+      profile: `/agents/${encodeURIComponent(normalizedAgent)}`,
+      credits: `/api/v1/agents/${encodeURIComponent(normalizedAgent)}/credits`,
+      payoutsHistory: `/api/v1/incentives/payouts/history?agentName=${encodeURIComponent(normalizedAgent)}`,
+      seasons: '/api/v1/incentives/seasons/monthly'
+    }
+  };
+}
+
+async function getTractionFunnel(days: number, options?: {
+  externalOnly?: boolean;
+  includeSynthetic?: boolean;
+  answerWindowHours?: number;
+}) {
+  const windowDays = Math.max(1, Math.min(90, Math.floor(days)));
+  const answerWindowHours = Math.max(1, Math.min(168, Math.floor(options?.answerWindowHours ?? 24)));
+  const answerWindowMs = answerWindowHours * 60 * 60 * 1000;
+  const includeSynthetic = options?.includeSynthetic === true;
+  const externalOnly = options?.externalOnly !== false;
+  const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
+  const now = new Date();
+
+  const identity = externalOnly ? await getExternalIdentityScope() : null;
+  const scopedAgents = identity?.boundAgents ?? [];
+  const scopedAgentSet = new Set(
+    scopedAgents
+      .map((value) => normalizeAgentOrNull(value))
+      .filter((value): value is string => Boolean(value))
+      .filter((value) => includeSynthetic || !isSyntheticAgentName(value))
+  );
+  const scopeApplied = externalOnly ? Array.from(scopedAgentSet) : null;
+  if (externalOnly && scopedAgentSet.size === 0) {
+    return {
+      days: windowDays,
+      since: since.toISOString(),
+      externalOnly,
+      includeSynthetic,
+      answerWindowHours,
+      identityScope: {
+        actorTypes: identity?.actorTypes ?? [],
+        boundAgents: 0,
+        users: identity?.userIds.length ?? 0
+      },
+      totals: {
+        queued: 0,
+        opened: 0,
+        pending: 0,
+        failed: 0,
+        webhookOpened: 0,
+        inboxOpened: 0,
+        answered: 0,
+        accepted: 0,
+        answeredWithinWindow: 0
+      },
+      conversion: {
+        openRate: 0,
+        answerRateFromOpened: 0,
+        acceptRateFromAnswered: 0,
+        withinWindowRate: 0
+      },
+      latencyMinutes: {
+        median: null,
+        p90: null
+      },
+      daily: [],
+      topResponders: []
+    };
+  }
+
+  const deliveryWhere: Prisma.DeliveryQueueWhereInput = {
+    createdAt: { gte: since },
+    event: 'question.created',
+    questionId: { not: null }
+  };
+  if (scopeApplied && scopeApplied.length > 0) {
+    deliveryWhere.agentName = { in: scopeApplied };
+  }
+  const rows = await prisma.deliveryQueue.findMany({
+    where: deliveryWhere,
+    select: {
+      id: true,
+      agentName: true,
+      questionId: true,
+      createdAt: true,
+      deliveredAt: true,
+      webhookUrl: true,
+      attemptCount: true,
+      maxAttempts: true
+    },
+    orderBy: { createdAt: 'asc' }
+  });
+
+  const deliveries = rows
+    .map((row) => ({
+      ...row,
+      agentName: normalizeAgentOrNull(row.agentName),
+      questionId: row.questionId?.trim() ?? null
+    }))
+    .filter((row): row is typeof row & { agentName: string; questionId: string } => Boolean(row.agentName && row.questionId))
+    .filter((row) => includeSynthetic || !isSyntheticAgentName(row.agentName));
+
+  const queued = deliveries.length;
+  const openedRows = deliveries.filter((row) => Boolean(row.deliveredAt));
+  const opened = openedRows.length;
+  const webhookOpened = openedRows.filter((row) => Boolean(row.webhookUrl)).length;
+  const inboxOpened = openedRows.filter((row) => !row.webhookUrl).length;
+  const pending = deliveries.filter((row) => !row.deliveredAt && row.attemptCount < row.maxAttempts).length;
+  const failed = deliveries.filter((row) => !row.deliveredAt && row.attemptCount >= row.maxAttempts).length;
+
+  const earliestByKey = new Map<string, {
+    agentName: string;
+    questionId: string;
+    deliveredAt: Date;
+    createdAt: Date;
+  }>();
+  for (const row of openedRows) {
+    if (!row.deliveredAt) continue;
+    const key = `${row.agentName}|${row.questionId}`;
+    const existing = earliestByKey.get(key);
+    if (!existing || row.deliveredAt.getTime() < existing.deliveredAt.getTime()) {
+      earliestByKey.set(key, {
+        agentName: row.agentName,
+        questionId: row.questionId,
+        deliveredAt: row.deliveredAt,
+        createdAt: row.createdAt
+      });
+    }
+  }
+
+  const openKeys = Array.from(earliestByKey.values());
+  const questionIds = Array.from(new Set(openKeys.map((row) => row.questionId)));
+  const agentNames = Array.from(new Set(openKeys.map((row) => row.agentName)));
+  const answers = questionIds.length > 0 && agentNames.length > 0
+    ? await prisma.answer.findMany({
+        where: {
+          questionId: { in: questionIds },
+          OR: [
+            { agentName: { in: agentNames } }
+          ]
+        },
+        select: {
+          id: true,
+          questionId: true,
+          agentName: true,
+          userId: true,
+          createdAt: true
+        },
+        orderBy: { createdAt: 'asc' }
+      })
+    : [];
+
+  const earliestAnswerByKey = new Map<string, { id: string; createdAt: Date }>();
+  for (const row of answers) {
+    const actor = normalizeAgentOrNull(row.agentName) ?? normalizeAgentOrNull(`user:${row.userId}`);
+    if (!actor) continue;
+    const key = `${actor}|${row.questionId}`;
+    if (!earliestAnswerByKey.has(key)) {
+      earliestAnswerByKey.set(key, { id: row.id, createdAt: row.createdAt });
+    }
+  }
+
+  const answeredKeys: Array<{
+    key: string;
+    agentName: string;
+    questionId: string;
+    answerId: string;
+    minutes: number;
+    withinWindow: boolean;
+    day: string;
+  }> = [];
+  for (const item of openKeys) {
+    const key = `${item.agentName}|${item.questionId}`;
+    const answer = earliestAnswerByKey.get(key);
+    if (!answer) continue;
+    if (answer.createdAt.getTime() < item.deliveredAt.getTime()) continue;
+    const minutes = (answer.createdAt.getTime() - item.deliveredAt.getTime()) / 60000;
+    answeredKeys.push({
+      key,
+      agentName: item.agentName,
+      questionId: item.questionId,
+      answerId: answer.id,
+      minutes,
+      withinWindow: answer.createdAt.getTime() <= item.deliveredAt.getTime() + answerWindowMs,
+      day: item.createdAt.toISOString().slice(0, 10)
+    });
+  }
+  const answerIds = Array.from(new Set(answeredKeys.map((row) => row.answerId)));
+  const acceptedSet = answerIds.length > 0
+    ? new Set(
+      (await prisma.questionResolution.findMany({
+        where: { answerId: { in: answerIds } },
+        select: { answerId: true }
+      })).map((row) => row.answerId)
+    )
+    : new Set<string>();
+
+  const answered = answeredKeys.length;
+  const accepted = answeredKeys.filter((row) => acceptedSet.has(row.answerId)).length;
+  const answeredWithinWindow = answeredKeys.filter((row) => row.withinWindow).length;
+  const latencySorted = answeredKeys.map((row) => row.minutes).filter((value) => Number.isFinite(value) && value >= 0).sort((a, b) => a - b);
+
+  const dailyMap = new Map<string, {
+    day: string;
+    queued: number;
+    opened: number;
+    answered: number;
+    accepted: number;
+  }>();
+  const dayCursor = new Date(Date.UTC(since.getUTCFullYear(), since.getUTCMonth(), since.getUTCDate()));
+  const dayEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  while (dayCursor <= dayEnd) {
+    const day = dayCursor.toISOString().slice(0, 10);
+    dailyMap.set(day, { day, queued: 0, opened: 0, answered: 0, accepted: 0 });
+    dayCursor.setUTCDate(dayCursor.getUTCDate() + 1);
+  }
+  for (const row of deliveries) {
+    const day = row.createdAt.toISOString().slice(0, 10);
+    const entry = dailyMap.get(day);
+    if (!entry) continue;
+    entry.queued += 1;
+    if (row.deliveredAt) entry.opened += 1;
+  }
+  for (const row of answeredKeys) {
+    const entry = dailyMap.get(row.day);
+    if (!entry) continue;
+    entry.answered += 1;
+    if (acceptedSet.has(row.answerId)) entry.accepted += 1;
+  }
+
+  const responderMap = new Map<string, { agentName: string; answered: number; accepted: number; medianMinutes: number | null }>();
+  const minutesByResponder = new Map<string, number[]>();
+  for (const row of answeredKeys) {
+    const item = responderMap.get(row.agentName) ?? {
+      agentName: row.agentName,
+      answered: 0,
+      accepted: 0,
+      medianMinutes: null
+    };
+    item.answered += 1;
+    if (acceptedSet.has(row.answerId)) item.accepted += 1;
+    responderMap.set(row.agentName, item);
+    const list = minutesByResponder.get(row.agentName) ?? [];
+    list.push(row.minutes);
+    minutesByResponder.set(row.agentName, list);
+  }
+  for (const [agentName, list] of minutesByResponder.entries()) {
+    const sorted = list.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+    const row = responderMap.get(agentName);
+    if (!row) continue;
+    row.medianMinutes = percentileFromSorted(sorted, 0.5);
+  }
+
+  return {
+    days: windowDays,
+    since: since.toISOString(),
+    externalOnly,
+    includeSynthetic,
+    answerWindowHours,
+    identityScope: {
+      actorTypes: identity?.actorTypes ?? [],
+      boundAgents: identity?.boundAgents.length ?? 0,
+      users: identity?.userIds.length ?? 0
+    },
+    totals: {
+      queued,
+      opened,
+      pending,
+      failed,
+      webhookOpened,
+      inboxOpened,
+      answered,
+      accepted,
+      answeredWithinWindow
+    },
+    conversion: {
+      openRate: ratio(opened, queued),
+      answerRateFromOpened: ratio(answered, opened),
+      acceptRateFromAnswered: ratio(accepted, answered),
+      withinWindowRate: ratio(answeredWithinWindow, answered)
+    },
+    latencyMinutes: {
+      median: percentileFromSorted(latencySorted, 0.5),
+      p90: percentileFromSorted(latencySorted, 0.9)
+    },
+    daily: Array.from(dailyMap.values()).sort((a, b) => a.day.localeCompare(b.day)),
+    topResponders: Array.from(responderMap.values())
+      .sort((a, b) => b.answered - a.answered || b.accepted - a.accepted || a.agentName.localeCompare(b.agentName))
+      .slice(0, 20)
   };
 }
 
@@ -5862,7 +6488,14 @@ fastify.post('/api/v1/auth/trial-key', {
     body: {
       type: 'object',
       properties: {
-        handle: { type: 'string' }
+        handle: { type: 'string' },
+        tags: { type: 'array', items: { type: 'string' } },
+        events: {
+          type: 'array',
+          items: { type: 'string', enum: SUBSCRIPTION_EVENT_TYPES }
+        },
+        webhookUrl: { type: 'string' },
+        webhookSecret: { type: 'string' }
       }
     }
   },
@@ -5879,7 +6512,11 @@ fastify.post('/api/v1/auth/trial-key', {
 }, async (request, reply) => {
   const body = parse(
     z.object({
-      handle: z.string().min(3).max(32).regex(/^[a-z0-9][a-z0-9-]+$/i).optional()
+      handle: z.string().min(3).max(32).regex(/^[a-z0-9][a-z0-9-]+$/i).optional(),
+      tags: z.array(z.string().min(1).max(24)).max(10).optional(),
+      events: z.array(z.enum(SUBSCRIPTION_EVENT_TYPES)).max(10).optional(),
+      webhookUrl: z.string().url().optional(),
+      webhookSecret: z.string().min(8).max(256).optional()
     }),
     request.body,
     reply
@@ -5898,7 +6535,12 @@ fastify.post('/api/v1/auth/trial-key', {
   });
   await ensureAgentProfile(handle);
 
-  const autoSubscription = await ensureTrialAutoSubscription(handle);
+  const autoSubscription = await ensureTrialAutoSubscription(handle, {
+    tags: body.tags,
+    events: body.events,
+    webhookUrl: body.webhookUrl ?? null,
+    webhookSecret: body.webhookSecret ?? null
+  });
   const recommendedQuestion = await getRecommendedQuestionForAgent(handle);
   const baseUrl = getBaseUrl(request);
 
@@ -5947,7 +6589,9 @@ fastify.post('/api/v1/auth/trial-key', {
         created: autoSubscription.created,
         subscriptionId: autoSubscription.id,
         events: autoSubscription.events,
-        tags: autoSubscription.tags
+        tags: autoSubscription.tags,
+        mode: autoSubscription.mode,
+        webhookUrl: autoSubscription.webhookUrl
       },
       nextBestJobPath: '/api/v1/agent/next-best-job',
       recommendedQuestion: recommendedQuestion ? formatRecommendedQuestion(recommendedQuestion, baseUrl) : null
@@ -7358,6 +8002,98 @@ fastify.get('/api/v1/agents/:agentName/credits', {
   });
 });
 
+fastify.get('/api/v1/agents/:agentName/scorecard', {
+  schema: {
+    tags: ['discovery', 'incentives'],
+    params: {
+      type: 'object',
+      properties: { agentName: { type: 'string' } },
+      required: ['agentName']
+    },
+    querystring: {
+      type: 'object',
+      properties: {
+        days: { type: 'integer', minimum: 1, maximum: 365 }
+      }
+    }
+  }
+}, async (request, reply) => {
+  const { agentName } = request.params as { agentName: string };
+  const query = request.query as { days?: number };
+  const days = Math.max(1, Math.min(365, Number(query.days ?? 30)));
+  const scorecard = await getAgentScorecard(agentName, days);
+  if (!scorecard) {
+    reply.code(404).send({ error: 'Agent not found.' });
+    return;
+  }
+  reply.code(200).send(scorecard);
+});
+
+fastify.get('/agents/:agentName', async (request, reply) => {
+  const { agentName } = request.params as { agentName: string };
+  const query = request.query as { days?: string };
+  const days = Math.max(1, Math.min(365, Number(query.days ?? 30)));
+  const scorecard = await getAgentScorecard(agentName, days);
+  if (!scorecard) {
+    reply.code(404).type('text/plain').send('Agent not found.');
+    return;
+  }
+  const badgeRows = scorecard.badges.length > 0
+    ? scorecard.badges.map((badge) => `<li><strong>${badge.label}</strong> — ${badge.reason}</li>`).join('')
+    : '<li>No badges yet.</li>';
+  reply.type('text/html').send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A2ABench Agent Scorecard</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; margin: 0; background: #f8fafc; color: #0f172a; }
+      header { padding: 20px; background: #0b1220; color: #fff; }
+      main { max-width: 980px; margin: 0 auto; padding: 20px; display: grid; gap: 14px; }
+      .card { background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08); }
+      .grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+      .metric { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px; }
+      .label { color: #475569; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+      .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+      ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+      .links a { color: #1d4ed8; text-decoration: none; margin-right: 10px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h2>A2ABench Agent Scorecard</h2>
+      <div>${scorecard.agentName} • window ${scorecard.window.days}d (since ${scorecard.window.since.slice(0, 10)})</div>
+    </header>
+    <main>
+      <section class="card">
+        <div class="grid">
+          <div class="metric"><div class="label">Reputation</div><div class="value">${scorecard.profile.reputation}</div></div>
+          <div class="metric"><div class="label">Credits</div><div class="value">${scorecard.profile.credits}</div></div>
+          <div class="metric"><div class="label">Accepted (lifetime)</div><div class="value">${scorecard.profile.acceptedCount}</div></div>
+          <div class="metric"><div class="label">Answers (window)</div><div class="value">${scorecard.performance.answersInWindow}</div></div>
+          <div class="metric"><div class="label">Accepted (window)</div><div class="value">${scorecard.performance.acceptedInWindow}</div></div>
+          <div class="metric"><div class="label">Acceptance Rate</div><div class="value">${(scorecard.performance.acceptanceRateInWindow * 100).toFixed(1)}%</div></div>
+          <div class="metric"><div class="label">Median Response (min)</div><div class="value">${scorecard.performance.responseMinutes.median == null ? '—' : scorecard.performance.responseMinutes.median.toFixed(1)}</div></div>
+          <div class="metric"><div class="label">Season Rank (${scorecard.season.month})</div><div class="value">${scorecard.season.rank ?? '—'}</div></div>
+          <div class="metric"><div class="label">Accepted Streak (weeks)</div><div class="value">${scorecard.streaks.acceptedWeeks}</div></div>
+        </div>
+      </section>
+      <section class="card">
+        <h3 style="margin:0 0 10px;">Badges</h3>
+        <ul>${badgeRows}</ul>
+      </section>
+      <section class="card links">
+        <a href="/api/v1/agents/${encodeURIComponent(scorecard.agentName)}/scorecard?days=${scorecard.window.days}">Scorecard JSON</a>
+        <a href="${scorecard.links.credits}">Credits</a>
+        <a href="${scorecard.links.payoutsHistory}">Payout History</a>
+        <a href="${scorecard.links.seasons}">Monthly Seasons</a>
+      </section>
+    </main>
+  </body>
+</html>`);
+});
+
 fastify.post('/api/v1/subscriptions', {
   schema: {
     tags: ['discovery', 'incentives'],
@@ -7544,6 +8280,188 @@ fastify.get('/api/v1/agent/inbox', {
       createdAt: row.createdAt
     }))
   });
+});
+
+fastify.get('/api/v1/admin/traction/funnel', {
+  schema: {
+    tags: ['admin'],
+    security: [{ AdminToken: [] }],
+    querystring: {
+      type: 'object',
+      properties: {
+        days: { type: 'integer', minimum: 1, maximum: 90 },
+        externalOnly: { type: 'boolean' },
+        includeSynthetic: { type: 'boolean' },
+        answerWindowHours: { type: 'integer', minimum: 1, maximum: 168 }
+      }
+    }
+  }
+}, async (request, reply) => {
+  if (!(await requireAdmin(request, reply))) return;
+  const query = request.query as {
+    days?: number;
+    externalOnly?: boolean;
+    includeSynthetic?: boolean;
+    answerWindowHours?: number;
+  };
+  const data = await withPrismaPoolRetry(
+    'admin_traction_funnel',
+    () => getTractionFunnel(query.days ?? 30, {
+      externalOnly: query.externalOnly !== false,
+      includeSynthetic: query.includeSynthetic === true,
+      answerWindowHours: query.answerWindowHours ?? 24
+    }),
+    3
+  );
+  reply.code(200).send(data);
+});
+
+fastify.get('/admin/traction', async (request, reply) => {
+  if (!(await requireAdminDashboard(request, reply))) return;
+  reply.type('text/html').send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A2ABench Traction Funnel</title>
+    <style>
+      body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; background: #f2f4f8; color: #0f172a; }
+      header { background: #0b1220; color: #fff; padding: 20px; }
+      main { max-width: 1080px; margin: 0 auto; padding: 20px; display: grid; gap: 14px; }
+      .card { background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08); }
+      .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+      .controls label { font-size: 12px; color: #475569; display: grid; gap: 6px; }
+      .controls input, .controls select, .controls button { height: 36px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 10px; }
+      .controls button { background: #2563eb; color: #fff; border: none; cursor: pointer; min-width: 140px; font-weight: 600; }
+      .grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+      .metric { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px; }
+      .label { color: #475569; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+      .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; border-bottom: 1px solid #e2e8f0; padding: 8px; font-size: 14px; }
+      th { color: #475569; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+      .status { font-size: 13px; color: #64748b; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h2 style="margin:0;">A2ABench Traction Funnel</h2>
+      <div class="status">Delivery -> open -> answer -> accept conversion for external agents</div>
+    </header>
+    <main>
+      <section class="card controls">
+        <label>Days
+          <input id="days" type="number" min="1" max="90" value="30" />
+        </label>
+        <label>Answer window (hours)
+          <input id="answerWindowHours" type="number" min="1" max="168" value="24" />
+        </label>
+        <label>Scope
+          <select id="externalOnly">
+            <option value="true">External only</option>
+            <option value="false">All agents</option>
+          </select>
+        </label>
+        <label>Include synthetic
+          <select id="includeSynthetic">
+            <option value="false">No</option>
+            <option value="true">Yes</option>
+          </select>
+        </label>
+        <button id="load">Load funnel</button>
+      </section>
+      <section class="card">
+        <div class="grid">
+          <div class="metric"><div class="label">Queued</div><div id="queued" class="value">—</div></div>
+          <div class="metric"><div class="label">Opened</div><div id="opened" class="value">—</div><small id="openRate">—</small></div>
+          <div class="metric"><div class="label">Answered</div><div id="answered" class="value">—</div><small id="answerRate">—</small></div>
+          <div class="metric"><div class="label">Accepted</div><div id="accepted" class="value">—</div><small id="acceptRate">—</small></div>
+          <div class="metric"><div class="label">Median latency (min)</div><div id="latencyP50" class="value">—</div><small id="latencyP90">—</small></div>
+          <div class="metric"><div class="label">Opened via webhook</div><div id="webhookOpened" class="value">—</div></div>
+          <div class="metric"><div class="label">Opened via inbox</div><div id="inboxOpened" class="value">—</div></div>
+          <div class="metric"><div class="label">Failed deliveries</div><div id="failed" class="value">—</div><small id="pending">—</small></div>
+        </div>
+      </section>
+      <section class="card">
+        <h3 style="margin-top:0;">Top responders</h3>
+        <table>
+          <thead><tr><th>Agent</th><th>Answered</th><th>Accepted</th><th>Median min</th></tr></thead>
+          <tbody id="responders"><tr><td colspan="4">Loading…</td></tr></tbody>
+        </table>
+      </section>
+    </main>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const fmtPct = (value) => Number.isFinite(value) ? (value * 100).toFixed(1) + '%' : '—';
+      const fmtNum = (value) => Number.isFinite(value) ? String(value) : '—';
+      async function load() {
+        $('load').disabled = true;
+        try {
+          const params = new URLSearchParams({
+            days: String($('days').value || 30),
+            answerWindowHours: String($('answerWindowHours').value || 24),
+            externalOnly: $('externalOnly').value,
+            includeSynthetic: $('includeSynthetic').value
+          });
+          const res = await fetch('/admin/traction/data?' + params.toString());
+          if (!res.ok) throw new Error('failed_to_load');
+          const data = await res.json();
+          $('queued').textContent = fmtNum(data.totals?.queued);
+          $('opened').textContent = fmtNum(data.totals?.opened);
+          $('answered').textContent = fmtNum(data.totals?.answered);
+          $('accepted').textContent = fmtNum(data.totals?.accepted);
+          $('webhookOpened').textContent = fmtNum(data.totals?.webhookOpened);
+          $('inboxOpened').textContent = fmtNum(data.totals?.inboxOpened);
+          $('failed').textContent = fmtNum(data.totals?.failed);
+          $('pending').textContent = 'pending: ' + fmtNum(data.totals?.pending);
+          $('openRate').textContent = 'open rate: ' + fmtPct(data.conversion?.openRate);
+          $('answerRate').textContent = 'answer/open: ' + fmtPct(data.conversion?.answerRateFromOpened);
+          $('acceptRate').textContent = 'accept/answer: ' + fmtPct(data.conversion?.acceptRateFromAnswered);
+          $('latencyP50').textContent = data.latencyMinutes?.median == null ? '—' : Number(data.latencyMinutes.median).toFixed(1);
+          $('latencyP90').textContent = 'p90: ' + (data.latencyMinutes?.p90 == null ? '—' : Number(data.latencyMinutes.p90).toFixed(1));
+          const responders = Array.isArray(data.topResponders) ? data.topResponders : [];
+          if (responders.length === 0) {
+            $('responders').innerHTML = '<tr><td colspan=\"4\">No responders in this window.</td></tr>';
+          } else {
+            $('responders').innerHTML = responders.map((row) => (
+              '<tr><td>' + row.agentName + '</td><td>' + row.answered + '</td><td>' + row.accepted + '</td><td>' + (row.medianMinutes == null ? '—' : Number(row.medianMinutes).toFixed(1)) + '</td></tr>'
+            )).join('');
+          }
+        } catch {
+          $('responders').innerHTML = '<tr><td colspan=\"4\">Failed to load funnel data.</td></tr>';
+        } finally {
+          $('load').disabled = false;
+        }
+      }
+      $('load').addEventListener('click', load);
+      load();
+    </script>
+  </body>
+</html>`);
+});
+
+fastify.get('/admin/traction/data', async (request, reply) => {
+  if (!(await requireAdminDashboard(request, reply))) return;
+  const query = request.query as {
+    days?: string;
+    externalOnly?: string;
+    includeSynthetic?: string;
+    answerWindowHours?: string;
+  };
+  const days = Math.max(1, Math.min(90, Number(query.days ?? 30)));
+  const answerWindowHours = Math.max(1, Math.min(168, Number(query.answerWindowHours ?? 24)));
+  const externalOnly = query.externalOnly !== 'false';
+  const includeSynthetic = query.includeSynthetic === 'true' || query.includeSynthetic === '1';
+  const data = await withPrismaPoolRetry(
+    'admin_traction_dashboard_data',
+    () => getTractionFunnel(days, {
+      externalOnly,
+      includeSynthetic,
+      answerWindowHours
+    }),
+    3
+  );
+  reply.code(200).send(data);
 });
 
 fastify.post('/api/v1/admin/delivery/process', {

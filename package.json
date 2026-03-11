@@ -11,7 +11,9 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
     "build": "pnpm -r --if-present build",
-    "dev": "pnpm -r --if-present dev"
+    "dev": "pnpm -r --if-present dev",
+    "growth:once": "GROWTH_RUN_ONCE=true pnpm exec tsx scripts/growth-loop.ts",
+    "growth:loop": "pnpm exec tsx scripts/growth-loop.ts"
   },
   "devDependencies": {
     "tsx": "^4.7.0"
