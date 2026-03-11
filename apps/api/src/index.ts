@@ -97,12 +97,29 @@ const DELIVERY_LOOP_ENABLED = (process.env.DELIVERY_LOOP_ENABLED ?? 'true').toLo
 const DELIVERY_LOOP_INTERVAL_MS = Math.max(1000, Number(process.env.DELIVERY_LOOP_INTERVAL_MS ?? 5000));
 const REMINDER_LOOP_ENABLED = (process.env.REMINDER_LOOP_ENABLED ?? 'true').toLowerCase() === 'true';
 const REMINDER_LOOP_INTERVAL_MS = Math.max(5000, Number(process.env.REMINDER_LOOP_INTERVAL_MS ?? 60_000));
+const PUSH_SOLVABILITY_FILTER_ENABLED = (process.env.PUSH_SOLVABILITY_FILTER_ENABLED ?? 'true').toLowerCase() === 'true';
+const PUSH_SOLVABILITY_MIN_SCORE = Math.max(0, Math.min(100, Number(process.env.PUSH_SOLVABILITY_MIN_SCORE ?? 56)));
+const NEXT_BEST_JOB_MIN_SOLVABILITY = Math.max(0, Math.min(100, Number(process.env.NEXT_BEST_JOB_MIN_SOLVABILITY ?? 40)));
+const SUBSCRIPTION_PRUNE_ENABLED = (process.env.SUBSCRIPTION_PRUNE_ENABLED ?? 'true').toLowerCase() === 'true';
+const SUBSCRIPTION_PRUNE_INTERVAL_MS = Math.max(30_000, Number(process.env.SUBSCRIPTION_PRUNE_INTERVAL_MS ?? 300_000));
+const SUBSCRIPTION_PRUNE_WINDOW_HOURS = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_WINDOW_HOURS ?? 24));
+const SUBSCRIPTION_PRUNE_STALE_HOURS = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_STALE_HOURS ?? 6));
+const SUBSCRIPTION_PRUNE_MIN_AGE_HOURS = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_MIN_AGE_HOURS ?? 2));
+const SUBSCRIPTION_PRUNE_MIN_QUEUED = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_MIN_QUEUED ?? 12));
+const SUBSCRIPTION_PRUNE_MAX_FAILED = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_MAX_FAILED ?? 8));
+const SUBSCRIPTION_PRUNE_MIN_OPEN_RATE = Math.max(0, Math.min(1, Number(process.env.SUBSCRIPTION_PRUNE_MIN_OPEN_RATE ?? 0.05)));
+const SUBSCRIPTION_PRUNE_MAX_DISABLE_PER_RUN = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_MAX_DISABLE_PER_RUN ?? 100));
 const SYSTEM_BASE_URL = process.env.SYSTEM_BASE_URL || PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const A2A_TASK_TTL_MINUTES = Math.max(5, Number(process.env.A2A_TASK_TTL_MINUTES ?? 60));
 const A2A_TASK_TTL_MS = A2A_TASK_TTL_MINUTES * 60 * 1000;
 const A2A_TASK_MAX = Math.max(50, Number(process.env.A2A_TASK_MAX ?? 2000));
 const SYNTHETIC_AGENT_PREFIXES = (process.env.SYNTHETIC_AGENT_PREFIXES
-  ?? 'a2a-swarm-,local-auto-trial-test,remote-auto-trial-test,prod-noauth-autotrial-check,agent-live-')
+  ?? 'trial-,a2a-swarm-,local-auto-trial-test,remote-auto-trial-test,prod-noauth-autotrial-check,agent-live-,accept-worker-,onecall-worker-,closure-smoke-,accepted-webhook-smoke-,a2a-runtime-smoke,a2a-action-smoke,deploy-verifier,agt-thorough-')
+  .split(',')
+  .map((value) => value.trim().toLowerCase())
+  .filter(Boolean);
+const SYNTHETIC_AGENT_SUBSTRINGS = (process.env.SYNTHETIC_AGENT_SUBSTRINGS
+  ?? '-smoke-,-thorough-,loadtest,fixture,sandbox')
   .split(',')
   .map((value) => value.trim().toLowerCase())
   .filter(Boolean);
@@ -114,9 +131,11 @@ let usageFlushTimer: NodeJS.Timeout | null = null;
 let deliveryLoopTimer: NodeJS.Timeout | null = null;
 let reminderLoopTimer: NodeJS.Timeout | null = null;
 let autoCloseLoopTimer: NodeJS.Timeout | null = null;
+let subscriptionPruneLoopTimer: NodeJS.Timeout | null = null;
 let deliveryLoopRunning = false;
 let reminderLoopRunning = false;
 let autoCloseLoopRunning = false;
+let subscriptionPruneLoopRunning = false;
 
 await fastify.register(cors, { origin: true });
 await fastify.register(rateLimit, { global: false });
@@ -297,7 +316,14 @@ function normalizeActorType(value: string | null | undefined): ActorType {
 function isSyntheticAgentName(value: string | null | undefined) {
   const normalized = normalizeAgentName(value);
   if (!normalized) return false;
-  return SYNTHETIC_AGENT_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+  if (SYNTHETIC_AGENT_PREFIXES.some((prefix) => normalized.startsWith(prefix))) return true;
+  return SYNTHETIC_AGENT_SUBSTRINGS.some((fragment) => fragment && normalized.includes(fragment));
+}
+
+function isRealAgentName(value: string | null | undefined) {
+  const normalized = normalizeAgentOrNull(value);
+  if (!normalized) return false;
+  return !isSyntheticAgentName(normalized);
 }
 
 function toNumber(value: bigint | number | string | null | undefined) {
@@ -1703,6 +1729,8 @@ const CAPTURED_ROUTES = new Set([
   '/api/v1/admin/retention/weekly',
   '/api/v1/admin/delivery/process',
   '/api/v1/admin/delivery/queue',
+  '/api/v1/admin/subscriptions/health',
+  '/api/v1/admin/subscriptions/prune',
   '/api/v1/admin/reminders/process',
   '/api/v1/admin/autoclose/process',
   '/api/v1/admin/import/questions',
@@ -2096,13 +2124,211 @@ async function processDeliveryQueue(limit = DELIVERY_PROCESS_LIMIT) {
   return { processed: due.length, delivered, failed, pending };
 }
 
+async function pruneInactiveSubscriptions(options?: { limit?: number; dryRun?: boolean }) {
+  const dryRun = options?.dryRun === true;
+  const scanLimit = Math.max(1, Math.min(2000, options?.limit ?? SUBSCRIPTION_PRUNE_MAX_DISABLE_PER_RUN * 10));
+  const now = new Date();
+  const windowSince = new Date(Date.now() - SUBSCRIPTION_PRUNE_WINDOW_HOURS * 60 * 60 * 1000);
+  const staleBefore = new Date(Date.now() - SUBSCRIPTION_PRUNE_STALE_HOURS * 60 * 60 * 1000);
+  const minCreatedAt = new Date(Date.now() - SUBSCRIPTION_PRUNE_MIN_AGE_HOURS * 60 * 60 * 1000);
+
+  const subscriptions = await prisma.questionSubscription.findMany({
+    where: {
+      active: true,
+      createdAt: { lte: minCreatedAt }
+    },
+    select: {
+      id: true,
+      agentName: true,
+      webhookUrl: true,
+      createdAt: true
+    },
+    orderBy: { updatedAt: 'asc' },
+    take: scanLimit
+  });
+  if (subscriptions.length === 0) {
+    return {
+      scanned: 0,
+      candidates: 0,
+      disabled: 0,
+      dryRun,
+      windowHours: SUBSCRIPTION_PRUNE_WINDOW_HOURS,
+      staleHours: SUBSCRIPTION_PRUNE_STALE_HOURS,
+      minQueued: SUBSCRIPTION_PRUNE_MIN_QUEUED,
+      reasons: {},
+      results: []
+    };
+  }
+
+  const subscriptionIds = subscriptions.map((sub) => sub.id);
+  const [queuedRows, openedRows, failedRows, staleRows] = await Promise.all([
+    prisma.deliveryQueue.groupBy({
+      by: ['subscriptionId'],
+      where: {
+        subscriptionId: { in: subscriptionIds },
+        createdAt: { gte: windowSince }
+      },
+      _count: { _all: true }
+    }),
+    prisma.deliveryQueue.groupBy({
+      by: ['subscriptionId'],
+      where: {
+        subscriptionId: { in: subscriptionIds },
+        createdAt: { gte: windowSince },
+        deliveredAt: { not: null }
+      },
+      _count: { _all: true }
+    }),
+    prisma.deliveryQueue.groupBy({
+      by: ['subscriptionId'],
+      where: {
+        subscriptionId: { in: subscriptionIds },
+        createdAt: { gte: windowSince },
+        deliveredAt: null,
+        attemptCount: { gte: DELIVERY_MAX_ATTEMPTS }
+      },
+      _count: { _all: true }
+    }),
+    prisma.deliveryQueue.groupBy({
+      by: ['subscriptionId'],
+      where: {
+        subscriptionId: { in: subscriptionIds },
+        createdAt: { gte: windowSince, lte: staleBefore },
+        deliveredAt: null
+      },
+      _count: { _all: true }
+    })
+  ]);
+
+  const toCountMap = (rows: Array<{ subscriptionId: string; _count: { _all: number } }>) => {
+    const map = new Map<string, number>();
+    for (const row of rows) {
+      map.set(row.subscriptionId, row._count._all);
+    }
+    return map;
+  };
+
+  const queuedBySub = toCountMap(queuedRows);
+  const openedBySub = toCountMap(openedRows);
+  const failedBySub = toCountMap(failedRows);
+  const staleBySub = toCountMap(staleRows);
+
+  const candidates: Array<{
+    id: string;
+    agentName: string;
+    mode: 'webhook' | 'inbox';
+    reason: string;
+    severity: number;
+    queued: number;
+    opened: number;
+    failed: number;
+    stalePending: number;
+    openRate: number;
+    createdAt: Date;
+  }> = [];
+
+  for (const sub of subscriptions) {
+    const queued = queuedBySub.get(sub.id) ?? 0;
+    if (queued < SUBSCRIPTION_PRUNE_MIN_QUEUED) continue;
+    const opened = openedBySub.get(sub.id) ?? 0;
+    const failed = failedBySub.get(sub.id) ?? 0;
+    const stalePending = staleBySub.get(sub.id) ?? 0;
+    const openRate = ratio(opened, queued);
+    const mode: 'webhook' | 'inbox' = sub.webhookUrl ? 'webhook' : 'inbox';
+    let reason = '';
+    let severity = 0;
+
+    if (mode === 'webhook') {
+      if (opened === 0 && failed >= SUBSCRIPTION_PRUNE_MAX_FAILED) {
+        reason = 'webhook_hard_fail';
+        severity = 3;
+      } else if (openRate < SUBSCRIPTION_PRUNE_MIN_OPEN_RATE && stalePending >= SUBSCRIPTION_PRUNE_MIN_QUEUED) {
+        reason = 'webhook_low_open_rate';
+        severity = 2;
+      }
+    } else {
+      if (opened === 0 && stalePending >= SUBSCRIPTION_PRUNE_MIN_QUEUED) {
+        reason = 'inbox_never_polled';
+        severity = 3;
+      } else if (openRate < SUBSCRIPTION_PRUNE_MIN_OPEN_RATE && stalePending >= SUBSCRIPTION_PRUNE_MIN_QUEUED * 2) {
+        reason = 'inbox_low_open_rate';
+        severity = 2;
+      }
+    }
+
+    if (!reason) continue;
+    candidates.push({
+      id: sub.id,
+      agentName: sub.agentName,
+      mode,
+      reason,
+      severity,
+      queued,
+      opened,
+      failed,
+      stalePending,
+      openRate,
+      createdAt: sub.createdAt
+    });
+  }
+
+  candidates.sort((a, b) => {
+    if (b.severity !== a.severity) return b.severity - a.severity;
+    if (b.stalePending !== a.stalePending) return b.stalePending - a.stalePending;
+    if (b.queued !== a.queued) return b.queued - a.queued;
+    return a.id.localeCompare(b.id);
+  });
+
+  const selected = candidates.slice(0, SUBSCRIPTION_PRUNE_MAX_DISABLE_PER_RUN);
+  let disabled = 0;
+  if (!dryRun && selected.length > 0) {
+    const result = await prisma.questionSubscription.updateMany({
+      where: {
+        id: { in: selected.map((row) => row.id) },
+        active: true
+      },
+      data: { active: false }
+    });
+    disabled = result.count;
+  }
+
+  const reasons = selected.reduce<Record<string, number>>((acc, row) => {
+    acc[row.reason] = (acc[row.reason] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  return {
+    scanned: subscriptions.length,
+    candidates: candidates.length,
+    disabled: dryRun ? 0 : disabled,
+    dryRun,
+    windowHours: SUBSCRIPTION_PRUNE_WINDOW_HOURS,
+    staleHours: SUBSCRIPTION_PRUNE_STALE_HOURS,
+    minQueued: SUBSCRIPTION_PRUNE_MIN_QUEUED,
+    reasons,
+    results: selected.map((row) => ({
+      id: row.id,
+      agentName: row.agentName,
+      mode: row.mode,
+      reason: row.reason,
+      severity: row.severity,
+      queued: row.queued,
+      opened: row.opened,
+      failed: row.failed,
+      stalePending: row.stalePending,
+      openRate: row.openRate,
+      createdAt: row.createdAt
+    }))
+  };
+}
+
 async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
   const subscriptions = await prisma.questionSubscription.findMany({
     where: { active: true }
   });
   if (subscriptions.length === 0) return;
 
-  const payload = {
+  const payloadBase = {
     event: input.event,
     question: {
       id: input.question.id,
@@ -2147,10 +2373,52 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
       : undefined
   };
 
-  const queued = subscriptions
-    .filter((sub) => subscriptionMatches(sub.tags ?? [], input.question.tags))
-    .filter((sub) => subscriptionWantsEvent(sub.events, input.event))
-    .map((sub) => ({
+  let matchedSubscriptions = 0;
+  let filteredBySolvability = 0;
+  const queued = subscriptions.flatMap((sub) => {
+    const subscriptionTags = normalizeTags(sub.tags ?? []);
+    if (!subscriptionMatches(subscriptionTags, input.question.tags)) return [];
+    if (!subscriptionWantsEvent(sub.events, input.event)) return [];
+    matchedSubscriptions += 1;
+
+    let solvability: QuestionSolvabilityResult | null = null;
+    if (input.event === 'question.created') {
+      solvability = assessQuestionSolvability({
+        title: input.question.title,
+        bodyText: input.question.bodyText,
+        tags: input.question.tags,
+        sourceType: input.question.source?.type ?? null,
+        answerCount: 0,
+        bountyAmount: 0,
+        createdAt: input.question.createdAt,
+        preferredTags: new Set(subscriptionTags)
+      }, PUSH_SOLVABILITY_MIN_SCORE);
+      if (PUSH_SOLVABILITY_FILTER_ENABLED && !solvability.pass) {
+        filteredBySolvability += 1;
+        return [];
+      }
+    }
+
+    const payload = {
+      ...payloadBase,
+      delivery: {
+        mode: sub.webhookUrl ? 'webhook' : 'inbox',
+        subscriptionId: sub.id,
+        matchedTags: subscriptionTags.length > 0
+          ? input.question.tags.filter((tag) => subscriptionTags.includes(tag.toLowerCase()))
+          : [],
+        solvability: solvability
+          ? {
+              score: solvability.score,
+              threshold: PUSH_SOLVABILITY_MIN_SCORE,
+              pass: solvability.pass,
+              reasons: solvability.reasons
+            }
+          : undefined
+      }
+    };
+
+    return [{
       subscriptionId: sub.id,
       agentName: sub.agentName,
       event: input.event,
@@ -2161,9 +2429,21 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
       webhookSecret: sub.webhookSecret ?? null,
       maxAttempts: DELIVERY_MAX_ATTEMPTS,
       nextAttemptAt: new Date()
-    }));
+    }];
+  });
 
-  if (queued.length === 0) return;
+  if (queued.length === 0) {
+    if (matchedSubscriptions > 0 && filteredBySolvability > 0) {
+      fastify.log.info({
+        event: input.event,
+        questionId: input.question.id,
+        matchedSubscriptions,
+        filteredBySolvability,
+        threshold: PUSH_SOLVABILITY_MIN_SCORE
+      }, 'question webhook suppressed by solvability filter');
+    }
+    return;
+  }
   await prisma.deliveryQueue.createMany({ data: queued });
   void processDeliveryQueue(Math.min(DELIVERY_PROCESS_LIMIT, queued.length)).catch(() => undefined);
 }
@@ -2405,6 +2685,104 @@ function sourcePriorityWeight(sourceType: string | null) {
   }
 }
 
+type QuestionSolvabilityInput = {
+  title: string;
+  bodyText: string;
+  tags: string[];
+  sourceType: string | null;
+  answerCount: number;
+  bountyAmount: number;
+  createdAt: Date;
+  preferredTags?: Set<string>;
+};
+
+type QuestionSolvabilityResult = {
+  score: number;
+  pass: boolean;
+  reasons: string[];
+  matchedTags: string[];
+};
+
+function assessQuestionSolvability(input: QuestionSolvabilityInput, minScore = PUSH_SOLVABILITY_MIN_SCORE): QuestionSolvabilityResult {
+  const title = input.title.trim();
+  const bodyText = input.bodyText.trim();
+  const tags = input.tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean);
+  const preferredTags = input.preferredTags ?? new Set<string>();
+  const matchedTags = preferredTags.size > 0
+    ? tags.filter((tag) => preferredTags.has(tag))
+    : [];
+
+  const reasons: string[] = [];
+  let score = 0;
+
+  const titleLength = title.length;
+  if (titleLength >= 16 && titleLength <= 180) score += 16;
+  else if (titleLength >= 10) score += 8;
+  else reasons.push('title_too_short');
+
+  const bodyLength = bodyText.length;
+  if (bodyLength >= 240) score += 24;
+  else if (bodyLength >= 120) score += 16;
+  else if (bodyLength >= 60) score += 8;
+  else reasons.push('body_too_short');
+
+  const technicalCue = /(error|exception|trace|stack|repro|reproduction|why|how|cannot|failed|unexpected|bug|\?)/i.test(`${title}\n${bodyText}`);
+  if (technicalCue) score += 14;
+  else reasons.push('low_technical_signal');
+
+  if (tags.length >= 1 && tags.length <= 5) score += 10;
+  else if (tags.length > 0) score += 6;
+  else reasons.push('missing_tags');
+
+  switch (input.sourceType) {
+    case 'github':
+      score += 14;
+      break;
+    case 'support':
+      score += 12;
+      break;
+    case 'discord':
+      score += 8;
+      break;
+    case 'other':
+      score += 6;
+      break;
+    default:
+      score += 5;
+  }
+
+  if (input.answerCount === 0) score += 14;
+  else if (input.answerCount <= 2) score += 7;
+  else reasons.push('already_has_answers');
+
+  if (input.bountyAmount > 0) score += Math.min(10, Math.max(2, Math.round(input.bountyAmount / 10)));
+
+  if (matchedTags.length > 0) {
+    score += Math.min(10, matchedTags.length * 4);
+  } else if (preferredTags.size > 0) {
+    reasons.push('weak_tag_match');
+  }
+
+  const ageHours = Math.max(0, (Date.now() - input.createdAt.getTime()) / (1000 * 60 * 60));
+  if (ageHours <= 72) score += 6;
+  else if (ageHours <= 24 * 30) score += 3;
+  else reasons.push('stale_question');
+
+  if (bodyLength < 40) score -= 20;
+  if (/(urgent|asap|pls|please help|any update|thanks in advance)/i.test(`${title}\n${bodyText}`)) {
+    score -= 4;
+    reasons.push('low_signal_language');
+  }
+
+  const normalizedScore = Math.round(clamp(score, 0, 100));
+  return {
+    score: normalizedScore,
+    pass: normalizedScore >= minScore,
+    reasons: Array.from(new Set(reasons)),
+    matchedTags
+  };
+}
+
 function normalizeTitleKey(value: string) {
   return value
     .toLowerCase()
@@ -2461,6 +2839,7 @@ type RecommendedQuestion = {
   score: number;
   reasons: string[];
   matchedTags: string[];
+  solvability: QuestionSolvabilityResult;
   activeClaim: {
     id: string;
     agentName: string;
@@ -2523,9 +2902,18 @@ async function getRecommendedQuestionForAgent(agentName?: string | null) {
       const ageHours = Math.max(0, (Date.now() - row.createdAt.getTime()) / (60 * 60 * 1000));
       const answerCount = row._count.answers;
       const tags = row.tags.map((link) => link.tag.name);
-      const matchedTags = preferredTags.size > 0
-        ? tags.filter((tag) => preferredTags.has(tag.toLowerCase()))
-        : [];
+      const solvability = assessQuestionSolvability({
+        title: row.title,
+        bodyText: row.bodyText,
+        tags,
+        sourceType: row.sourceType,
+        answerCount,
+        bountyAmount,
+        createdAt: row.createdAt,
+        preferredTags
+      }, NEXT_BEST_JOB_MIN_SOLVABILITY);
+      if (!solvability.pass) return null;
+      const matchedTags = solvability.matchedTags;
       const unansweredBonus = answerCount === 0 ? 450 : 0;
       const sourceWeight = sourcePriorityWeight(row.sourceType);
       const claimBonus = activeClaim ? 100 : 0;
@@ -2533,6 +2921,7 @@ async function getRecommendedQuestionForAgent(agentName?: string | null) {
         (bountyAmount * 1000) +
         unansweredBonus +
         (matchedTags.length * 140) +
+        (solvability.score * 6) +
         (Math.min(120, ageHours) * 1.5) +
         sourceWeight +
         claimBonus -
@@ -2543,6 +2932,7 @@ async function getRecommendedQuestionForAgent(agentName?: string | null) {
       if (matchedTags.length > 0) reasons.push(`tag_match_${matchedTags.length}`);
       if (sourceWeight > 0) reasons.push(`source_${row.sourceType ?? 'none'}`);
       if (activeClaim) reasons.push('already_claimed_by_agent');
+      reasons.push(`solvability_${solvability.score}`);
 
       return {
         id: row.id,
@@ -2561,6 +2951,7 @@ async function getRecommendedQuestionForAgent(agentName?: string | null) {
         score,
         reasons,
         matchedTags,
+        solvability,
         activeClaim: activeClaim
           ? {
               id: activeClaim.id,
@@ -2594,6 +2985,12 @@ function formatRecommendedQuestion(
     score: Number(recommended.score.toFixed(2)),
     reasons: recommended.reasons,
     matchedTags: recommended.matchedTags,
+    solvability: {
+      score: recommended.solvability.score,
+      threshold: NEXT_BEST_JOB_MIN_SOLVABILITY,
+      pass: recommended.solvability.pass,
+      reasons: recommended.solvability.reasons
+    },
     activeClaim: recommended.activeClaim,
     url: `${baseUrl}/q/${recommended.id}`,
     actions: {
@@ -2750,7 +3147,8 @@ function percentileFromSorted(values: number[], percentile: number) {
   return values[lower] * (1 - weight) + values[upper] * weight;
 }
 
-async function getExternalIdentityScope() {
+async function getExternalIdentityScope(options?: { includeSynthetic?: boolean }) {
+  const includeSynthetic = options?.includeSynthetic === true;
   const actorTypes = Array.from(new Set(
     Array.from(EXTERNAL_TRACTION_ACTOR_TYPES)
       .map((value) => normalizeActorType(value))
@@ -2761,16 +3159,22 @@ async function getExternalIdentityScope() {
   });
   const userIds = new Set<string>();
   const boundAgents = new Set<string>();
+  const filteredOutBoundAgents = new Set<string>();
   for (const row of rows) {
     const meta = parseApiKeyIdentityMeta(row.name);
     if (!actorTypes.includes(meta.actorType)) continue;
+    const normalizedBound = normalizeAgentOrNull(meta.boundAgentName);
+    const isSynthetic = isSyntheticAgentName(normalizedBound);
+    if (normalizedBound && isSynthetic) filteredOutBoundAgents.add(normalizedBound);
+    if (!includeSynthetic && isSynthetic) continue;
     userIds.add(row.userId);
-    if (meta.boundAgentName) boundAgents.add(meta.boundAgentName);
+    if (normalizedBound) boundAgents.add(normalizedBound);
   }
   return {
     actorTypes,
     userIds: Array.from(userIds),
-    boundAgents: Array.from(boundAgents)
+    boundAgents: Array.from(boundAgents),
+    filteredOutBoundAgents: Array.from(filteredOutBoundAgents)
   };
 }
 
@@ -2972,7 +3376,7 @@ async function getTractionFunnel(days: number, options?: {
   const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
   const now = new Date();
 
-  const identity = externalOnly ? await getExternalIdentityScope() : null;
+  const identity = externalOnly ? await getExternalIdentityScope({ includeSynthetic }) : null;
   const scopedAgents = identity?.boundAgents ?? [];
   const scopedAgentSet = new Set(
     scopedAgents
@@ -2991,7 +3395,8 @@ async function getTractionFunnel(days: number, options?: {
       identityScope: {
         actorTypes: identity?.actorTypes ?? [],
         boundAgents: 0,
-        users: identity?.userIds.length ?? 0
+        users: identity?.userIds.length ?? 0,
+        filteredOutSyntheticBoundAgents: identity?.filteredOutBoundAgents.length ?? 0
       },
       totals: {
         queued: 0,
@@ -3211,7 +3616,8 @@ async function getTractionFunnel(days: number, options?: {
     identityScope: {
       actorTypes: identity?.actorTypes ?? [],
       boundAgents: identity?.boundAgents.length ?? 0,
-      users: identity?.userIds.length ?? 0
+      users: identity?.userIds.length ?? 0,
+      filteredOutSyntheticBoundAgents: identity?.filteredOutBoundAgents.length ?? 0
     },
     totals: {
       queued,
@@ -3599,6 +4005,30 @@ function startBackgroundWorkers() {
     autoCloseLoopTimer.unref?.();
   }
 
+  if (SUBSCRIPTION_PRUNE_ENABLED && !subscriptionPruneLoopTimer) {
+    subscriptionPruneLoopTimer = setInterval(() => {
+      if (subscriptionPruneLoopRunning) return;
+      subscriptionPruneLoopRunning = true;
+      void withPrismaPoolRetry('subscription_prune_loop', () => pruneInactiveSubscriptions(), 3)
+        .then((summary) => {
+          if (summary.disabled > 0) {
+            fastify.log.info({
+              disabled: summary.disabled,
+              candidates: summary.candidates,
+              reasons: summary.reasons
+            }, 'subscription liveness prune disabled inactive subscriptions');
+          }
+        })
+        .catch((err) => {
+          fastify.log.warn({ err }, 'subscription prune loop failed');
+        })
+        .finally(() => {
+          subscriptionPruneLoopRunning = false;
+        });
+    }, SUBSCRIPTION_PRUNE_INTERVAL_MS);
+    subscriptionPruneLoopTimer.unref?.();
+  }
+
   fastify.log.info({
     usageLogFlushMs: USAGE_LOG_FLUSH_INTERVAL_MS,
     deliveryLoopEnabled: DELIVERY_LOOP_ENABLED,
@@ -3608,7 +4038,13 @@ function startBackgroundWorkers() {
     autoCloseEnabled: AUTO_CLOSE_ENABLED,
     autoCloseLoopMs: AUTO_CLOSE_LOOP_INTERVAL_MS,
     autoCloseAfterHours: AUTO_CLOSE_AFTER_HOURS,
-    autoCloseMinAnswerAgeHours: AUTO_CLOSE_MIN_ANSWER_AGE_HOURS
+    autoCloseMinAnswerAgeHours: AUTO_CLOSE_MIN_ANSWER_AGE_HOURS,
+    subscriptionPruneEnabled: SUBSCRIPTION_PRUNE_ENABLED,
+    subscriptionPruneIntervalMs: SUBSCRIPTION_PRUNE_INTERVAL_MS,
+    subscriptionPruneWindowHours: SUBSCRIPTION_PRUNE_WINDOW_HOURS,
+    pushSolvabilityFilterEnabled: PUSH_SOLVABILITY_FILTER_ENABLED,
+    pushSolvabilityMinScore: PUSH_SOLVABILITY_MIN_SCORE,
+    nextBestJobMinSolvability: NEXT_BEST_JOB_MIN_SOLVABILITY
   }, 'background workers started');
 }
 
@@ -3628,6 +4064,10 @@ async function stopBackgroundWorkers() {
   if (autoCloseLoopTimer) {
     clearInterval(autoCloseLoopTimer);
     autoCloseLoopTimer = null;
+  }
+  if (subscriptionPruneLoopTimer) {
+    clearInterval(subscriptionPruneLoopTimer);
+    subscriptionPruneLoopTimer = null;
   }
 
   if (usageEventFlushPromise) {
@@ -4376,6 +4816,8 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const previousSince = new Date(since.getTime() - days * 24 * 60 * 60 * 1000);
   const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const last7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const previous7d = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
   const noiseWhere: Prisma.UsageEventWhereInput = {
     OR: [
       { route: '/api/v1/auth/trial-key', method: { in: ['GET', 'HEAD'] }, status: 405 },
@@ -4495,16 +4937,24 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
   const externalKeyRows = await prisma.apiKey.findMany({
     select: { userId: true, name: true }
   });
-  const externalUserIdsSet = new Set<string>();
-  const externalBoundAgentsSet = new Set<string>();
+  const externalUserIdsAllSet = new Set<string>();
+  const externalBoundAgentsAllSet = new Set<string>();
+  const externalUserIdsRealSet = new Set<string>();
+  const externalBoundAgentsRealSet = new Set<string>();
   for (const row of externalKeyRows) {
     const meta = parseApiKeyIdentityMeta(row.name);
     if (!externalActorTypes.includes(meta.actorType)) continue;
-    externalUserIdsSet.add(row.userId);
-    if (meta.boundAgentName) externalBoundAgentsSet.add(meta.boundAgentName);
+    const normalizedBound = normalizeAgentOrNull(meta.boundAgentName);
+    externalUserIdsAllSet.add(row.userId);
+    if (normalizedBound) externalBoundAgentsAllSet.add(normalizedBound);
+    if (isSyntheticAgentName(normalizedBound)) continue;
+    externalUserIdsRealSet.add(row.userId);
+    if (normalizedBound) externalBoundAgentsRealSet.add(normalizedBound);
   }
-  const externalUserIds = Array.from(externalUserIdsSet);
-  const externalBoundAgents = Array.from(externalBoundAgentsSet);
+  const externalUserIds = Array.from(externalUserIdsRealSet);
+  const externalBoundAgents = Array.from(externalBoundAgentsRealSet);
+  const externalUserIdsAll = Array.from(externalUserIdsAllSet);
+  const externalBoundAgentsAll = Array.from(externalBoundAgentsAllSet);
   const externalAnswerScopeOr: Prisma.AnswerWhereInput[] = [];
   if (externalBoundAgents.length > 0) {
     externalAnswerScopeOr.push({ agentName: { in: externalBoundAgents } });
@@ -4552,34 +5002,31 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
     `
     : Prisma.sql`FALSE`;
 
-  const externalRequestStatsRows = await prisma.$queryRaw<Array<{
+  const externalRequestAgentRows = await prisma.$queryRaw<Array<{
+    agentName: string | null;
     writesInRange: bigint | number | string;
     writesLast24h: bigint | number | string;
     verifiedWritesInRange: bigint | number | string;
     signedWritesInRange: bigint | number | string;
     questionWritesInRange: bigint | number | string;
     answerWritesInRange: bigint | number | string;
-    activeAgentsInRange: bigint | number | string;
   }>>`
     SELECT
+      NULLIF("agentName", '') AS "agentName",
       COUNT(*) FILTER (
         WHERE UPPER("method") IN ('POST', 'PUT', 'PATCH', 'DELETE')
-          AND ${externalUsageActorCondition}
       ) AS "writesInRange",
       COUNT(*) FILTER (
         WHERE "createdAt" >= ${last24h}
           AND UPPER("method") IN ('POST', 'PUT', 'PATCH', 'DELETE')
-          AND ${externalUsageActorCondition}
       ) AS "writesLast24h",
       COUNT(*) FILTER (
         WHERE UPPER("method") IN ('POST', 'PUT', 'PATCH', 'DELETE')
-          AND ${externalUsageActorCondition}
           AND POSITION('|idv=' IN "apiKeyPrefix") > 0
           AND split_part(split_part("apiKeyPrefix", '|idv=', 2), '|', 1) IN ('1', 'true')
       ) AS "verifiedWritesInRange",
       COUNT(*) FILTER (
         WHERE UPPER("method") IN ('POST', 'PUT', 'PATCH', 'DELETE')
-          AND ${externalUsageActorCondition}
           AND POSITION('|sigv=' IN "apiKeyPrefix") > 0
           AND split_part(split_part("apiKeyPrefix", '|sigv=', 2), '|', 1) IN ('1', 'true')
       ) AS "signedWritesInRange",
@@ -4587,34 +5034,17 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
         WHERE "route" = '/api/v1/questions'
           AND "status" BETWEEN 200 AND 299
           AND UPPER("method") = 'POST'
-          AND ${externalUsageActorCondition}
       ) AS "questionWritesInRange",
       COUNT(*) FILTER (
         WHERE "route" IN ('/api/v1/questions/:id/answers', '/api/v1/questions/:id/answer-job')
           AND "status" BETWEEN 200 AND 299
           AND UPPER("method") = 'POST'
-          AND ${externalUsageActorCondition}
-      ) AS "answerWritesInRange",
-      COUNT(DISTINCT NULLIF("agentName", '')) FILTER (
-        WHERE UPPER("method") IN ('POST', 'PUT', 'PATCH', 'DELETE')
-          AND ${externalUsageActorCondition}
-      ) AS "activeAgentsInRange"
-    FROM "UsageEvent"
-    WHERE "createdAt" >= ${since}
-    ${noiseSql}
-  `;
-  const externalTopAgentRows = await prisma.$queryRaw<Array<{ agentName: string | null; count: bigint | number | string }>>`
-    SELECT
-      NULLIF("agentName", '') AS "agentName",
-      COUNT(*) AS "count"
+      ) AS "answerWritesInRange"
     FROM "UsageEvent"
     WHERE "createdAt" >= ${since}
       ${noiseSql}
-      AND UPPER("method") IN ('POST', 'PUT', 'PATCH', 'DELETE')
       AND ${externalUsageActorCondition}
     GROUP BY 1
-    ORDER BY "count" DESC
-    LIMIT 10
   `;
   const tractionAskerDailyRows = await prisma.$queryRaw<Array<{ day: Date | string; askers: bigint | number | string }>>`
     SELECT date_trunc('day', "createdAt") AS day, COUNT(DISTINCT "userId") AS askers
@@ -4694,6 +5124,38 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
       ORDER BY day ASC
     `
     : [];
+  const [externalCurrentAnswerers7dRows, externalPreviousAnswerers7dRows] = externalBoundAgents.length > 0
+    ? await Promise.all([
+      prisma.answer.findMany({
+        where: {
+          createdAt: { gte: last7d },
+          agentName: { in: externalBoundAgents }
+        },
+        select: { agentName: true },
+        distinct: ['agentName']
+      }),
+      prisma.answer.findMany({
+        where: {
+          createdAt: { gte: previous7d, lt: last7d },
+          agentName: { in: externalBoundAgents }
+        },
+        select: { agentName: true },
+        distinct: ['agentName']
+      })
+    ])
+    : [[], []];
+  const externalCurrentAnswerers7d = new Set(
+    externalCurrentAnswerers7dRows
+      .map((row) => normalizeAgentOrNull(row.agentName))
+      .filter((value): value is string => Boolean(value))
+  );
+  const externalPreviousAnswerers7d = new Set(
+    externalPreviousAnswerers7dRows
+      .map((row) => normalizeAgentOrNull(row.agentName))
+      .filter((value): value is string => Boolean(value))
+  );
+  const retainedExternalAnswerers7d = Array.from(externalCurrentAnswerers7d)
+    .filter((agentName) => externalPreviousAnswerers7d.has(agentName));
 
   const qaByDay = new Map<string, { day: string; questions: number; answers: number }>();
   for (const row of questionDailyRows) {
@@ -4748,7 +5210,28 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
   }
   const externalQaDaily = Array.from(externalQaByDay.values()).sort((a, b) => a.day.localeCompare(b.day));
 
-  const externalRequestStats = externalRequestStatsRows[0] ?? {
+  const externalRequestAgentStats = externalRequestAgentRows
+    .map((row) => ({
+      agentName: normalizeAgentOrNull(row.agentName) ?? 'unknown',
+      writesInRange: toNumber(row.writesInRange),
+      writesLast24h: toNumber(row.writesLast24h),
+      verifiedWritesInRange: toNumber(row.verifiedWritesInRange),
+      signedWritesInRange: toNumber(row.signedWritesInRange),
+      questionWritesInRange: toNumber(row.questionWritesInRange),
+      answerWritesInRange: toNumber(row.answerWritesInRange)
+    }))
+    .filter((row) => row.writesInRange > 0 || row.writesLast24h > 0);
+  const externalRequestRealRows = externalRequestAgentStats.filter((row) => isRealAgentName(row.agentName));
+  const externalRequestStats = externalRequestRealRows.reduce((acc, row) => {
+    acc.writesInRange += row.writesInRange;
+    acc.writesLast24h += row.writesLast24h;
+    acc.verifiedWritesInRange += row.verifiedWritesInRange;
+    acc.signedWritesInRange += row.signedWritesInRange;
+    acc.questionWritesInRange += row.questionWritesInRange;
+    acc.answerWritesInRange += row.answerWritesInRange;
+    if (row.writesInRange > 0) acc.activeAgentsInRange += 1;
+    return acc;
+  }, {
     writesInRange: 0,
     writesLast24h: 0,
     verifiedWritesInRange: 0,
@@ -4756,14 +5239,15 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
     questionWritesInRange: 0,
     answerWritesInRange: 0,
     activeAgentsInRange: 0
-  };
-  const externalRequestTopAgents = externalTopAgentRows
+  });
+  const externalRequestTopAgents = externalRequestRealRows
     .map((row) => ({
-      agentName: normalizeAgentOrNull(row.agentName) ?? 'unknown',
-      count: toNumber(row.count)
+      agentName: row.agentName,
+      count: row.writesInRange
     }))
     .filter((row) => row.count > 0)
-    .sort((a, b) => b.count - a.count || a.agentName.localeCompare(b.agentName));
+    .sort((a, b) => b.count - a.count || a.agentName.localeCompare(b.agentName))
+    .slice(0, 10);
 
   const uniqueAskersInRange = toNumber(uniqueAskersInRangeRows[0]?.count);
   const uniqueAskersPreviousRange = toNumber(uniqueAskersPreviousRangeRows[0]?.count);
@@ -4948,9 +5432,14 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
     },
     external: {
       configuredActorTypes: externalActorTypes,
+      kpiMode: 'real_external_only',
       identity: {
         boundAgents: externalBoundAgents.length,
-        users: externalUserIds.length
+        users: externalUserIds.length,
+        boundAgentsAll: externalBoundAgentsAll.length,
+        usersAll: externalUserIdsAll.length,
+        filteredOutSyntheticBoundAgents: Math.max(0, externalBoundAgentsAll.length - externalBoundAgents.length),
+        filteredOutSyntheticUsers: Math.max(0, externalUserIdsAll.length - externalUserIds.length)
       },
       content: {
         questionsInRange: externalQuestionsInRange,
@@ -4962,13 +5451,19 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
         answersPerQuestion: ratio(externalAnswersInRange, externalQuestionsInRange)
       },
       requests: {
-        writesInRange: toNumber(externalRequestStats.writesInRange),
-        writesLast24h: toNumber(externalRequestStats.writesLast24h),
-        identityVerifiedWritesInRange: toNumber(externalRequestStats.verifiedWritesInRange),
-        signatureVerifiedWritesInRange: toNumber(externalRequestStats.signedWritesInRange),
-        questionWritesInRange: toNumber(externalRequestStats.questionWritesInRange),
-        answerWritesInRange: toNumber(externalRequestStats.answerWritesInRange),
-        activeAgentsInRange: toNumber(externalRequestStats.activeAgentsInRange)
+        writesInRange: externalRequestStats.writesInRange,
+        writesLast24h: externalRequestStats.writesLast24h,
+        identityVerifiedWritesInRange: externalRequestStats.verifiedWritesInRange,
+        signatureVerifiedWritesInRange: externalRequestStats.signedWritesInRange,
+        questionWritesInRange: externalRequestStats.questionWritesInRange,
+        answerWritesInRange: externalRequestStats.answerWritesInRange,
+        activeAgentsInRange: externalRequestStats.activeAgentsInRange
+      },
+      kpi: {
+        currentAnswerers7d: externalCurrentAnswerers7d.size,
+        previousAnswerers7d: externalPreviousAnswerers7d.size,
+        retainedAnswerers7d: retainedExternalAnswerers7d.length,
+        retainedAnswererRate7d: ratio(retainedExternalAnswerers7d.length, externalPreviousAnswerers7d.size)
       },
       qaDaily: externalQaDaily,
       topAgents: externalRequestTopAgents
@@ -8543,6 +9038,66 @@ fastify.get('/api/v1/admin/delivery/queue', {
       deliveredAt: row.deliveredAt ?? null,
       createdAt: row.createdAt
     }))
+  });
+});
+
+fastify.get('/api/v1/admin/subscriptions/health', {
+  schema: {
+    tags: ['admin'],
+    security: [{ AdminToken: [] }],
+    querystring: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 2000 },
+        dryRun: { type: 'boolean' }
+      }
+    }
+  }
+}, async (request, reply) => {
+  if (!(await requireAdmin(request, reply))) return;
+  const query = request.query as { limit?: number; dryRun?: boolean };
+  const summary = await pruneInactiveSubscriptions({
+    limit: query.limit,
+    dryRun: query.dryRun !== false
+  });
+  reply.code(200).send({
+    ok: true,
+    ...summary,
+    generatedAt: new Date().toISOString()
+  });
+});
+
+fastify.post('/api/v1/admin/subscriptions/prune', {
+  schema: {
+    tags: ['admin'],
+    security: [{ AdminToken: [] }],
+    body: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 2000 },
+        dryRun: { type: 'boolean' }
+      }
+    }
+  }
+}, async (request, reply) => {
+  if (!(await requireAdmin(request, reply))) return;
+  const body = parse(
+    z.object({
+      limit: z.number().int().min(1).max(2000).optional(),
+      dryRun: z.boolean().optional()
+    }),
+    request.body ?? {},
+    reply
+  );
+  if (!body) return;
+  const summary = await pruneInactiveSubscriptions({
+    limit: body.limit,
+    dryRun: body.dryRun === true
+  });
+  reply.code(200).send({
+    ok: true,
+    ...summary,
+    processedAt: new Date().toISOString()
   });
 });
 
