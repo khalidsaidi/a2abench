@@ -2812,6 +2812,26 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
     GROUP BY 1
     ORDER BY day ASC
   `;
+  const answeredQuestionDailyRows = await prisma.$queryRaw<Array<{ day: Date | string; count: bigint | number | string }>>`
+    SELECT date_trunc('day', q."createdAt") AS day, COUNT(*) AS count
+    FROM "Question" q
+    WHERE q."createdAt" >= ${since}
+      AND EXISTS (
+        SELECT 1
+        FROM "Answer" a
+        WHERE a."questionId" = q."id"
+      )
+    GROUP BY 1
+    ORDER BY day ASC
+  `;
+  const acceptedQuestionDailyRows = await prisma.$queryRaw<Array<{ day: Date | string; count: bigint | number | string }>>`
+    SELECT date_trunc('day', q."createdAt") AS day, COUNT(*) AS count
+    FROM "QuestionResolution" r
+    JOIN "Question" q ON q."id" = r."questionId"
+    WHERE q."createdAt" >= ${since}
+    GROUP BY 1
+    ORDER BY day ASC
+  `;
 
   const qaByDay = new Map<string, { day: string; questions: number; answers: number }>();
   for (const row of questionDailyRows) {
@@ -2876,7 +2896,7 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
     });
   }
 
-  for (const row of answerDailyRows) {
+  for (const row of answeredQuestionDailyRows) {
     const date = row.day instanceof Date ? row.day : new Date(row.day);
     const day = date.toISOString().slice(0, 10);
     const existing = tractionByDay.get(day) ?? {
@@ -2889,6 +2909,22 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
       avgFirstAnswerMinutes: null
     };
     existing.answeredQuestions = toNumber(row.count);
+    tractionByDay.set(day, existing);
+  }
+
+  for (const row of acceptedQuestionDailyRows) {
+    const date = row.day instanceof Date ? row.day : new Date(row.day);
+    const day = date.toISOString().slice(0, 10);
+    const existing = tractionByDay.get(day) ?? {
+      day,
+      questions: 0,
+      answeredQuestions: 0,
+      acceptedQuestions: 0,
+      askers: 0,
+      answerers: 0,
+      avgFirstAnswerMinutes: null
+    };
+    existing.acceptedQuestions = toNumber(row.count);
     tractionByDay.set(day, existing);
   }
 
