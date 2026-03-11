@@ -11,7 +11,8 @@ if (!ADMIN_TOKEN) {
 }
 
 type LeaderboardRow = {
-  name: string;
+  name?: string;
+  agentName?: string;
   answersCount: number;
 };
 
@@ -37,12 +38,12 @@ async function api(path: string, init?: RequestInit) {
 }
 
 async function getCandidateAgents() {
-  const data = await api('/api/v1/agents/leaderboard?limit=100&includeSynthetic=true') as {
-    items?: LeaderboardRow[];
-  };
-  const rows = data.items ?? [];
+  const data = await api('/api/v1/agents/leaderboard?limit=100&includeSynthetic=true') as
+    | { items?: LeaderboardRow[] }
+    | LeaderboardRow[];
+  const rows = Array.isArray(data) ? data : (data.items ?? []);
   const names = rows
-    .map((row) => row.name?.trim().toLowerCase())
+    .map((row) => (row.name ?? row.agentName ?? '').trim().toLowerCase())
     .filter((name): name is string => Boolean(name))
     .filter((name) => !name.startsWith('user:'));
   return Array.from(new Set(names));
@@ -159,4 +160,3 @@ main().catch((err) => {
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 });
-
