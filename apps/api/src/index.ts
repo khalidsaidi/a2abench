@@ -24,6 +24,7 @@ const TRIAL_DAILY_QUESTION_LIMIT = Number(process.env.TRIAL_DAILY_QUESTION_LIMIT
 const TRIAL_DAILY_ANSWER_LIMIT = Number(process.env.TRIAL_DAILY_ANSWER_LIMIT ?? 20);
 const TRIAL_KEY_RATE_LIMIT_MAX = Number(process.env.TRIAL_KEY_RATE_LIMIT_MAX ?? 5);
 const TRIAL_KEY_RATE_LIMIT_WINDOW = process.env.TRIAL_KEY_RATE_LIMIT_WINDOW ?? '1 day';
+const TRIAL_KEY_ACTOR_TYPE = process.env.TRIAL_KEY_ACTOR_TYPE ?? 'unknown';
 const TRIAL_AUTO_SUBSCRIBE = (process.env.TRIAL_AUTO_SUBSCRIBE ?? 'true').toLowerCase() === 'true';
 const TRIAL_AUTO_SUBSCRIBE_EVENTS_RAW = (process.env.TRIAL_AUTO_SUBSCRIBE_EVENTS
   ?? 'question.created,question.needs_acceptance,question.accepted')
@@ -81,6 +82,17 @@ const ACCEPTANCE_REMINDER_LIMIT = Math.max(1, Number(process.env.ACCEPTANCE_REMI
 const ACCEPT_LINK_SECRET = process.env.ACCEPT_LINK_SECRET ?? ADMIN_TOKEN;
 const ACCEPT_LINK_TTL_MINUTES = Math.max(5, Number(process.env.ACCEPT_LINK_TTL_MINUTES ?? 7 * 24 * 60));
 const STARTER_BONUS_CREDITS = Math.max(0, Number(process.env.STARTER_BONUS_CREDITS ?? 30));
+const AGENT_IDENTITY_REQUIRE_HEADER_FOR_WRITES = (process.env.AGENT_IDENTITY_REQUIRE_HEADER_FOR_WRITES ?? 'false').toLowerCase() === 'true';
+const AGENT_IDENTITY_ENFORCE_BOUND_MATCH = (process.env.AGENT_IDENTITY_ENFORCE_BOUND_MATCH ?? 'true').toLowerCase() === 'true';
+const AGENT_IDENTITY_AUTO_BIND_ON_FIRST_WRITE = (process.env.AGENT_IDENTITY_AUTO_BIND_ON_FIRST_WRITE ?? 'true').toLowerCase() === 'true';
+const AGENT_SIGNATURE_ENFORCE_WRITES = (process.env.AGENT_SIGNATURE_ENFORCE_WRITES ?? 'false').toLowerCase() === 'true';
+const AGENT_SIGNATURE_MAX_SKEW_SECONDS = Math.max(10, Number(process.env.AGENT_SIGNATURE_MAX_SKEW_SECONDS ?? 300));
+const EXTERNAL_TRACTION_ACTOR_TYPES = new Set(
+  (process.env.EXTERNAL_TRACTION_ACTOR_TYPES ?? 'pilot_external,public_external')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+);
 const DELIVERY_LOOP_ENABLED = (process.env.DELIVERY_LOOP_ENABLED ?? 'true').toLowerCase() === 'true';
 const DELIVERY_LOOP_INTERVAL_MS = Math.max(1000, Number(process.env.DELIVERY_LOOP_INTERVAL_MS ?? 5000));
 const REMINDER_LOOP_ENABLED = (process.env.REMINDER_LOOP_ENABLED ?? 'true').toLowerCase() === 'true';
@@ -267,6 +279,18 @@ function normalizeAgentName(value: string | null | undefined) {
   return (value ?? '').trim().toLowerCase();
 }
 
+const ACTOR_TYPES = ['unknown', 'internal', 'pilot_external', 'public_external'] as const;
+type ActorType = typeof ACTOR_TYPES[number];
+const ACTOR_TYPE_ENUM = z.enum(ACTOR_TYPES);
+
+function normalizeActorType(value: string | null | undefined): ActorType {
+  const normalized = (value ?? '').trim().toLowerCase();
+  if (normalized === 'internal') return 'internal';
+  if (normalized === 'pilot_external' || normalized === 'pilot-external') return 'pilot_external';
+  if (normalized === 'public_external' || normalized === 'public-external') return 'public_external';
+  return 'unknown';
+}
+
 function isSyntheticAgentName(value: string | null | undefined) {
   const normalized = normalizeAgentName(value);
   if (!normalized) return false;
@@ -425,13 +449,7 @@ function isNoiseEvent(entry: { method: string; route: string; status: number }) 
 }
 
 function extractApiKeyPrefix(headers: Record<string, string | string[] | undefined>) {
-  const auth = normalizeHeader(headers.authorization);
-  if (!auth) return null;
-  const [scheme, ...rest] = auth.split(' ');
-  if (!scheme || scheme.toLowerCase() !== 'bearer') return null;
-  const token = rest.join(' ').trim();
-  if (!token) return null;
-  return token.slice(0, 8);
+  return extractBearerPrefix(headers);
 }
 
 function getAgentName(headers: Record<string, string | string[] | undefined>) {
@@ -443,6 +461,178 @@ function getAgentName(headers: Record<string, string | string[] | undefined>) {
   );
   if (!name) return null;
   return name.slice(0, 128);
+}
+
+type ApiKeyIdentityMeta = {
+  baseName: string;
+  boundAgentName: string | null;
+  actorType: ActorType;
+  signatureRequired: boolean;
+};
+
+const API_KEY_NAME_SEGMENT_AGENT = 'agent';
+const API_KEY_NAME_SEGMENT_ACTOR = 'actor';
+const API_KEY_NAME_SEGMENT_SIGNATURE = 'sig';
+
+function parseApiKeyIdentityMeta(name: string): ApiKeyIdentityMeta {
+  const parts = (name ?? '').split('|').map((part) => part.trim()).filter(Boolean);
+  const baseName = parts[0] ?? 'key';
+  let boundAgentName: string | null = null;
+  let actorType: ActorType = 'unknown';
+  let signatureRequired = false;
+  for (const segment of parts.slice(1)) {
+    const [rawKey, ...valueParts] = segment.split('=');
+    const key = rawKey.trim().toLowerCase();
+    const rawValue = valueParts.join('=').trim();
+    if (!key || !rawValue) continue;
+    if (key === API_KEY_NAME_SEGMENT_AGENT) {
+      boundAgentName = normalizeAgentOrNull(rawValue);
+      continue;
+    }
+    if (key === API_KEY_NAME_SEGMENT_ACTOR) {
+      actorType = normalizeActorType(rawValue);
+      continue;
+    }
+    if (key === API_KEY_NAME_SEGMENT_SIGNATURE) {
+      const normalized = rawValue.toLowerCase();
+      signatureRequired = normalized === 'required' || normalized === 'true' || normalized === '1';
+      continue;
+    }
+  }
+  return {
+    baseName: baseName.slice(0, 64) || 'key',
+    boundAgentName,
+    actorType,
+    signatureRequired
+  };
+}
+
+function buildApiKeyName(baseName: string, meta: {
+  boundAgentName?: string | null;
+  actorType?: string | null;
+  signatureRequired?: boolean;
+}) {
+  const segments = [baseName.trim().slice(0, 64) || 'key'];
+  const boundAgentName = normalizeAgentOrNull(meta.boundAgentName ?? null);
+  if (boundAgentName) segments.push(`${API_KEY_NAME_SEGMENT_AGENT}=${boundAgentName}`);
+  const actorType = normalizeActorType(meta.actorType);
+  if (actorType !== 'unknown') segments.push(`${API_KEY_NAME_SEGMENT_ACTOR}=${actorType}`);
+  if (meta.signatureRequired === true) segments.push(`${API_KEY_NAME_SEGMENT_SIGNATURE}=required`);
+  return segments.join('|');
+}
+
+function extractBearerToken(headers: Record<string, string | string[] | undefined>) {
+  const auth = normalizeHeader(headers.authorization);
+  if (!auth) return null;
+  const [scheme, ...rest] = auth.split(' ');
+  if (!scheme || scheme.toLowerCase() !== 'bearer' || rest.length === 0) return null;
+  const token = rest.join(' ').trim();
+  return token || null;
+}
+
+function extractBearerPrefix(headers: Record<string, string | string[] | undefined>) {
+  const token = extractBearerToken(headers);
+  return token ? token.slice(0, 8) : null;
+}
+
+function isWriteMethod(method: string | undefined) {
+  const normalized = (method ?? '').toUpperCase();
+  return normalized === 'POST' || normalized === 'PUT' || normalized === 'PATCH' || normalized === 'DELETE';
+}
+
+function getSignatureRequestPath(request: { raw?: { url?: string }; url?: string }) {
+  const path = stripQuery(request.raw?.url ?? request.url ?? '/').trim();
+  if (!path) return '/';
+  if (path.startsWith('/')) return path;
+  try {
+    return new URL(path).pathname;
+  } catch {
+    return `/${path}`;
+  }
+}
+
+function parseSignatureTimestamp(raw: string | null | undefined) {
+  if (!raw) return null;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return null;
+  if (parsed > 1_000_000_000_000) return Math.floor(parsed);
+  return Math.floor(parsed * 1000);
+}
+
+function computeAgentSignature(secret: string, method: string, path: string, timestamp: string, keyPrefix: string) {
+  const canonical = `${method.toUpperCase()}\n${path}\n${timestamp}\n${keyPrefix}`;
+  return crypto.createHmac('sha256', secret).update(canonical).digest('hex');
+}
+
+function timingSafeHexEqual(left: string, right: string) {
+  if (left.length !== right.length) return false;
+  const leftBuffer = Buffer.from(left, 'hex');
+  const rightBuffer = Buffer.from(right, 'hex');
+  if (leftBuffer.length === 0 || rightBuffer.length === 0) return false;
+  if (leftBuffer.length !== rightBuffer.length) return false;
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+type RequestAuthMeta = {
+  apiKeyId: string;
+  apiKeyPrefix: string;
+  actorType: ActorType;
+  boundAgentName: string | null;
+  presentedAgentName: string | null;
+  identityVerified: boolean;
+  signatureVerified: boolean;
+  signatureRequired: boolean;
+  isWrite: boolean;
+};
+
+function getRequestAuthMeta(request: unknown) {
+  return (request as { authMeta?: RequestAuthMeta }).authMeta ?? null;
+}
+
+function getBoundAgentName(request: unknown) {
+  return normalizeAgentOrNull(getRequestAuthMeta(request)?.boundAgentName ?? null);
+}
+
+function getAgentNameWithBinding(
+  request: { headers: Record<string, string | string[] | undefined> },
+  fallbackAgentName?: string | null
+) {
+  return normalizeAgentOrNull(
+    getAgentName(request.headers)
+      ?? getBoundAgentName(request)
+      ?? fallbackAgentName
+      ?? null
+  );
+}
+
+function buildUsageApiKeyPrefix(meta: RequestAuthMeta) {
+  const idFlag = meta.identityVerified ? '1' : '0';
+  const sigFlag = meta.signatureVerified ? '1' : '0';
+  return `${meta.apiKeyPrefix}|actor=${meta.actorType}|idv=${idFlag}|sigv=${sigFlag}`;
+}
+
+function getWriteAttribution(
+  request: { headers: Record<string, string | string[] | undefined> },
+  fallbackAgentName?: string | null
+) {
+  const meta = getRequestAuthMeta(request);
+  const createdByAgentName = normalizeAgentOrNull(
+    fallbackAgentName
+      ?? meta?.boundAgentName
+      ?? meta?.presentedAgentName
+      ?? getAgentName(request.headers)
+      ?? null
+  );
+  let trafficSource = normalizeActorType(meta?.actorType);
+  if (trafficSource === 'unknown' && isSyntheticAgentName(createdByAgentName)) {
+    trafficSource = 'internal';
+  }
+  return {
+    createdByAgentName,
+    trafficSource,
+    identityVerified: Boolean(meta?.identityVerified),
+    signatureVerified: Boolean(meta?.signatureVerified)
+  };
 }
 
 function getHeaderValue(headers: Record<string, string | string[] | undefined>, key: string) {
@@ -635,26 +825,25 @@ async function requireAgentEventToken(request: { headers: Record<string, string 
   return true;
 }
 
-async function requireApiKey(request: { headers: Record<string, string | string[] | undefined> }, reply: any, scope?: string) {
-  const header = request.headers.authorization;
-  const auth = Array.isArray(header) ? header[0] : header;
-  if (!auth) {
-    reply.code(401).send({ error: 'Missing API key' });
-    return null;
-  }
-  const [scheme, ...rest] = auth.split(' ');
-  if (!scheme || scheme.toLowerCase() !== 'bearer' || rest.length === 0) {
-    reply.code(401).send({ error: 'Missing API key' });
-    return null;
-  }
-  const key = rest.join(' ').trim();
+async function requireApiKey(
+  request: {
+    headers: Record<string, string | string[] | undefined>;
+    method?: string;
+    raw?: { url?: string };
+    url?: string;
+    authMeta?: RequestAuthMeta;
+  },
+  reply: any,
+  scope?: string
+) {
+  const key = extractBearerToken(request.headers);
   if (!key) {
-    reply.code(401).send({ error: 'Invalid API key' });
+    reply.code(401).send({ error: 'Missing API key' });
     return null;
   }
   const keyPrefix = key.slice(0, 8);
   const keyHash = sha256(key);
-  const apiKey = await prisma.apiKey.findFirst({
+  let apiKey = await prisma.apiKey.findFirst({
     where: { keyPrefix, keyHash, revokedAt: null },
     include: { user: true }
   });
@@ -678,19 +867,107 @@ async function requireApiKey(request: { headers: Record<string, string | string[
       return null;
     }
   }
+
+  const identityMeta = parseApiKeyIdentityMeta(apiKey.name);
+  let boundAgentName = normalizeAgentOrNull(identityMeta.boundAgentName);
+  const presentedAgentName = normalizeAgentOrNull(getAgentName(request.headers));
+  const isWrite = isWriteMethod(request.method) || Boolean(scope && scope.startsWith('write:'));
+  const actorType = normalizeActorType(identityMeta.actorType);
+
+  if (isWrite) {
+    if (AGENT_IDENTITY_REQUIRE_HEADER_FOR_WRITES && !presentedAgentName) {
+      reply.code(400).send({
+        error: 'X-Agent-Name is required for authenticated writes.'
+      });
+      return null;
+    }
+
+    if (!boundAgentName && presentedAgentName && AGENT_IDENTITY_AUTO_BIND_ON_FIRST_WRITE) {
+      const updatedName = buildApiKeyName(identityMeta.baseName, {
+        boundAgentName: presentedAgentName,
+        actorType,
+        signatureRequired: identityMeta.signatureRequired
+      });
+      if (updatedName !== apiKey.name) {
+        apiKey = await prisma.apiKey.update({
+          where: { id: apiKey.id },
+          data: { name: updatedName },
+          include: { user: true }
+        });
+        boundAgentName = presentedAgentName;
+      }
+    }
+
+    if (AGENT_IDENTITY_ENFORCE_BOUND_MATCH && boundAgentName && presentedAgentName && boundAgentName !== presentedAgentName) {
+      reply.code(403).send({
+        error: 'Agent identity mismatch for API key.',
+        expectedAgentName: boundAgentName
+      });
+      return null;
+    }
+  }
+
+  const signatureRequired = isWrite && (AGENT_SIGNATURE_ENFORCE_WRITES || identityMeta.signatureRequired);
+  let signatureVerified = false;
+  const signature = normalizeHeader(request.headers['x-agent-signature']).trim().toLowerCase();
+  const timestampRaw = normalizeHeader(request.headers['x-agent-timestamp']).trim();
+  const signatureProvided = Boolean(signature) || Boolean(timestampRaw);
+  if (signatureRequired || signatureProvided) {
+    if (!signature || !timestampRaw) {
+      if (signatureRequired) {
+        reply.code(401).send({
+          error: 'Missing request signature headers.',
+          requiredHeaders: ['X-Agent-Timestamp', 'X-Agent-Signature']
+        });
+        return null;
+      }
+    } else {
+      const timestampMs = parseSignatureTimestamp(timestampRaw);
+      if (!timestampMs) {
+        if (signatureRequired) {
+          reply.code(401).send({ error: 'Invalid X-Agent-Timestamp.' });
+          return null;
+        }
+      } else {
+        const skewMs = Math.abs(Date.now() - timestampMs);
+        if (skewMs > AGENT_SIGNATURE_MAX_SKEW_SECONDS * 1000) {
+          if (signatureRequired) {
+            reply.code(401).send({ error: 'Request signature timestamp skew too large.' });
+            return null;
+          }
+        } else {
+          const path = getSignatureRequestPath(request);
+          const expected = computeAgentSignature(key, request.method ?? 'POST', path, timestampRaw, keyPrefix);
+          signatureVerified = timingSafeHexEqual(expected, signature);
+          if (!signatureVerified && signatureRequired) {
+            reply.code(401).send({ error: 'Invalid request signature.' });
+            return null;
+          }
+        }
+      }
+    }
+  }
+
+  const identityVerified = Boolean(
+    boundAgentName && (!presentedAgentName || boundAgentName === presentedAgentName)
+  );
+  request.authMeta = {
+    apiKeyId: apiKey.id,
+    apiKeyPrefix: apiKey.keyPrefix,
+    actorType,
+    boundAgentName,
+    presentedAgentName,
+    identityVerified,
+    signatureVerified,
+    signatureRequired: Boolean(signatureRequired),
+    isWrite
+  };
   return apiKey;
 }
 
 async function validateApiKey(request: { headers: Record<string, string | string[] | undefined> }) {
-  const header = request.headers.authorization;
-  const auth = Array.isArray(header) ? header[0] : header;
-  if (!auth) return { ok: false, reason: 'Missing API key' };
-  const [scheme, ...rest] = auth.split(' ');
-  if (!scheme || scheme.toLowerCase() !== 'bearer' || rest.length === 0) {
-    return { ok: false, reason: 'Missing API key' };
-  }
-  const key = rest.join(' ').trim();
-  if (!key) return { ok: false, reason: 'Invalid API key' };
+  const key = extractBearerToken(request.headers);
+  if (!key) return { ok: false, reason: 'Missing API key' };
   const keyPrefix = key.slice(0, 8);
   const keyHash = sha256(key);
   const apiKey = await prisma.apiKey.findFirst({
@@ -2520,11 +2797,12 @@ fastify.addHook('onResponse', async (request, reply) => {
   if (!logNoise && isNoiseEvent({ method: request.method, route, status: reply.statusCode })) {
     return;
   }
-  const apiKeyPrefix = extractApiKeyPrefix(request.headers);
+  const authMeta = getRequestAuthMeta(request);
+  const apiKeyPrefix = authMeta ? buildUsageApiKeyPrefix(authMeta) : extractApiKeyPrefix(request.headers);
   const userAgent = normalizeHeader(request.headers['user-agent']).slice(0, 256) || null;
   const ip = getClientIp(request as RouteRequest & { ip?: string; socket?: { remoteAddress?: string } });
   const referer = normalizeHeader(request.headers.referer).slice(0, 512) || null;
-  const agentName = getAgentName(request.headers);
+  const agentName = getAgentName(request.headers) ?? authMeta?.boundAgentName ?? null;
 
   enqueueUsageEvent({
     method: request.method,
@@ -2782,6 +3060,135 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
     FROM "Answer"
     WHERE "createdAt" >= ${previousSince} AND "createdAt" < ${since}
   `;
+  const externalActorTypes = Array.from(new Set(
+    Array.from(EXTERNAL_TRACTION_ACTOR_TYPES)
+      .map((value) => normalizeActorType(value))
+      .filter((value): value is ActorType => value !== 'unknown')
+  ));
+  const externalKeyRows = await prisma.apiKey.findMany({
+    select: { userId: true, name: true }
+  });
+  const externalUserIdsSet = new Set<string>();
+  const externalBoundAgentsSet = new Set<string>();
+  for (const row of externalKeyRows) {
+    const meta = parseApiKeyIdentityMeta(row.name);
+    if (!externalActorTypes.includes(meta.actorType)) continue;
+    externalUserIdsSet.add(row.userId);
+    if (meta.boundAgentName) externalBoundAgentsSet.add(meta.boundAgentName);
+  }
+  const externalUserIds = Array.from(externalUserIdsSet);
+  const externalBoundAgents = Array.from(externalBoundAgentsSet);
+  const externalAnswerScopeOr: Prisma.AnswerWhereInput[] = [];
+  if (externalBoundAgents.length > 0) {
+    externalAnswerScopeOr.push({ agentName: { in: externalBoundAgents } });
+  }
+  if (externalUserIds.length > 0) {
+    externalAnswerScopeOr.push({ userId: { in: externalUserIds } });
+  }
+  const externalAnswerScopeWhere = externalAnswerScopeOr.length > 0
+    ? { OR: externalAnswerScopeOr }
+    : null;
+  const externalQuestionsInRange = externalUserIds.length > 0
+    ? await prisma.question.count({ where: { createdAt: { gte: since }, userId: { in: externalUserIds } } })
+    : 0;
+  const externalQuestionsLast24h = externalUserIds.length > 0
+    ? await prisma.question.count({ where: { createdAt: { gte: last24h }, userId: { in: externalUserIds } } })
+    : 0;
+  const externalAnswersInRange = externalAnswerScopeWhere
+    ? await prisma.answer.count({ where: { createdAt: { gte: since }, ...externalAnswerScopeWhere } })
+    : 0;
+  const externalAnswersLast24h = externalAnswerScopeWhere
+    ? await prisma.answer.count({ where: { createdAt: { gte: last24h }, ...externalAnswerScopeWhere } })
+    : 0;
+  const externalAcceptedInRange = externalAnswerScopeWhere
+    ? await prisma.questionResolution.count({
+        where: {
+          createdAt: { gte: since },
+          answer: externalAnswerScopeWhere
+        }
+      })
+    : 0;
+  const externalAcceptedLast24h = externalAnswerScopeWhere
+    ? await prisma.questionResolution.count({
+        where: {
+          createdAt: { gte: last24h },
+          answer: externalAnswerScopeWhere
+        }
+      })
+    : 0;
+
+  const externalUsageActorCondition = externalActorTypes.length > 0
+    ? Prisma.sql`
+      "apiKeyPrefix" IS NOT NULL
+      AND POSITION('|actor=' IN "apiKeyPrefix") > 0
+      AND split_part(split_part("apiKeyPrefix", '|actor=', 2), '|', 1) IN (${Prisma.join(externalActorTypes)})
+    `
+    : Prisma.sql`FALSE`;
+
+  const externalRequestStatsRows = await prisma.$queryRaw<Array<{
+    writesInRange: bigint | number | string;
+    writesLast24h: bigint | number | string;
+    verifiedWritesInRange: bigint | number | string;
+    signedWritesInRange: bigint | number | string;
+    questionWritesInRange: bigint | number | string;
+    answerWritesInRange: bigint | number | string;
+    activeAgentsInRange: bigint | number | string;
+  }>>`
+    SELECT
+      COUNT(*) FILTER (
+        WHERE UPPER("method") IN ('POST', 'PUT', 'PATCH', 'DELETE')
+          AND ${externalUsageActorCondition}
+      ) AS "writesInRange",
+      COUNT(*) FILTER (
+        WHERE "createdAt" >= ${last24h}
+          AND UPPER("method") IN ('POST', 'PUT', 'PATCH', 'DELETE')
+          AND ${externalUsageActorCondition}
+      ) AS "writesLast24h",
+      COUNT(*) FILTER (
+        WHERE UPPER("method") IN ('POST', 'PUT', 'PATCH', 'DELETE')
+          AND ${externalUsageActorCondition}
+          AND POSITION('|idv=' IN "apiKeyPrefix") > 0
+          AND split_part(split_part("apiKeyPrefix", '|idv=', 2), '|', 1) IN ('1', 'true')
+      ) AS "verifiedWritesInRange",
+      COUNT(*) FILTER (
+        WHERE UPPER("method") IN ('POST', 'PUT', 'PATCH', 'DELETE')
+          AND ${externalUsageActorCondition}
+          AND POSITION('|sigv=' IN "apiKeyPrefix") > 0
+          AND split_part(split_part("apiKeyPrefix", '|sigv=', 2), '|', 1) IN ('1', 'true')
+      ) AS "signedWritesInRange",
+      COUNT(*) FILTER (
+        WHERE "route" = '/api/v1/questions'
+          AND "status" BETWEEN 200 AND 299
+          AND UPPER("method") = 'POST'
+          AND ${externalUsageActorCondition}
+      ) AS "questionWritesInRange",
+      COUNT(*) FILTER (
+        WHERE "route" IN ('/api/v1/questions/:id/answers', '/api/v1/questions/:id/answer-job')
+          AND "status" BETWEEN 200 AND 299
+          AND UPPER("method") = 'POST'
+          AND ${externalUsageActorCondition}
+      ) AS "answerWritesInRange",
+      COUNT(DISTINCT NULLIF("agentName", '')) FILTER (
+        WHERE UPPER("method") IN ('POST', 'PUT', 'PATCH', 'DELETE')
+          AND ${externalUsageActorCondition}
+      ) AS "activeAgentsInRange"
+    FROM "UsageEvent"
+    WHERE "createdAt" >= ${since}
+    ${noiseSql}
+  `;
+  const externalTopAgentRows = await prisma.$queryRaw<Array<{ agentName: string | null; count: bigint | number | string }>>`
+    SELECT
+      NULLIF("agentName", '') AS "agentName",
+      COUNT(*) AS "count"
+    FROM "UsageEvent"
+    WHERE "createdAt" >= ${since}
+      ${noiseSql}
+      AND UPPER("method") IN ('POST', 'PUT', 'PATCH', 'DELETE')
+      AND ${externalUsageActorCondition}
+    GROUP BY 1
+    ORDER BY "count" DESC
+    LIMIT 10
+  `;
   const tractionAskerDailyRows = await prisma.$queryRaw<Array<{ day: Date | string; askers: bigint | number | string }>>`
     SELECT date_trunc('day', "createdAt") AS day, COUNT(DISTINCT "userId") AS askers
     FROM "Question"
@@ -2832,6 +3239,34 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
     GROUP BY 1
     ORDER BY day ASC
   `;
+  const externalQuestionDailyRows = externalUserIds.length > 0
+    ? await prisma.$queryRaw<Array<{ day: Date | string; count: bigint | number | string }>>`
+      SELECT date_trunc('day', "createdAt") AS day, COUNT(*) AS count
+      FROM "Question"
+      WHERE "createdAt" >= ${since}
+        AND "userId" IN (${Prisma.join(externalUserIds)})
+      GROUP BY 1
+      ORDER BY day ASC
+    `
+    : [];
+  const externalAnswerDailyRows = externalAnswerScopeWhere
+    ? await prisma.$queryRaw<Array<{ day: Date | string; count: bigint | number | string }>>`
+      SELECT date_trunc('day', "createdAt") AS day, COUNT(*) AS count
+      FROM "Answer"
+      WHERE "createdAt" >= ${since}
+        AND (
+          ${externalBoundAgents.length > 0
+            ? Prisma.sql`"agentName" IN (${Prisma.join(externalBoundAgents)})`
+            : Prisma.sql`FALSE`}
+          OR
+          ${externalUserIds.length > 0
+            ? Prisma.sql`"userId" IN (${Prisma.join(externalUserIds)})`
+            : Prisma.sql`FALSE`}
+        )
+      GROUP BY 1
+      ORDER BY day ASC
+    `
+    : [];
 
   const qaByDay = new Map<string, { day: string; questions: number; answers: number }>();
   for (const row of questionDailyRows) {
@@ -2861,6 +3296,48 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
   }
 
   const qaDaily = Array.from(qaByDay.values()).sort((a, b) => a.day.localeCompare(b.day));
+  const externalQaByDay = new Map<string, { day: string; questions: number; answers: number }>();
+  for (const row of externalQuestionDailyRows) {
+    const date = row.day instanceof Date ? row.day : new Date(row.day);
+    const day = date.toISOString().slice(0, 10);
+    const existing = externalQaByDay.get(day) ?? { day, questions: 0, answers: 0 };
+    existing.questions = toNumber(row.count);
+    externalQaByDay.set(day, existing);
+  }
+  for (const row of externalAnswerDailyRows) {
+    const date = row.day instanceof Date ? row.day : new Date(row.day);
+    const day = date.toISOString().slice(0, 10);
+    const existing = externalQaByDay.get(day) ?? { day, questions: 0, answers: 0 };
+    existing.answers = toNumber(row.count);
+    externalQaByDay.set(day, existing);
+  }
+  const externalQaCursor = new Date(startDay);
+  while (externalQaCursor <= endDay) {
+    const day = externalQaCursor.toISOString().slice(0, 10);
+    if (!externalQaByDay.has(day)) {
+      externalQaByDay.set(day, { day, questions: 0, answers: 0 });
+    }
+    externalQaCursor.setUTCDate(externalQaCursor.getUTCDate() + 1);
+  }
+  const externalQaDaily = Array.from(externalQaByDay.values()).sort((a, b) => a.day.localeCompare(b.day));
+
+  const externalRequestStats = externalRequestStatsRows[0] ?? {
+    writesInRange: 0,
+    writesLast24h: 0,
+    verifiedWritesInRange: 0,
+    signedWritesInRange: 0,
+    questionWritesInRange: 0,
+    answerWritesInRange: 0,
+    activeAgentsInRange: 0
+  };
+  const externalRequestTopAgents = externalTopAgentRows
+    .map((row) => ({
+      agentName: normalizeAgentOrNull(row.agentName) ?? 'unknown',
+      count: toNumber(row.count)
+    }))
+    .filter((row) => row.count > 0)
+    .sort((a, b) => b.count - a.count || a.agentName.localeCompare(b.agentName));
+
   const uniqueAskersInRange = toNumber(uniqueAskersInRangeRows[0]?.count);
   const uniqueAskersPreviousRange = toNumber(uniqueAskersPreviousRangeRows[0]?.count);
   const uniqueAnswerersInRange = toNumber(uniqueAnswerersInRangeRows[0]?.count);
@@ -3041,6 +3518,33 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
       totalAnswers,
       questionsInRange,
       answersInRange
+    },
+    external: {
+      configuredActorTypes: externalActorTypes,
+      identity: {
+        boundAgents: externalBoundAgents.length,
+        users: externalUserIds.length
+      },
+      content: {
+        questionsInRange: externalQuestionsInRange,
+        questionsLast24h: externalQuestionsLast24h,
+        answersInRange: externalAnswersInRange,
+        answersLast24h: externalAnswersLast24h,
+        acceptedInRange: externalAcceptedInRange,
+        acceptedLast24h: externalAcceptedLast24h,
+        answersPerQuestion: ratio(externalAnswersInRange, externalQuestionsInRange)
+      },
+      requests: {
+        writesInRange: toNumber(externalRequestStats.writesInRange),
+        writesLast24h: toNumber(externalRequestStats.writesLast24h),
+        identityVerifiedWritesInRange: toNumber(externalRequestStats.verifiedWritesInRange),
+        signatureVerifiedWritesInRange: toNumber(externalRequestStats.signedWritesInRange),
+        questionWritesInRange: toNumber(externalRequestStats.questionWritesInRange),
+        answerWritesInRange: toNumber(externalRequestStats.answerWritesInRange),
+        activeAgentsInRange: toNumber(externalRequestStats.activeAgentsInRange)
+      },
+      qaDaily: externalQaDaily,
+      topAgents: externalRequestTopAgents
     },
     qaDaily,
     traction: {
@@ -3277,6 +3781,34 @@ fastify.get('/admin/usage', async (request, reply) => {
       </div>
 
       <div class="card">
+        <h2 style="margin-top:0;">External Agent Slice</h2>
+        <div class="metrics">
+          <div class="metric"><h3>Bound external agents</h3><div id="externalBoundAgents">—</div><small id="externalActorTypes">—</small></div>
+          <div class="metric"><h3>External key users</h3><div id="externalUsers">—</div><small id="externalActiveAgents">—</small></div>
+          <div class="metric"><h3>External writes (range)</h3><div id="externalWritesInRange">—</div><small id="externalWritesLast24h">—</small></div>
+          <div class="metric"><h3>Identity-verified writes</h3><div id="externalIdentityWrites">—</div><small id="externalIdentityRate">—</small></div>
+          <div class="metric"><h3>Signature-verified writes</h3><div id="externalSignatureWrites">—</div><small id="externalSignatureRate">—</small></div>
+          <div class="metric"><h3>Questions (external)</h3><div id="externalQuestionsInRange">—</div><small id="externalQuestionsLast24h">—</small></div>
+          <div class="metric"><h3>Answers (external)</h3><div id="externalAnswersInRange">—</div><small id="externalAnswersLast24h">—</small></div>
+          <div class="metric"><h3>Accepted (external)</h3><div id="externalAcceptedInRange">—</div><small id="externalAnswersPerQuestion">—</small></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;">External questions vs answers (daily)</h2>
+        <div class="qa-legend">
+          <span><span class="qa-dot" style="background:#2563eb;"></span>Questions</span>
+          <span><span class="qa-dot" style="background:#22c55e;"></span>Answers</span>
+        </div>
+        <div id="externalQaChart" class="qa-chart"></div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;">Top external agents (write requests)</h2>
+        <div id="externalTopAgents" class="list"></div>
+      </div>
+
+      <div class="card">
         <h2 style="margin-top:0;">Top routes</h2>
         <div id="routes" class="list"></div>
       </div>
@@ -3371,11 +3903,29 @@ fastify.get('/admin/usage', async (request, reply) => {
       const tractionScore30dCaptionEl = document.getElementById('tractionScore30dCaption');
       const tractionScore90dEl = document.getElementById('tractionScore90d');
       const tractionScore90dCaptionEl = document.getElementById('tractionScore90dCaption');
+      const externalBoundAgentsEl = document.getElementById('externalBoundAgents');
+      const externalActorTypesEl = document.getElementById('externalActorTypes');
+      const externalUsersEl = document.getElementById('externalUsers');
+      const externalActiveAgentsEl = document.getElementById('externalActiveAgents');
+      const externalWritesInRangeEl = document.getElementById('externalWritesInRange');
+      const externalWritesLast24hEl = document.getElementById('externalWritesLast24h');
+      const externalIdentityWritesEl = document.getElementById('externalIdentityWrites');
+      const externalIdentityRateEl = document.getElementById('externalIdentityRate');
+      const externalSignatureWritesEl = document.getElementById('externalSignatureWrites');
+      const externalSignatureRateEl = document.getElementById('externalSignatureRate');
+      const externalQuestionsInRangeEl = document.getElementById('externalQuestionsInRange');
+      const externalQuestionsLast24hEl = document.getElementById('externalQuestionsLast24h');
+      const externalAnswersInRangeEl = document.getElementById('externalAnswersInRange');
+      const externalAnswersLast24hEl = document.getElementById('externalAnswersLast24h');
+      const externalAcceptedInRangeEl = document.getElementById('externalAcceptedInRange');
+      const externalAnswersPerQuestionEl = document.getElementById('externalAnswersPerQuestion');
       const routesEl = document.getElementById('routes');
       const statusesEl = document.getElementById('statuses');
       const dailyEl = document.getElementById('daily');
       const qaChartEl = document.getElementById('qaChart');
       const tractionChartEl = document.getElementById('tractionChart');
+      const externalQaChartEl = document.getElementById('externalQaChart');
+      const externalTopAgentsEl = document.getElementById('externalTopAgents');
       const ipsEl = document.getElementById('ips');
       const referrersEl = document.getElementById('referrers');
       const userAgentsEl = document.getElementById('userAgents');
@@ -3387,6 +3937,12 @@ fastify.get('/admin/usage', async (request, reply) => {
       function toNum(value) {
         const n = Number(value);
         return Number.isFinite(n) ? n : 0;
+      }
+      function ratio(numerator, denominator) {
+        const n = toNum(numerator);
+        const d = toNum(denominator);
+        if (d <= 0) return null;
+        return n / d;
       }
       function formatPercent(value, digits = 1) {
         if (value == null) return '—';
@@ -3469,10 +4025,10 @@ fastify.get('/admin/usage', async (request, reply) => {
         });
       }
 
-      function renderQaChart(rows) {
-        qaChartEl.innerHTML = '';
+      function renderQaChart(rows, container = qaChartEl, emptyMessage = 'No question/answer activity in this range.') {
+        container.innerHTML = '';
         if (!rows.length) {
-          qaChartEl.innerHTML = '<div class="muted">No question/answer activity in this range.</div>';
+          container.innerHTML = '<div class="muted">' + emptyMessage + '</div>';
           return;
         }
 
@@ -3491,7 +4047,7 @@ fastify.get('/admin/usage', async (request, reply) => {
               '<div class="qa-bar qa-a"><span style="width:' + aPct + '%"></span></div>' +
             '</div>' +
             '<div class="qa-values">Q ' + q + ' · A ' + a + '</div>';
-          qaChartEl.appendChild(wrap);
+          container.appendChild(wrap);
         });
       }
 
@@ -3565,11 +4121,34 @@ fastify.get('/admin/usage', async (request, reply) => {
           setDelta(tractionAnswersGrowthEl, growth.answersPct);
           setDelta(tractionAskersGrowthEl, growth.askersPct);
           setDelta(tractionAnswerersGrowthEl, growth.answerersPct);
+          const external = data.external || {};
+          const externalIdentity = external.identity || {};
+          const externalRequests = external.requests || {};
+          const externalContent = external.content || {};
+          const externalActorTypes = Array.isArray(external.configuredActorTypes) ? external.configuredActorTypes : [];
+          externalBoundAgentsEl.textContent = String(externalIdentity.boundAgents ?? 0);
+          externalActorTypesEl.textContent = externalActorTypes.length ? externalActorTypes.join(', ') : 'no external actor types configured';
+          externalUsersEl.textContent = String(externalIdentity.users ?? 0);
+          externalActiveAgentsEl.textContent = 'active writers: ' + String(externalRequests.activeAgentsInRange ?? 0);
+          externalWritesInRangeEl.textContent = String(externalRequests.writesInRange ?? 0);
+          externalWritesLast24hEl.textContent = 'last 24h: ' + String(externalRequests.writesLast24h ?? 0);
+          externalIdentityWritesEl.textContent = String(externalRequests.identityVerifiedWritesInRange ?? 0);
+          externalIdentityRateEl.textContent = 'of writes: ' + formatPercent(ratio(externalRequests.identityVerifiedWritesInRange, externalRequests.writesInRange), 1);
+          externalSignatureWritesEl.textContent = String(externalRequests.signatureVerifiedWritesInRange ?? 0);
+          externalSignatureRateEl.textContent = 'of writes: ' + formatPercent(ratio(externalRequests.signatureVerifiedWritesInRange, externalRequests.writesInRange), 1);
+          externalQuestionsInRangeEl.textContent = String(externalContent.questionsInRange ?? 0);
+          externalQuestionsLast24hEl.textContent = 'last 24h: ' + String(externalContent.questionsLast24h ?? 0);
+          externalAnswersInRangeEl.textContent = String(externalContent.answersInRange ?? 0);
+          externalAnswersLast24hEl.textContent = 'last 24h: ' + String(externalContent.answersLast24h ?? 0);
+          externalAcceptedInRangeEl.textContent = String(externalContent.acceptedInRange ?? 0);
+          externalAnswersPerQuestionEl.textContent = 'A/Q: ' + formatRatio(externalContent.answersPerQuestion, 2);
           renderList(routesEl, data.byRoute || [], 'route', 'count');
           renderList(statusesEl, data.byStatus || [], 'status', 'count');
           renderList(dailyEl, data.daily || [], 'day', 'count');
-          renderQaChart(data.qaDaily || []);
+          renderQaChart(data.qaDaily || [], qaChartEl, 'No question/answer activity in this range.');
+          renderQaChart(external.qaDaily || [], externalQaChartEl, 'No external question/answer activity in this range.');
           renderTractionChart(traction.daily || []);
+          renderList(externalTopAgentsEl, external.topAgents || [], 'agentName', 'count');
           renderList(ipsEl, data.byIp || [], 'ip', 'count');
           renderList(referrersEl, data.byReferer || [], 'referer', 'count');
           renderList(userAgentsEl, data.byUserAgent || [], 'userAgent', 'count');
@@ -4130,7 +4709,7 @@ fastify.get('/api/v1/agent/quickstart', {
   }
 }, async (request) => {
   const query = request.query as { agentName?: string };
-  const agentName = normalizeAgentOrNull(query.agentName ?? getAgentName(request.headers));
+  const agentName = normalizeAgentOrNull(query.agentName ?? getAgentNameWithBinding(request));
   const recommended = await getRecommendedQuestionForAgent(agentName);
   const unansweredTotal = await prisma.question.count({
     where: {
@@ -4168,7 +4747,7 @@ fastify.get('/api/v1/agent/next-best-job', {
   }
 }, async (request) => {
   const query = request.query as { agentName?: string };
-  const agentName = normalizeAgentOrNull(query.agentName ?? getAgentName(request.headers));
+  const agentName = normalizeAgentOrNull(query.agentName ?? getAgentNameWithBinding(request));
   const baseUrl = getBaseUrl(request);
   const recommended = await getRecommendedQuestionForAgent(agentName);
   const unansweredTotal = await prisma.question.count({
@@ -4526,11 +5105,17 @@ fastify.post('/api/v1/auth/trial-key', {
   const keyPrefix = key.slice(0, 8);
   const keyHash = sha256(key);
   const expiresAt = new Date(Date.now() + TRIAL_KEY_TTL_HOURS * 60 * 60 * 1000);
+  const actorType = normalizeActorType(TRIAL_KEY_ACTOR_TYPE);
+  const keyName = buildApiKeyName('trial', {
+    boundAgentName: handle,
+    actorType,
+    signatureRequired: false
+  });
 
   const apiKey = await prisma.apiKey.create({
     data: {
       userId: user.id,
-      name: 'trial',
+      name: keyName,
       keyPrefix,
       keyHash,
       scopes: ['write:questions', 'write:answers'],
@@ -4549,6 +5134,11 @@ fastify.post('/api/v1/auth/trial-key', {
       dailyWrites: apiKey.dailyWriteLimit,
       dailyQuestions: apiKey.dailyQuestionLimit,
       dailyAnswers: apiKey.dailyAnswerLimit
+    },
+    identity: {
+      boundAgentName: handle,
+      actorType,
+      signatureRequired: false
     },
     onboarding: {
       autoSubscription: {
@@ -4755,7 +5345,12 @@ fastify.post('/api/v1/questions/:id/claim', {
     reply
   );
   if (!body) return;
-  const agentName = normalizeAgentOrNull(body.agentName ?? getAgentName(request.headers));
+  const agentName = normalizeAgentOrNull(
+    body.agentName
+      ?? getAgentName(request.headers)
+      ?? getRequestAuthMeta(request)?.boundAgentName
+      ?? null
+  );
   if (!agentName) {
     reply.code(400).send({ error: 'agentName or X-Agent-Name is required.' });
     return;
@@ -4898,7 +5493,9 @@ fastify.post('/api/v1/questions/:id/claims/:claimId/release', {
 }, async (request, reply) => {
   const apiKey = await requireApiKey(request, reply, 'write:answers');
   if (!apiKey) return;
-  const agentName = normalizeAgentOrNull(getAgentName(request.headers));
+  const agentName = normalizeAgentOrNull(
+    getAgentName(request.headers) ?? getRequestAuthMeta(request)?.boundAgentName ?? null
+  );
   if (!agentName) {
     reply.code(400).send({ error: 'X-Agent-Name is required.' });
     return;
@@ -5105,7 +5702,9 @@ fastify.post('/api/v1/questions/:id/answers', {
   if (!apiKey) return;
 
   const { id } = request.params as { id: string };
-  const agentName = normalizeAgentOrNull(getAgentName(request.headers));
+  const agentName = normalizeAgentOrNull(
+    getAgentName(request.headers) ?? getRequestAuthMeta(request)?.boundAgentName ?? null
+  );
   const body = parse(
     z.object({
       bodyMd: z.string().min(3).max(20000)
@@ -5233,7 +5832,9 @@ fastify.post('/api/v1/questions/:id/answer-job', {
   const apiKey = await requireApiKey(request, reply, 'write:answers');
   if (!apiKey) return;
   const { id } = request.params as { id: string };
-  const agentName = normalizeAgentOrNull(getAgentName(request.headers));
+  const agentName = normalizeAgentOrNull(
+    getAgentName(request.headers) ?? getRequestAuthMeta(request)?.boundAgentName ?? null
+  );
   if (!agentName) {
     reply.code(400).send({ error: 'X-Agent-Name is required.' });
     return;
@@ -5486,7 +6087,7 @@ fastify.post('/api/v1/questions/:id/bounty', {
     return;
   }
 
-  const createdByAgentName = normalizeAgentOrNull(getAgentName(request.headers));
+  const createdByAgentName = getAgentNameWithBinding(request);
   const bounty = await prisma.questionBounty.upsert({
     where: { questionId: id },
     create: {
@@ -5538,7 +6139,7 @@ fastify.post('/api/v1/questions/:id/accept/:answerId', {
     questionId: id,
     answerId,
     ownerUserId: apiKey.userId,
-    acceptedByAgentName: normalizeAgentOrNull(getAgentName(request.headers)),
+    acceptedByAgentName: getAgentNameWithBinding(request),
     baseUrl: getBaseUrl(request)
   });
   reply.code(result.status).send(result.payload);
@@ -5728,7 +6329,7 @@ fastify.post('/api/v1/answers/:id/vote', {
   const apiKey = await requireApiKey(request, reply);
   if (!apiKey) return;
 
-  const voterAgentName = normalizeAgentOrNull(getAgentName(request.headers));
+  const voterAgentName = getAgentNameWithBinding(request);
   if (!voterAgentName) {
     reply.code(400).send({ error: 'X-Agent-Name header is required to vote.' });
     return;
@@ -5990,7 +6591,7 @@ fastify.post('/api/v1/subscriptions', {
   );
   if (!body) return;
 
-  const agentName = normalizeAgentOrNull(body.agentName ?? getAgentName(request.headers));
+  const agentName = normalizeAgentOrNull(body.agentName ?? getAgentNameWithBinding(request));
   if (!agentName) {
     reply.code(400).send({ error: 'agentName or X-Agent-Name is required.' });
     return;
@@ -6032,7 +6633,7 @@ fastify.get('/api/v1/subscriptions', {
   if (!apiKey) return;
 
   const query = request.query as { agentName?: string };
-  const agentName = normalizeAgentOrNull(query.agentName ?? getAgentName(request.headers));
+  const agentName = normalizeAgentOrNull(query.agentName ?? getAgentNameWithBinding(request));
   if (!agentName) {
     reply.code(400).send({ error: 'agentName or X-Agent-Name is required.' });
     return;
@@ -6058,7 +6659,7 @@ fastify.post('/api/v1/subscriptions/:id/disable', {
   const apiKey = await requireApiKey(request, reply);
   if (!apiKey) return;
 
-  const agentName = normalizeAgentOrNull(getAgentName(request.headers));
+  const agentName = getAgentNameWithBinding(request);
   if (!agentName) {
     reply.code(400).send({ error: 'X-Agent-Name is required.' });
     return;
@@ -6092,7 +6693,7 @@ fastify.get('/api/v1/agent/inbox', {
   const apiKey = await requireApiKey(request, reply);
   if (!apiKey) return;
   const query = request.query as { agentName?: string; limit?: number; markDelivered?: boolean };
-  const agentName = normalizeAgentOrNull(query.agentName ?? getAgentName(request.headers));
+  const agentName = normalizeAgentOrNull(query.agentName ?? getAgentNameWithBinding(request));
   if (!agentName) {
     reply.code(400).send({ error: 'agentName or X-Agent-Name is required.' });
     return;
@@ -7073,6 +7674,74 @@ fastify.post('/api/v1/admin/users', {
   reply.code(201).send(user);
 });
 
+fastify.get('/api/v1/admin/api-keys', {
+  schema: {
+    tags: ['admin'],
+    security: [{ AdminToken: [] }],
+    querystring: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 500 },
+        includeRevoked: { type: 'boolean' },
+        actorType: { type: 'string' }
+      }
+    }
+  }
+}, async (request, reply) => {
+  if (!(await requireAdmin(request, reply))) return;
+  const query = request.query as { limit?: number; includeRevoked?: boolean; actorType?: string };
+  const take = Math.min(500, Math.max(1, Number(query.limit ?? 200)));
+  const actorFilterRaw = normalizeHeader(query.actorType);
+  const hasActorFilter = actorFilterRaw.length > 0;
+  const actorFilter = normalizeActorType(actorFilterRaw);
+  const keys = await prisma.apiKey.findMany({
+    where: query.includeRevoked === true ? undefined : { revokedAt: null },
+    include: {
+      user: {
+        select: {
+          id: true,
+          handle: true
+        }
+      }
+    },
+    orderBy: { createdAt: 'desc' },
+    take
+  });
+
+  const items = keys
+    .map((key) => {
+      const identity = parseApiKeyIdentityMeta(key.name);
+      return {
+        id: key.id,
+        userId: key.userId,
+        userHandle: key.user.handle,
+        name: key.name,
+        keyPrefix: key.keyPrefix,
+        scopes: key.scopes,
+        createdAt: key.createdAt,
+        expiresAt: key.expiresAt,
+        revokedAt: key.revokedAt,
+        limits: {
+          dailyWriteLimit: key.dailyWriteLimit,
+          dailyQuestionLimit: key.dailyQuestionLimit,
+          dailyAnswerLimit: key.dailyAnswerLimit
+        },
+        identity: {
+          baseName: identity.baseName,
+          boundAgentName: identity.boundAgentName,
+          actorType: identity.actorType,
+          signatureRequired: identity.signatureRequired
+        }
+      };
+    })
+    .filter((item) => !hasActorFilter || item.identity.actorType === actorFilter);
+
+  reply.code(200).send({
+    count: items.length,
+    results: items
+  });
+});
+
 fastify.post('/api/v1/admin/api-keys', {
   schema: {
     tags: ['admin'],
@@ -7084,6 +7753,9 @@ fastify.post('/api/v1/admin/api-keys', {
         userId: { type: 'string' },
         name: { type: 'string' },
         scopes: { type: 'array', items: { type: 'string' } },
+        boundAgentName: { type: 'string' },
+        actorType: { type: 'string', enum: ACTOR_TYPES },
+        signatureRequired: { type: 'boolean' },
         expiresAt: { type: 'string' },
         dailyWriteLimit: { type: 'integer' },
         dailyQuestionLimit: { type: 'integer' },
@@ -7099,6 +7771,9 @@ fastify.post('/api/v1/admin/api-keys', {
       userId: z.string(),
       name: z.string().min(2),
       scopes: z.array(z.string()).optional(),
+      boundAgentName: z.string().min(1).max(128).optional(),
+      actorType: ACTOR_TYPE_ENUM.optional(),
+      signatureRequired: z.boolean().optional(),
       expiresAt: z.string().datetime().optional(),
       dailyWriteLimit: z.number().int().min(1).optional(),
       dailyQuestionLimit: z.number().int().min(1).optional(),
@@ -7113,11 +7788,18 @@ fastify.post('/api/v1/admin/api-keys', {
   const keyPrefix = key.slice(0, 8);
   const keyHash = sha256(key);
   const scopes = body.scopes?.length ? body.scopes : ['write:questions', 'write:answers'];
+  const actorType = normalizeActorType(body.actorType);
+  const boundAgentName = normalizeAgentOrNull(body.boundAgentName ?? null);
+  const name = buildApiKeyName(body.name, {
+    boundAgentName,
+    actorType,
+    signatureRequired: body.signatureRequired === true
+  });
 
   const apiKey = await prisma.apiKey.create({
     data: {
       userId: body.userId,
-      name: body.name,
+      name,
       keyPrefix,
       keyHash,
       scopes,
@@ -7134,7 +7816,76 @@ fastify.post('/api/v1/admin/api-keys', {
     name: apiKey.name,
     scopes: apiKey.scopes,
     keyPrefix: apiKey.keyPrefix,
-    apiKey: key
+    apiKey: key,
+    identity: parseApiKeyIdentityMeta(apiKey.name)
+  });
+});
+
+fastify.post('/api/v1/admin/api-keys/:id/identity', {
+  schema: {
+    tags: ['admin'],
+    security: [{ AdminToken: [] }],
+    params: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id']
+    },
+    body: {
+      type: 'object',
+      properties: {
+        boundAgentName: { type: ['string', 'null'] },
+        actorType: { type: 'string', enum: ACTOR_TYPES },
+        signatureRequired: { type: 'boolean' }
+      }
+    }
+  }
+}, async (request, reply) => {
+  if (!(await requireAdmin(request, reply))) return;
+  const { id } = request.params as { id: string };
+  const body = parse(
+    z.object({
+      boundAgentName: z.union([z.string().min(1).max(128), z.null()]).optional(),
+      actorType: ACTOR_TYPE_ENUM.optional(),
+      signatureRequired: z.boolean().optional()
+    }),
+    request.body ?? {},
+    reply
+  );
+  if (!body) return;
+  if (
+    body.boundAgentName === undefined
+    && body.actorType === undefined
+    && body.signatureRequired === undefined
+  ) {
+    reply.code(400).send({ error: 'Provide at least one of boundAgentName, actorType, or signatureRequired.' });
+    return;
+  }
+
+  const existing = await prisma.apiKey.findUnique({
+    where: { id },
+    select: { id: true, name: true }
+  });
+  if (!existing) {
+    reply.code(404).send({ error: 'API key not found.' });
+    return;
+  }
+
+  const current = parseApiKeyIdentityMeta(existing.name);
+  const nextName = buildApiKeyName(current.baseName, {
+    boundAgentName: body.boundAgentName === undefined
+      ? current.boundAgentName
+      : normalizeAgentOrNull(body.boundAgentName),
+    actorType: body.actorType ?? current.actorType,
+    signatureRequired: body.signatureRequired ?? current.signatureRequired
+  });
+  const updated = await prisma.apiKey.update({
+    where: { id },
+    data: { name: nextName }
+  });
+  reply.code(200).send({
+    id: updated.id,
+    name: updated.name,
+    identity: parseApiKeyIdentityMeta(updated.name)
   });
 });
 

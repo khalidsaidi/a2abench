@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import 'dotenv/config';
+import { createHmac } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -11,6 +12,7 @@ const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-local';
 const LLM_PROVIDER = process.env.LLM_PROVIDER ?? '';
 const LLM_API_KEY = process.env.LLM_API_KEY ?? '';
 const LLM_MODEL = process.env.LLM_MODEL ?? '';
+const AGENT_SIGNATURE_SIGN_WRITES = (process.env.AGENT_SIGNATURE_SIGN_WRITES ?? 'true').toLowerCase() === 'true';
 const MCP_AUTO_TRIAL_KEYS = (process.env.MCP_AUTO_TRIAL_KEYS ?? 'true').toLowerCase() === 'true';
 const TRIAL_KEY_HINT = 'Get a trial key at /api/v1/auth/trial-key';
 
@@ -18,6 +20,28 @@ const server = new McpServer({
   name: 'A2ABench',
   version: '0.1.32'
 });
+
+function extractBearerToken(authHeader?: string) {
+  if (!authHeader) return null;
+  const [scheme, ...rest] = authHeader.split(' ');
+  if (!scheme || scheme.toLowerCase() !== 'bearer') return null;
+  const token = rest.join(' ').trim();
+  return token || null;
+}
+
+function buildWriteSignatureHeaders(authHeader: string, method: string, path: string) {
+  const token = extractBearerToken(authHeader);
+  if (!token) return null;
+  const keyPrefix = token.slice(0, 8);
+  if (!keyPrefix) return null;
+  const timestamp = String(Date.now());
+  const canonical = `${method.toUpperCase()}\n${path}\n${timestamp}\n${keyPrefix}`;
+  const signature = createHmac('sha256', token).update(canonical).digest('hex');
+  return {
+    'X-Agent-Timestamp': timestamp,
+    'X-Agent-Signature': signature
+  };
+}
 
 async function apiGet(path: string, params?: Record<string, string>, authHeaderOverride?: string) {
   const url = new URL(path, API_BASE_URL);
@@ -58,6 +82,12 @@ async function apiPost(
     headers.authorization = authHeaderOverride;
   } else if (apiKey) {
     headers.authorization = `Bearer ${apiKey}`;
+  }
+  if (AGENT_SIGNATURE_SIGN_WRITES && headers.authorization) {
+    const signatureHeaders = buildWriteSignatureHeaders(headers.authorization, 'POST', url.pathname);
+    if (signatureHeaders) {
+      Object.assign(headers, signatureHeaders);
+    }
   }
   if (path === '/answer') {
     if (LLM_PROVIDER) headers['X-LLM-Provider'] = LLM_PROVIDER;

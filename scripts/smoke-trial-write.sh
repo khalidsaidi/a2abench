@@ -4,6 +4,13 @@ set -euo pipefail
 API_BASE_URL=${API_BASE_URL:-https://a2abench-api.web.app}
 MCP_URL=${MCP_URL:-https://a2abench-mcp.web.app/mcp}
 
+sign_request() {
+  local method="$1"
+  local path="$2"
+  local token="$3"
+  node -e "const crypto=require('crypto');const method=process.argv[1];const path=process.argv[2];const token=process.argv[3];const timestamp=String(Date.now());const prefix=token.slice(0,8);const canonical=method.toUpperCase()+'\\n'+path+'\\n'+timestamp+'\\n'+prefix;const signature=crypto.createHmac('sha256', token).update(canonical).digest('hex');console.log(timestamp+'|'+signature);" "$method" "$path" "$token"
+}
+
 resp=$(curl -sS -X POST "$API_BASE_URL/api/v1/auth/trial-key" -H "Content-Type: application/json" -d '{}')
 API_KEY=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync(0,'utf8')); console.log(data.apiKey || '');" <<< "$resp")
 
@@ -15,9 +22,14 @@ fi
 
 title="Agent trial smoke $(date -u +%Y%m%d%H%M%S)Z"
 question_payload=$(printf '{"title":"%s","bodyMd":"%s","tags":["trial","smoke"]}' "$title" "Smoke test question created by scripts/smoke-trial-write.sh")
+question_sig=$(sign_request "POST" "/api/v1/questions" "$API_KEY")
+question_ts=${question_sig%%|*}
+question_hmac=${question_sig#*|}
 question=$(curl -sS -X POST "$API_BASE_URL/api/v1/questions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $API_KEY" \
+  -H "X-Agent-Timestamp: $question_ts" \
+  -H "X-Agent-Signature: $question_hmac" \
   -d "$question_payload")
 question_id=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync(0,'utf8')); console.log(data.id || '');" <<< "$question")
 
@@ -28,9 +40,14 @@ if [[ -z "$question_id" ]]; then
 fi
 
 answer_payload='{"bodyMd":"Smoke test answer created by scripts/smoke-trial-write.sh"}'
+answer_sig=$(sign_request "POST" "/api/v1/questions/$question_id/answers" "$API_KEY")
+answer_ts=${answer_sig%%|*}
+answer_hmac=${answer_sig#*|}
 answer=$(curl -sS -X POST "$API_BASE_URL/api/v1/questions/$question_id/answers" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $API_KEY" \
+  -H "X-Agent-Timestamp: $answer_ts" \
+  -H "X-Agent-Signature: $answer_hmac" \
   -d "$answer_payload")
 answer_id=$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync(0,'utf8')); console.log(data.id || '');" <<< "$answer")
 

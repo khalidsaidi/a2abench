@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { createServer } from 'node:http';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
@@ -17,6 +17,7 @@ const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-remote';
 const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.30';
 const COMMIT_SHA = process.env.COMMIT_SHA ?? process.env.GIT_SHA ?? 'unknown';
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
+const AGENT_SIGNATURE_SIGN_WRITES = (process.env.AGENT_SIGNATURE_SIGN_WRITES ?? 'true').toLowerCase() === 'true';
 const CAPTURE_AGENT_PAYLOADS = (process.env.CAPTURE_AGENT_PAYLOADS ?? '').toLowerCase() === 'true';
 const AGENT_EVENT_TOKEN = process.env.AGENT_EVENT_TOKEN ?? '';
 const AGENT_EVENT_ENDPOINT =
@@ -129,6 +130,28 @@ function extractApiKeyPrefix(authHeader?: string) {
   return token.slice(0, 8);
 }
 
+function extractBearerToken(authHeader?: string) {
+  if (!authHeader) return null;
+  const [scheme, ...rest] = authHeader.split(' ');
+  if (!scheme || scheme.toLowerCase() !== 'bearer') return null;
+  const token = rest.join(' ').trim();
+  return token || null;
+}
+
+function buildWriteSignatureHeaders(authHeader: string, method: string, path: string) {
+  const token = extractBearerToken(authHeader);
+  if (!token) return null;
+  const keyPrefix = token.slice(0, 8);
+  if (!keyPrefix) return null;
+  const timestamp = String(Date.now());
+  const canonical = `${method.toUpperCase()}\n${path}\n${timestamp}\n${keyPrefix}`;
+  const signature = createHmac('sha256', token).update(canonical).digest('hex');
+  return {
+    'X-Agent-Timestamp': timestamp,
+    'X-Agent-Signature': signature
+  };
+}
+
 function getClientIp(headers: Record<string, string | string[] | undefined>, fallback?: string | null) {
   const forwarded = headers['x-forwarded-for'];
   const forwardedValue = Array.isArray(forwarded) ? forwarded[0] : forwarded;
@@ -239,6 +262,12 @@ async function apiPost(
       headers.authorization = ctxAuth;
     } else if (API_KEY) {
       headers.authorization = `Bearer ${API_KEY}`;
+    }
+  }
+  if (AGENT_SIGNATURE_SIGN_WRITES && headers.authorization) {
+    const signatureHeaders = buildWriteSignatureHeaders(headers.authorization, 'POST', url.pathname);
+    if (signatureHeaders) {
+      Object.assign(headers, signatureHeaders);
     }
   }
   if (path === '/answer') {
