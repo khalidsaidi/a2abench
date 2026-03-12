@@ -18,11 +18,12 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL ?? '';
 const ADMIN_DASH_USER = process.env.ADMIN_DASH_USER ?? '';
 const ADMIN_DASH_PASS = process.env.ADMIN_DASH_PASS ?? '';
+const AGENT_OPEN_MODE = (process.env.AGENT_OPEN_MODE ?? 'true').toLowerCase() === 'true';
 const TRIAL_KEY_TTL_HOURS = Number(process.env.TRIAL_KEY_TTL_HOURS ?? 24);
-const TRIAL_DAILY_WRITE_LIMIT = Number(process.env.TRIAL_DAILY_WRITE_LIMIT ?? 20);
-const TRIAL_DAILY_QUESTION_LIMIT = Number(process.env.TRIAL_DAILY_QUESTION_LIMIT ?? 5);
-const TRIAL_DAILY_ANSWER_LIMIT = Number(process.env.TRIAL_DAILY_ANSWER_LIMIT ?? 20);
-const TRIAL_KEY_RATE_LIMIT_MAX = Number(process.env.TRIAL_KEY_RATE_LIMIT_MAX ?? 5);
+const TRIAL_DAILY_WRITE_LIMIT = Number(process.env.TRIAL_DAILY_WRITE_LIMIT ?? (AGENT_OPEN_MODE ? 400 : 20));
+const TRIAL_DAILY_QUESTION_LIMIT = Number(process.env.TRIAL_DAILY_QUESTION_LIMIT ?? (AGENT_OPEN_MODE ? 120 : 5));
+const TRIAL_DAILY_ANSWER_LIMIT = Number(process.env.TRIAL_DAILY_ANSWER_LIMIT ?? (AGENT_OPEN_MODE ? 400 : 20));
+const TRIAL_KEY_RATE_LIMIT_MAX = Number(process.env.TRIAL_KEY_RATE_LIMIT_MAX ?? (AGENT_OPEN_MODE ? 100 : 5));
 const TRIAL_KEY_RATE_LIMIT_WINDOW = process.env.TRIAL_KEY_RATE_LIMIT_WINDOW ?? '1 day';
 const TRIAL_KEY_ACTOR_TYPE = process.env.TRIAL_KEY_ACTOR_TYPE ?? 'unknown';
 const TRIAL_AUTO_SUBSCRIBE = (process.env.TRIAL_AUTO_SUBSCRIBE ?? 'true').toLowerCase() === 'true';
@@ -36,11 +37,11 @@ const TRIAL_AUTO_SUBSCRIBE_TAGS_RAW = (process.env.TRIAL_AUTO_SUBSCRIBE_TAGS ?? 
   .map((value) => value.trim().toLowerCase())
   .filter(Boolean);
 const KEYLESS_AUTH_ENABLED = (process.env.KEYLESS_AUTH_ENABLED ?? 'true').toLowerCase() === 'true';
-const KEYLESS_AUTH_ALLOW_ANONYMOUS = (process.env.KEYLESS_AUTH_ALLOW_ANONYMOUS ?? 'false').toLowerCase() === 'true';
+const KEYLESS_AUTH_ALLOW_ANONYMOUS = (process.env.KEYLESS_AUTH_ALLOW_ANONYMOUS ?? (AGENT_OPEN_MODE ? 'true' : 'false')).toLowerCase() === 'true';
 const KEYLESS_AUTH_ACTOR_TYPE = normalizeActorType(process.env.KEYLESS_AUTH_ACTOR_TYPE ?? 'public_external');
-const KEYLESS_DAILY_WRITE_LIMIT = Number(process.env.KEYLESS_DAILY_WRITE_LIMIT ?? 200);
-const KEYLESS_DAILY_QUESTION_LIMIT = Number(process.env.KEYLESS_DAILY_QUESTION_LIMIT ?? 80);
-const KEYLESS_DAILY_ANSWER_LIMIT = Number(process.env.KEYLESS_DAILY_ANSWER_LIMIT ?? 200);
+const KEYLESS_DAILY_WRITE_LIMIT = Number(process.env.KEYLESS_DAILY_WRITE_LIMIT ?? (AGENT_OPEN_MODE ? 5000 : 200));
+const KEYLESS_DAILY_QUESTION_LIMIT = Number(process.env.KEYLESS_DAILY_QUESTION_LIMIT ?? (AGENT_OPEN_MODE ? 1200 : 80));
+const KEYLESS_DAILY_ANSWER_LIMIT = Number(process.env.KEYLESS_DAILY_ANSWER_LIMIT ?? (AGENT_OPEN_MODE ? 5000 : 200));
 const KEYLESS_MAX_IDENTITIES_PER_IP_PER_DAY = Number(process.env.KEYLESS_MAX_IDENTITIES_PER_IP_PER_DAY ?? 0);
 const KEYLESS_AUTO_SUBSCRIBE = (process.env.KEYLESS_AUTO_SUBSCRIBE ?? 'true').toLowerCase() === 'true';
 const AGENT_QUICKSTART_CANDIDATES = Math.max(10, Number(process.env.AGENT_QUICKSTART_CANDIDATES ?? 200));
@@ -81,6 +82,10 @@ const DELIVERY_MAX_ATTEMPTS = Math.max(1, Number(process.env.DELIVERY_MAX_ATTEMP
 const DELIVERY_RETRY_BASE_MS = Math.max(1000, Number(process.env.DELIVERY_RETRY_BASE_MS ?? 15_000));
 const DELIVERY_RETRY_MAX_MS = Math.max(DELIVERY_RETRY_BASE_MS, Number(process.env.DELIVERY_RETRY_MAX_MS ?? 3_600_000));
 const DELIVERY_PROCESS_LIMIT = Math.max(1, Number(process.env.DELIVERY_PROCESS_LIMIT ?? 100));
+const DELIVERY_REQUIRE_RECENT_ACTIVITY = (process.env.DELIVERY_REQUIRE_RECENT_ACTIVITY ?? 'true').toLowerCase() === 'true';
+const DELIVERY_ACTIVE_WEBHOOK_WINDOW_HOURS = Math.max(1, Number(process.env.DELIVERY_ACTIVE_WEBHOOK_WINDOW_HOURS ?? 24));
+const DELIVERY_ACTIVE_INBOX_WINDOW_MINUTES = Math.max(1, Number(process.env.DELIVERY_ACTIVE_INBOX_WINDOW_MINUTES ?? 15));
+const DELIVERY_NEW_SUBSCRIPTION_GRACE_MINUTES = Math.max(1, Number(process.env.DELIVERY_NEW_SUBSCRIPTION_GRACE_MINUTES ?? 120));
 const ACCEPTANCE_REMINDER_STAGES_HOURS = (process.env.ACCEPTANCE_REMINDER_STAGES_HOURS ?? '1,24,72')
   .split(',')
   .map((value) => Number(value.trim()))
@@ -105,18 +110,32 @@ const DELIVERY_LOOP_ENABLED = (process.env.DELIVERY_LOOP_ENABLED ?? 'true').toLo
 const DELIVERY_LOOP_INTERVAL_MS = Math.max(1000, Number(process.env.DELIVERY_LOOP_INTERVAL_MS ?? 5000));
 const REMINDER_LOOP_ENABLED = (process.env.REMINDER_LOOP_ENABLED ?? 'true').toLowerCase() === 'true';
 const REMINDER_LOOP_INTERVAL_MS = Math.max(5000, Number(process.env.REMINDER_LOOP_INTERVAL_MS ?? 60_000));
-const PUSH_SOLVABILITY_FILTER_ENABLED = (process.env.PUSH_SOLVABILITY_FILTER_ENABLED ?? 'true').toLowerCase() === 'true';
-const PUSH_SOLVABILITY_MIN_SCORE = Math.max(0, Math.min(100, Number(process.env.PUSH_SOLVABILITY_MIN_SCORE ?? 56)));
+const PUSH_SOLVABILITY_FILTER_ENABLED = (process.env.PUSH_SOLVABILITY_FILTER_ENABLED ?? (AGENT_OPEN_MODE ? 'false' : 'true')).toLowerCase() === 'true';
+const PUSH_SOLVABILITY_MIN_SCORE = Math.max(0, Math.min(100, Number(process.env.PUSH_SOLVABILITY_MIN_SCORE ?? (AGENT_OPEN_MODE ? 0 : 56))));
 const NEXT_BEST_JOB_MIN_SOLVABILITY = Math.max(0, Math.min(100, Number(process.env.NEXT_BEST_JOB_MIN_SOLVABILITY ?? 40)));
 const SUBSCRIPTION_PRUNE_ENABLED = (process.env.SUBSCRIPTION_PRUNE_ENABLED ?? 'true').toLowerCase() === 'true';
-const SUBSCRIPTION_PRUNE_INTERVAL_MS = Math.max(30_000, Number(process.env.SUBSCRIPTION_PRUNE_INTERVAL_MS ?? 300_000));
-const SUBSCRIPTION_PRUNE_WINDOW_HOURS = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_WINDOW_HOURS ?? 24));
-const SUBSCRIPTION_PRUNE_STALE_HOURS = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_STALE_HOURS ?? 6));
-const SUBSCRIPTION_PRUNE_MIN_AGE_HOURS = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_MIN_AGE_HOURS ?? 2));
-const SUBSCRIPTION_PRUNE_MIN_QUEUED = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_MIN_QUEUED ?? 12));
-const SUBSCRIPTION_PRUNE_MAX_FAILED = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_MAX_FAILED ?? 8));
-const SUBSCRIPTION_PRUNE_MIN_OPEN_RATE = Math.max(0, Math.min(1, Number(process.env.SUBSCRIPTION_PRUNE_MIN_OPEN_RATE ?? 0.05)));
+const SUBSCRIPTION_PRUNE_INTERVAL_MS = Math.max(30_000, Number(process.env.SUBSCRIPTION_PRUNE_INTERVAL_MS ?? (AGENT_OPEN_MODE ? 60_000 : 300_000)));
+const SUBSCRIPTION_PRUNE_WINDOW_HOURS = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_WINDOW_HOURS ?? (AGENT_OPEN_MODE ? 6 : 24)));
+const SUBSCRIPTION_PRUNE_STALE_HOURS = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_STALE_HOURS ?? (AGENT_OPEN_MODE ? 1 : 6)));
+const SUBSCRIPTION_PRUNE_MIN_AGE_HOURS = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_MIN_AGE_HOURS ?? (AGENT_OPEN_MODE ? 1 : 2)));
+const SUBSCRIPTION_PRUNE_MIN_QUEUED = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_MIN_QUEUED ?? (AGENT_OPEN_MODE ? 3 : 12)));
+const SUBSCRIPTION_PRUNE_MAX_FAILED = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_MAX_FAILED ?? (AGENT_OPEN_MODE ? 3 : 8)));
+const SUBSCRIPTION_PRUNE_MIN_OPEN_RATE = Math.max(0, Math.min(1, Number(process.env.SUBSCRIPTION_PRUNE_MIN_OPEN_RATE ?? (AGENT_OPEN_MODE ? 0.01 : 0.05))));
 const SUBSCRIPTION_PRUNE_MAX_DISABLE_PER_RUN = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_MAX_DISABLE_PER_RUN ?? 100));
+const TRACTION_SCORECARD_DAYS = Math.max(7, Math.min(90, Number(process.env.TRACTION_SCORECARD_DAYS ?? 7)));
+const TRACTION_TARGET_BOUND_AGENTS = Math.max(1, Number(process.env.TRACTION_TARGET_BOUND_AGENTS ?? 10));
+const TRACTION_TARGET_ACTIVE_ANSWERERS_7D = Math.max(1, Number(process.env.TRACTION_TARGET_ACTIVE_ANSWERERS_7D ?? 5));
+const TRACTION_TARGET_QUESTIONS_7D = Math.max(1, Number(process.env.TRACTION_TARGET_QUESTIONS_7D ?? 50));
+const TRACTION_TARGET_ANSWERS_7D = Math.max(1, Number(process.env.TRACTION_TARGET_ANSWERS_7D ?? 30));
+const TRACTION_TARGET_ANSWERS_PER_QUESTION = Math.max(0, Math.min(10, Number(process.env.TRACTION_TARGET_ANSWERS_PER_QUESTION ?? 0.8)));
+const TRACTION_TARGET_OPEN_RATE = Math.max(0, Math.min(1, Number(process.env.TRACTION_TARGET_OPEN_RATE ?? 0.2)));
+const TRACTION_TARGET_ANSWER_RATE_FROM_OPENED = Math.max(0, Math.min(1, Number(process.env.TRACTION_TARGET_ANSWER_RATE_FROM_OPENED ?? 0.3)));
+const TRACTION_TARGET_ACCEPT_RATE_FROM_ANSWERED = Math.max(0, Math.min(1, Number(process.env.TRACTION_TARGET_ACCEPT_RATE_FROM_ANSWERED ?? 0.25)));
+const TRACTION_TARGET_RETAINED_ANSWERER_RATE_7D = Math.max(0, Math.min(1, Number(process.env.TRACTION_TARGET_RETAINED_ANSWERER_RATE_7D ?? 0.15)));
+const TRACTION_ALERT_WEBHOOK_URL = (process.env.TRACTION_ALERT_WEBHOOK_URL ?? '').trim();
+const TRACTION_ALERT_COOLDOWN_MINUTES = Math.max(1, Number(process.env.TRACTION_ALERT_COOLDOWN_MINUTES ?? 360));
+const TRACTION_ALERT_LOOP_ENABLED = (process.env.TRACTION_ALERT_LOOP_ENABLED ?? 'true').toLowerCase() === 'true';
+const TRACTION_ALERT_LOOP_INTERVAL_MS = Math.max(60_000, Number(process.env.TRACTION_ALERT_LOOP_INTERVAL_MS ?? 900_000));
 const SYSTEM_BASE_URL = process.env.SYSTEM_BASE_URL || PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const A2A_TASK_TTL_MINUTES = Math.max(5, Number(process.env.A2A_TASK_TTL_MINUTES ?? 60));
 const A2A_TASK_TTL_MS = A2A_TASK_TTL_MINUTES * 60 * 1000;
@@ -131,6 +150,18 @@ const SYNTHETIC_AGENT_SUBSTRINGS = (process.env.SYNTHETIC_AGENT_SUBSTRINGS
   .split(',')
   .map((value) => value.trim().toLowerCase())
   .filter(Boolean);
+const EXTERNAL_EXCLUDED_AGENT_PREFIXES = (process.env.EXTERNAL_EXCLUDED_AGENT_PREFIXES
+  ?? 'a2abench-')
+  .split(',')
+  .map((value) => value.trim().toLowerCase())
+  .filter(Boolean);
+const EXTERNAL_EXCLUDED_AGENT_NAMES = new Set(
+  (process.env.EXTERNAL_EXCLUDED_AGENT_NAMES
+    ?? 'a2abench-mcp-remote,mcp-write-sign-check,partner-agent-test')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+);
 
 const usageEventBuffer: Prisma.UsageEventCreateManyInput[] = [];
 let usageEventDropped = 0;
@@ -140,10 +171,15 @@ let deliveryLoopTimer: NodeJS.Timeout | null = null;
 let reminderLoopTimer: NodeJS.Timeout | null = null;
 let autoCloseLoopTimer: NodeJS.Timeout | null = null;
 let subscriptionPruneLoopTimer: NodeJS.Timeout | null = null;
+let tractionAlertLoopTimer: NodeJS.Timeout | null = null;
 let deliveryLoopRunning = false;
 let reminderLoopRunning = false;
 let autoCloseLoopRunning = false;
 let subscriptionPruneLoopRunning = false;
+let tractionAlertLoopRunning = false;
+let lastTractionAlertDigest: string | null = null;
+let lastTractionAlertStatus: 'pass' | 'fail' | null = null;
+let lastTractionAlertAt = 0;
 
 await fastify.register(cors, { origin: true });
 await fastify.register(rateLimit, { global: false });
@@ -328,10 +364,25 @@ function isSyntheticAgentName(value: string | null | undefined) {
   return SYNTHETIC_AGENT_SUBSTRINGS.some((fragment) => fragment && normalized.includes(fragment));
 }
 
+function isExcludedExternalAgentName(value: string | null | undefined) {
+  const normalized = normalizeAgentName(value);
+  if (!normalized) return false;
+  if (EXTERNAL_EXCLUDED_AGENT_NAMES.has(normalized)) return true;
+  return EXTERNAL_EXCLUDED_AGENT_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
 function isRealAgentName(value: string | null | undefined) {
   const normalized = normalizeAgentOrNull(value);
   if (!normalized) return false;
   return !isSyntheticAgentName(normalized);
+}
+
+function isExternalAdoptionAgentName(value: string | null | undefined) {
+  const normalized = normalizeAgentOrNull(value);
+  if (!normalized) return false;
+  if (isSyntheticAgentName(normalized)) return false;
+  if (isExcludedExternalAgentName(normalized)) return false;
+  return true;
 }
 
 function toNumber(value: bigint | number | string | null | undefined) {
@@ -1947,6 +1998,8 @@ const CAPTURED_ROUTES = new Set([
   '/api/v1/incentives/payouts/history',
   '/api/v1/incentives/seasons/monthly',
   '/api/v1/admin/traction/funnel',
+  '/api/v1/admin/traction/scorecard',
+  '/api/v1/admin/traction/alerts/send',
   '/api/v1/admin/retention/weekly',
   '/api/v1/admin/delivery/process',
   '/api/v1/admin/delivery/queue',
@@ -2543,11 +2596,105 @@ async function pruneInactiveSubscriptions(options?: { limit?: number; dryRun?: b
   };
 }
 
+async function filterSubscriptionsForEventDelivery(
+  subscriptions: Array<{
+    id: string;
+    createdAt: Date;
+    webhookUrl: string | null;
+  }>,
+  event: string
+) {
+  if (!DELIVERY_REQUIRE_RECENT_ACTIVITY || subscriptions.length === 0 || event !== 'question.created') {
+    return {
+      subscriptions,
+      suppressedInactive: 0,
+      mode: 'disabled_or_non_created' as const
+    };
+  }
+
+  const nowMs = Date.now();
+  const graceSince = new Date(nowMs - DELIVERY_NEW_SUBSCRIPTION_GRACE_MINUTES * 60 * 1000);
+  const webhookSince = new Date(nowMs - DELIVERY_ACTIVE_WEBHOOK_WINDOW_HOURS * 60 * 60 * 1000);
+  const inboxSince = new Date(nowMs - DELIVERY_ACTIVE_INBOX_WINDOW_MINUTES * 60 * 1000);
+  const ids = subscriptions.map((sub) => sub.id);
+  const latestDeliveredRows = await prisma.deliveryQueue.groupBy({
+    by: ['subscriptionId'],
+    where: {
+      subscriptionId: { in: ids },
+      deliveredAt: { not: null }
+    },
+    _max: {
+      deliveredAt: true
+    }
+  });
+
+  const latestDeliveredAtBySub = new Map<string, Date>();
+  for (const row of latestDeliveredRows) {
+    if (row._max.deliveredAt) {
+      latestDeliveredAtBySub.set(row.subscriptionId, row._max.deliveredAt);
+    }
+  }
+
+  const eligible: typeof subscriptions = [];
+  let suppressedInactive = 0;
+
+  for (const sub of subscriptions) {
+    if (sub.createdAt >= graceSince) {
+      eligible.push(sub);
+      continue;
+    }
+    const latestDeliveredAt = latestDeliveredAtBySub.get(sub.id);
+    if (!latestDeliveredAt) {
+      suppressedInactive += 1;
+      continue;
+    }
+    const threshold = sub.webhookUrl ? webhookSince : inboxSince;
+    if (latestDeliveredAt >= threshold) {
+      eligible.push(sub);
+      continue;
+    }
+    suppressedInactive += 1;
+  }
+
+  return {
+    subscriptions: eligible,
+    suppressedInactive,
+    mode: 'recency_filtered' as const,
+    windows: {
+      webhookHours: DELIVERY_ACTIVE_WEBHOOK_WINDOW_HOURS,
+      inboxMinutes: DELIVERY_ACTIVE_INBOX_WINDOW_MINUTES,
+      newSubscriptionGraceMinutes: DELIVERY_NEW_SUBSCRIPTION_GRACE_MINUTES
+    }
+  };
+}
+
 async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
-  const subscriptions = await prisma.questionSubscription.findMany({
+  const fetchedSubscriptions = await prisma.questionSubscription.findMany({
     where: { active: true }
   });
-  if (subscriptions.length === 0) return;
+  if (fetchedSubscriptions.length === 0) return;
+  const liveness = await filterSubscriptionsForEventDelivery(
+    fetchedSubscriptions.map((sub) => ({
+      id: sub.id,
+      createdAt: sub.createdAt,
+      webhookUrl: sub.webhookUrl ?? null
+    })),
+    input.event
+  );
+  const activeSubIds = new Set(liveness.subscriptions.map((row) => row.id));
+  const subscriptions = fetchedSubscriptions.filter((row) => activeSubIds.has(row.id));
+  if (subscriptions.length === 0) {
+    if (liveness.suppressedInactive > 0) {
+      fastify.log.info({
+        event: input.event,
+        questionId: input.question.id,
+        fetchedSubscriptions: fetchedSubscriptions.length,
+        suppressedInactive: liveness.suppressedInactive,
+        mode: liveness.mode
+      }, 'question webhook suppressed by liveness filter');
+    }
+    return;
+  }
 
   const payloadBase = {
     event: input.event,
@@ -2662,6 +2809,17 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
         filteredBySolvability,
         threshold: PUSH_SOLVABILITY_MIN_SCORE
       }, 'question webhook suppressed by solvability filter');
+    }
+    if (liveness.suppressedInactive > 0) {
+      fastify.log.info({
+        event: input.event,
+        questionId: input.question.id,
+        fetchedSubscriptions: fetchedSubscriptions.length,
+        eligibleSubscriptions: subscriptions.length,
+        suppressedInactive: liveness.suppressedInactive,
+        mode: liveness.mode,
+        windows: 'windows' in liveness ? liveness.windows : undefined
+      }, 'question webhook liveness filter stats');
     }
     return;
   }
@@ -3196,6 +3354,7 @@ function formatRecommendedQuestion(
   recommended: RecommendedQuestion,
   baseUrl: string
 ) {
+  const actions = getQuestionActionHints(recommended.id);
   return {
     id: recommended.id,
     title: recommended.title,
@@ -3214,9 +3373,23 @@ function formatRecommendedQuestion(
     },
     activeClaim: recommended.activeClaim,
     url: `${baseUrl}/q/${recommended.id}`,
-    actions: {
-      answerJob: `POST /api/v1/questions/${recommended.id}/answer-job`,
-      claim: `POST /api/v1/questions/${recommended.id}/claim`
+    actions
+  };
+}
+
+function getQuestionActionHints(questionId: string) {
+  const id = String(questionId).trim();
+  return {
+    answerJob: {
+      method: 'POST',
+      path: `/api/v1/questions/${id}/answer-job`,
+      body: {
+        bodyMd: '<markdown answer>'
+      }
+    },
+    claim: {
+      method: 'POST',
+      path: `/api/v1/questions/${id}/claim`
     }
   };
 }
@@ -3381,12 +3554,16 @@ async function getExternalIdentityScope(options?: { includeSynthetic?: boolean }
   const userIds = new Set<string>();
   const boundAgents = new Set<string>();
   const filteredOutBoundAgents = new Set<string>();
+  const filteredOutExcludedBoundAgents = new Set<string>();
   for (const row of rows) {
     const meta = parseApiKeyIdentityMeta(row.name);
     if (!actorTypes.includes(meta.actorType)) continue;
     const normalizedBound = normalizeAgentOrNull(meta.boundAgentName);
     const isSynthetic = isSyntheticAgentName(normalizedBound);
+    const isExcluded = isExcludedExternalAgentName(normalizedBound);
     if (normalizedBound && isSynthetic) filteredOutBoundAgents.add(normalizedBound);
+    if (normalizedBound && isExcluded) filteredOutExcludedBoundAgents.add(normalizedBound);
+    if (isExcluded) continue;
     if (!includeSynthetic && isSynthetic) continue;
     userIds.add(row.userId);
     if (normalizedBound) boundAgents.add(normalizedBound);
@@ -3395,7 +3572,8 @@ async function getExternalIdentityScope(options?: { includeSynthetic?: boolean }
     actorTypes,
     userIds: Array.from(userIds),
     boundAgents: Array.from(boundAgents),
-    filteredOutBoundAgents: Array.from(filteredOutBoundAgents)
+    filteredOutBoundAgents: Array.from(filteredOutBoundAgents),
+    filteredOutExcludedBoundAgents: Array.from(filteredOutExcludedBoundAgents)
   };
 }
 
@@ -3603,6 +3781,7 @@ async function getTractionFunnel(days: number, options?: {
     scopedAgents
       .map((value) => normalizeAgentOrNull(value))
       .filter((value): value is string => Boolean(value))
+      .filter((value) => !isExcludedExternalAgentName(value))
       .filter((value) => includeSynthetic || !isSyntheticAgentName(value))
   );
   const scopeApplied = externalOnly ? Array.from(scopedAgentSet) : null;
@@ -3675,6 +3854,7 @@ async function getTractionFunnel(days: number, options?: {
       questionId: row.questionId?.trim() ?? null
     }))
     .filter((row): row is typeof row & { agentName: string; questionId: string } => Boolean(row.agentName && row.questionId))
+    .filter((row) => !isExcludedExternalAgentName(row.agentName))
     .filter((row) => includeSynthetic || !isSyntheticAgentName(row.agentName));
 
   const queued = deliveries.length;
@@ -3865,6 +4045,414 @@ async function getTractionFunnel(days: number, options?: {
     topResponders: Array.from(responderMap.values())
       .sort((a, b) => b.answered - a.answered || b.accepted - a.accepted || a.agentName.localeCompare(b.agentName))
       .slice(0, 20)
+  };
+}
+
+type TractionMetricComparator = '>=' | '<=';
+
+type WeeklyTractionMetric = {
+  id: string;
+  label: string;
+  description: string;
+  unit: 'count' | 'ratio';
+  comparator: TractionMetricComparator;
+  target: number;
+  value: number;
+  pass: boolean;
+  gap: number;
+};
+
+type WeeklyTractionScorecard = {
+  generatedAt: string;
+  window: {
+    days: number;
+    since: string;
+  };
+  scope: {
+    externalOnly: boolean;
+    includeSynthetic: boolean;
+  };
+  targets: {
+    boundAgents: number;
+    activeAnswerers7d: number;
+    questions7d: number;
+    answers7d: number;
+    answersPerQuestion: number;
+    openRate: number;
+    answerRateFromOpened: number;
+    acceptRateFromAnswered: number;
+    retainedAnswererRate7d: number;
+  };
+  summary: {
+    status: 'pass' | 'fail';
+    passCount: number;
+    failCount: number;
+    score: number;
+  };
+  metrics: WeeklyTractionMetric[];
+  snapshots: {
+    external: {
+      identity: {
+        boundAgents: number;
+        users: number;
+      };
+      content: {
+        questionsInRange: number;
+        answersInRange: number;
+        acceptedInRange: number;
+      };
+      requests: {
+        writesInRange: number;
+        activeAgentsInRange: number;
+      };
+      kpi: {
+        currentAnswerers7d: number;
+        retainedAnswerers7d: number;
+        retainedAnswererRate7d: number;
+      };
+      topAgents: Array<{ agentName: string; count: number }>;
+    };
+    funnel: {
+      totals: {
+        queued: number;
+        opened: number;
+        answered: number;
+        accepted: number;
+      };
+      conversion: {
+        openRate: number;
+        answerRateFromOpened: number;
+        acceptRateFromAnswered: number;
+      };
+    };
+  };
+};
+
+function buildTractionMetric(input: {
+  id: string;
+  label: string;
+  description: string;
+  unit: 'count' | 'ratio';
+  comparator: TractionMetricComparator;
+  target: number;
+  value: number | null | undefined;
+}) {
+  const value = Number.isFinite(input.value ?? NaN) ? Number(input.value) : 0;
+  const target = Number.isFinite(input.target) ? Number(input.target) : 0;
+  const pass = input.comparator === '>=' ? value >= target : value <= target;
+  const gap = input.comparator === '>=' ? value - target : target - value;
+  return {
+    id: input.id,
+    label: input.label,
+    description: input.description,
+    unit: input.unit,
+    comparator: input.comparator,
+    target,
+    value,
+    pass,
+    gap
+  } satisfies WeeklyTractionMetric;
+}
+
+async function getWeeklyTractionScorecard(days = TRACTION_SCORECARD_DAYS): Promise<WeeklyTractionScorecard> {
+  const windowDays = Math.max(7, Math.min(90, Math.floor(days)));
+  const usage = await getUsageSummaryCached(windowDays, false) as Awaited<ReturnType<typeof getUsageSummary>>;
+  const funnel = await getTractionFunnel(windowDays, {
+    externalOnly: true,
+    includeSynthetic: false,
+    answerWindowHours: 24
+  });
+
+  const externalIdentity = usage.external?.identity ?? {
+    boundAgents: 0,
+    users: 0
+  };
+  const externalContent = usage.external?.content ?? {
+    questionsInRange: 0,
+    answersInRange: 0,
+    acceptedInRange: 0
+  };
+  const externalRequests = usage.external?.requests ?? {
+    writesInRange: 0,
+    activeAgentsInRange: 0
+  };
+  const externalKpi = usage.external?.kpi ?? {
+    currentAnswerers7d: 0,
+    retainedAnswerers7d: 0,
+    retainedAnswererRate7d: 0
+  };
+  const externalTopAgents = Array.isArray(usage.external?.topAgents)
+    ? usage.external.topAgents.map((row) => ({
+      agentName: String(row.agentName ?? ''),
+      count: toNumber(row.count)
+    }))
+    : [];
+
+  const metrics: WeeklyTractionMetric[] = [
+    buildTractionMetric({
+      id: 'bound_agents',
+      label: 'Bound external agents',
+      description: 'Real external agents with bound identity in scope.',
+      unit: 'count',
+      comparator: '>=',
+      target: TRACTION_TARGET_BOUND_AGENTS,
+      value: externalIdentity.boundAgents
+    }),
+    buildTractionMetric({
+      id: 'active_answerers_7d',
+      label: 'Active answerers (7d)',
+      description: 'Distinct real external answerers in the last 7 days.',
+      unit: 'count',
+      comparator: '>=',
+      target: TRACTION_TARGET_ACTIVE_ANSWERERS_7D,
+      value: externalKpi.currentAnswerers7d
+    }),
+    buildTractionMetric({
+      id: 'questions_7d',
+      label: 'Questions (window)',
+      description: 'Real external questions created in scorecard window.',
+      unit: 'count',
+      comparator: '>=',
+      target: TRACTION_TARGET_QUESTIONS_7D,
+      value: externalContent.questionsInRange
+    }),
+    buildTractionMetric({
+      id: 'answers_7d',
+      label: 'Answers (window)',
+      description: 'Real external answers created in scorecard window.',
+      unit: 'count',
+      comparator: '>=',
+      target: TRACTION_TARGET_ANSWERS_7D,
+      value: externalContent.answersInRange
+    }),
+    buildTractionMetric({
+      id: 'answers_per_question',
+      label: 'Answers per question',
+      description: 'Depth of response for real external questions.',
+      unit: 'ratio',
+      comparator: '>=',
+      target: TRACTION_TARGET_ANSWERS_PER_QUESTION,
+      value: ratio(externalContent.answersInRange, externalContent.questionsInRange)
+    }),
+    buildTractionMetric({
+      id: 'open_rate',
+      label: 'Delivery open rate',
+      description: 'Share of queued deliveries opened by real external agents.',
+      unit: 'ratio',
+      comparator: '>=',
+      target: TRACTION_TARGET_OPEN_RATE,
+      value: funnel.conversion.openRate
+    }),
+    buildTractionMetric({
+      id: 'answer_rate_from_opened',
+      label: 'Answer rate from opened',
+      description: 'Opened deliveries that resulted in an answer.',
+      unit: 'ratio',
+      comparator: '>=',
+      target: TRACTION_TARGET_ANSWER_RATE_FROM_OPENED,
+      value: funnel.conversion.answerRateFromOpened
+    }),
+    buildTractionMetric({
+      id: 'accept_rate_from_answered',
+      label: 'Accept rate from answered',
+      description: 'Answered deliveries that were accepted.',
+      unit: 'ratio',
+      comparator: '>=',
+      target: TRACTION_TARGET_ACCEPT_RATE_FROM_ANSWERED,
+      value: funnel.conversion.acceptRateFromAnswered
+    }),
+    buildTractionMetric({
+      id: 'retained_answerer_rate_7d',
+      label: 'Retained answerer rate (7d)',
+      description: 'Current 7d answerers also active in prior 7d.',
+      unit: 'ratio',
+      comparator: '>=',
+      target: TRACTION_TARGET_RETAINED_ANSWERER_RATE_7D,
+      value: externalKpi.retainedAnswererRate7d
+    })
+  ];
+
+  const passCount = metrics.filter((row) => row.pass).length;
+  const failCount = metrics.length - passCount;
+  const score = Math.round((passCount / Math.max(1, metrics.length)) * 100);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    window: {
+      days: windowDays,
+      since: usage.since
+    },
+    scope: {
+      externalOnly: true,
+      includeSynthetic: false
+    },
+    targets: {
+      boundAgents: TRACTION_TARGET_BOUND_AGENTS,
+      activeAnswerers7d: TRACTION_TARGET_ACTIVE_ANSWERERS_7D,
+      questions7d: TRACTION_TARGET_QUESTIONS_7D,
+      answers7d: TRACTION_TARGET_ANSWERS_7D,
+      answersPerQuestion: TRACTION_TARGET_ANSWERS_PER_QUESTION,
+      openRate: TRACTION_TARGET_OPEN_RATE,
+      answerRateFromOpened: TRACTION_TARGET_ANSWER_RATE_FROM_OPENED,
+      acceptRateFromAnswered: TRACTION_TARGET_ACCEPT_RATE_FROM_ANSWERED,
+      retainedAnswererRate7d: TRACTION_TARGET_RETAINED_ANSWERER_RATE_7D
+    },
+    summary: {
+      status: failCount === 0 ? 'pass' : 'fail',
+      passCount,
+      failCount,
+      score
+    },
+    metrics,
+    snapshots: {
+      external: {
+        identity: {
+          boundAgents: toNumber(externalIdentity.boundAgents),
+          users: toNumber(externalIdentity.users)
+        },
+        content: {
+          questionsInRange: toNumber(externalContent.questionsInRange),
+          answersInRange: toNumber(externalContent.answersInRange),
+          acceptedInRange: toNumber(externalContent.acceptedInRange)
+        },
+        requests: {
+          writesInRange: toNumber(externalRequests.writesInRange),
+          activeAgentsInRange: toNumber(externalRequests.activeAgentsInRange)
+        },
+        kpi: {
+          currentAnswerers7d: toNumber(externalKpi.currentAnswerers7d),
+          retainedAnswerers7d: toNumber(externalKpi.retainedAnswerers7d),
+          retainedAnswererRate7d: toNumber(externalKpi.retainedAnswererRate7d)
+        },
+        topAgents: externalTopAgents
+      },
+      funnel: {
+        totals: {
+          queued: funnel.totals.queued,
+          opened: funnel.totals.opened,
+          answered: funnel.totals.answered,
+          accepted: funnel.totals.accepted
+        },
+        conversion: {
+          openRate: funnel.conversion.openRate,
+          answerRateFromOpened: funnel.conversion.answerRateFromOpened,
+          acceptRateFromAnswered: funnel.conversion.acceptRateFromAnswered
+        }
+      }
+    }
+  };
+}
+
+async function dispatchTractionScorecardAlert(input?: {
+  source?: 'loop' | 'manual';
+  force?: boolean;
+  days?: number;
+}) {
+  const source = input?.source ?? 'manual';
+  const force = input?.force === true;
+  const scorecard = await getWeeklyTractionScorecard(input?.days ?? TRACTION_SCORECARD_DAYS);
+  const status = scorecard.summary.status;
+  const failingMetrics = scorecard.metrics
+    .filter((row) => !row.pass)
+    .map((row) => ({
+      id: row.id,
+      label: row.label,
+      value: row.value,
+      comparator: row.comparator,
+      target: row.target,
+      gap: row.gap,
+      unit: row.unit
+    }));
+
+  const digest = sha256(JSON.stringify({
+    status,
+    failingMetrics: failingMetrics.map((row) => ({
+      id: row.id,
+      value: Number(row.value.toFixed(6)),
+      target: Number(row.target.toFixed(6)),
+      comparator: row.comparator
+    }))
+  }));
+  const nowMs = Date.now();
+  const cooldownMs = TRACTION_ALERT_COOLDOWN_MINUTES * 60 * 1000;
+  const changed = digest !== lastTractionAlertDigest || status !== lastTractionAlertStatus;
+  const inCooldown = nowMs - lastTractionAlertAt < cooldownMs;
+  const shouldSendByStatus = status === 'fail' || lastTractionAlertStatus === 'fail';
+
+  if (!TRACTION_ALERT_WEBHOOK_URL) {
+    return {
+      ok: true,
+      sent: false,
+      reason: 'webhook_not_configured',
+      source,
+      status,
+      scorecard
+    };
+  }
+  if (!force && !shouldSendByStatus) {
+    return {
+      ok: true,
+      sent: false,
+      reason: 'healthy_no_alert',
+      source,
+      status,
+      scorecard
+    };
+  }
+  if (!force && inCooldown && !changed) {
+    return {
+      ok: true,
+      sent: false,
+      reason: 'cooldown',
+      source,
+      status,
+      scorecard
+    };
+  }
+
+  const payload = {
+    event: 'a2abench.traction.scorecard',
+    source,
+    generatedAt: new Date().toISOString(),
+    status,
+    summary: scorecard.summary,
+    window: scorecard.window,
+    failingMetrics,
+    metrics: scorecard.metrics.map((row) => ({
+      id: row.id,
+      label: row.label,
+      pass: row.pass,
+      value: row.value,
+      comparator: row.comparator,
+      target: row.target,
+      unit: row.unit
+    })),
+    topAgents: scorecard.snapshots.external.topAgents.slice(0, 10)
+  };
+
+  const response = await fetch(TRACTION_ALERT_WEBHOOK_URL, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+  const responseText = await response.text();
+  if (!response.ok) {
+    throw new Error(`traction_alert_webhook_failed: HTTP ${response.status} ${responseText.slice(0, 500)}`);
+  }
+
+  lastTractionAlertDigest = digest;
+  lastTractionAlertStatus = status;
+  lastTractionAlertAt = nowMs;
+
+  return {
+    ok: true,
+    sent: true,
+    source,
+    status,
+    webhookStatus: response.status,
+    scorecard
   };
 }
 
@@ -4250,6 +4838,33 @@ function startBackgroundWorkers() {
     subscriptionPruneLoopTimer.unref?.();
   }
 
+  if (TRACTION_ALERT_LOOP_ENABLED && !tractionAlertLoopTimer) {
+    tractionAlertLoopTimer = setInterval(() => {
+      if (tractionAlertLoopRunning) return;
+      tractionAlertLoopRunning = true;
+      void withPrismaPoolRetry(
+        'traction_alert_loop',
+        () => dispatchTractionScorecardAlert({ source: 'loop' }),
+        2
+      )
+        .then((summary) => {
+          if (summary.sent) {
+            fastify.log.info({
+              status: summary.status,
+              source: summary.source
+            }, 'traction scorecard alert sent');
+          }
+        })
+        .catch((err) => {
+          fastify.log.warn({ err }, 'traction alert loop failed');
+        })
+        .finally(() => {
+          tractionAlertLoopRunning = false;
+        });
+    }, TRACTION_ALERT_LOOP_INTERVAL_MS);
+    tractionAlertLoopTimer.unref?.();
+  }
+
   fastify.log.info({
     usageLogFlushMs: USAGE_LOG_FLUSH_INTERVAL_MS,
     deliveryLoopEnabled: DELIVERY_LOOP_ENABLED,
@@ -4263,6 +4878,10 @@ function startBackgroundWorkers() {
     subscriptionPruneEnabled: SUBSCRIPTION_PRUNE_ENABLED,
     subscriptionPruneIntervalMs: SUBSCRIPTION_PRUNE_INTERVAL_MS,
     subscriptionPruneWindowHours: SUBSCRIPTION_PRUNE_WINDOW_HOURS,
+    tractionScorecardDays: TRACTION_SCORECARD_DAYS,
+    tractionAlertLoopEnabled: TRACTION_ALERT_LOOP_ENABLED,
+    tractionAlertLoopIntervalMs: TRACTION_ALERT_LOOP_INTERVAL_MS,
+    tractionAlertWebhookConfigured: TRACTION_ALERT_WEBHOOK_URL.length > 0,
     pushSolvabilityFilterEnabled: PUSH_SOLVABILITY_FILTER_ENABLED,
     pushSolvabilityMinScore: PUSH_SOLVABILITY_MIN_SCORE,
     nextBestJobMinSolvability: NEXT_BEST_JOB_MIN_SOLVABILITY
@@ -4289,6 +4908,10 @@ async function stopBackgroundWorkers() {
   if (subscriptionPruneLoopTimer) {
     clearInterval(subscriptionPruneLoopTimer);
     subscriptionPruneLoopTimer = null;
+  }
+  if (tractionAlertLoopTimer) {
+    clearInterval(tractionAlertLoopTimer);
+    tractionAlertLoopTimer = null;
   }
 
   if (usageEventFlushPromise) {
@@ -5162,13 +5785,28 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
   const externalBoundAgentsAllSet = new Set<string>();
   const externalUserIdsRealSet = new Set<string>();
   const externalBoundAgentsRealSet = new Set<string>();
+  const externalUserIdsSyntheticSet = new Set<string>();
+  const externalUserIdsExcludedSet = new Set<string>();
+  const externalBoundAgentsSyntheticSet = new Set<string>();
+  const externalBoundAgentsExcludedSet = new Set<string>();
   for (const row of externalKeyRows) {
     const meta = parseApiKeyIdentityMeta(row.name);
     if (!externalActorTypes.includes(meta.actorType)) continue;
     const normalizedBound = normalizeAgentOrNull(meta.boundAgentName);
     externalUserIdsAllSet.add(row.userId);
     if (normalizedBound) externalBoundAgentsAllSet.add(normalizedBound);
-    if (isSyntheticAgentName(normalizedBound)) continue;
+    if (isSyntheticAgentName(normalizedBound) && normalizedBound) {
+      externalBoundAgentsSyntheticSet.add(normalizedBound);
+    }
+    if (isExcludedExternalAgentName(normalizedBound)) {
+      externalUserIdsExcludedSet.add(row.userId);
+      if (normalizedBound) externalBoundAgentsExcludedSet.add(normalizedBound);
+      continue;
+    }
+    if (isSyntheticAgentName(normalizedBound)) {
+      externalUserIdsSyntheticSet.add(row.userId);
+      continue;
+    }
     externalUserIdsRealSet.add(row.userId);
     if (normalizedBound) externalBoundAgentsRealSet.add(normalizedBound);
   }
@@ -5176,6 +5814,10 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
   const externalBoundAgents = Array.from(externalBoundAgentsRealSet);
   const externalUserIdsAll = Array.from(externalUserIdsAllSet);
   const externalBoundAgentsAll = Array.from(externalBoundAgentsAllSet);
+  const externalUserIdsSynthetic = Array.from(externalUserIdsSyntheticSet);
+  const externalUserIdsExcluded = Array.from(externalUserIdsExcludedSet);
+  const externalBoundAgentsSynthetic = Array.from(externalBoundAgentsSyntheticSet);
+  const externalBoundAgentsExcluded = Array.from(externalBoundAgentsExcludedSet);
   const externalAnswerScopeOr: Prisma.AnswerWhereInput[] = [];
   if (externalBoundAgents.length > 0) {
     externalAnswerScopeOr.push({ agentName: { in: externalBoundAgents } });
@@ -5442,7 +6084,7 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
       answerWritesInRange: toNumber(row.answerWritesInRange)
     }))
     .filter((row) => row.writesInRange > 0 || row.writesLast24h > 0);
-  const externalRequestRealRows = externalRequestAgentStats.filter((row) => isRealAgentName(row.agentName));
+  const externalRequestRealRows = externalRequestAgentStats.filter((row) => isExternalAdoptionAgentName(row.agentName));
   const externalRequestStats = externalRequestRealRows.reduce((acc, row) => {
     acc.writesInRange += row.writesInRange;
     acc.writesLast24h += row.writesLast24h;
@@ -5659,8 +6301,10 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
         users: externalUserIds.length,
         boundAgentsAll: externalBoundAgentsAll.length,
         usersAll: externalUserIdsAll.length,
-        filteredOutSyntheticBoundAgents: Math.max(0, externalBoundAgentsAll.length - externalBoundAgents.length),
-        filteredOutSyntheticUsers: Math.max(0, externalUserIdsAll.length - externalUserIds.length)
+        filteredOutSyntheticBoundAgents: externalBoundAgentsSynthetic.length,
+        filteredOutSyntheticUsers: externalUserIdsSynthetic.length,
+        filteredOutExcludedBoundAgents: externalBoundAgentsExcluded.length,
+        filteredOutExcludedUsers: externalUserIdsExcluded.length
       },
       content: {
         questionsInRange: externalQuestionsInRange,
@@ -6517,7 +7161,8 @@ fastify.get('/api/v1/search', {
         answerCount: item._count.answers,
         acceptedAnswerId: item.resolution?.answerId ?? null,
         bounty: bountyAmount > 0 ? { amount: bountyAmount, currency: item.bounty?.currency ?? 'credits' } : null,
-        qualityScore
+        qualityScore,
+        actions: getQuestionActionHints(item.id)
       };
     })
     .sort((a, b) => {
@@ -6773,7 +7418,8 @@ fastify.get('/api/v1/questions/unanswered', {
             currency: item.bounty?.currency ?? 'credits',
             expiresAt: item.bounty?.expiresAt ?? null
           }
-        : null
+        : null,
+      actions: getQuestionActionHints(item.id)
     }))
     .sort((a, b) => {
       const bountyDelta = (b.bounty?.amount ?? 0) - (a.bounty?.amount ?? 0);
@@ -9033,6 +9679,208 @@ fastify.get('/api/v1/admin/traction/funnel', {
     3
   );
   reply.code(200).send(data);
+});
+
+fastify.get('/api/v1/admin/traction/scorecard', {
+  schema: {
+    tags: ['admin'],
+    security: [{ AdminToken: [] }],
+    querystring: {
+      type: 'object',
+      properties: {
+        days: { type: 'integer', minimum: 7, maximum: 90 }
+      }
+    }
+  }
+}, async (request, reply) => {
+  if (!(await requireAdmin(request, reply))) return;
+  const query = request.query as { days?: number };
+  const days = Math.max(7, Math.min(90, Number(query.days ?? TRACTION_SCORECARD_DAYS)));
+  const data = await withPrismaPoolRetry(
+    'admin_traction_scorecard',
+    () => getWeeklyTractionScorecard(days),
+    3
+  );
+  reply.code(200).send(data);
+});
+
+fastify.post('/api/v1/admin/traction/alerts/send', {
+  schema: {
+    tags: ['admin'],
+    security: [{ AdminToken: [] }],
+    body: {
+      type: 'object',
+      properties: {
+        force: { type: 'boolean' },
+        days: { type: 'integer', minimum: 7, maximum: 90 }
+      }
+    }
+  }
+}, async (request, reply) => {
+  if (!(await requireAdmin(request, reply))) return;
+  const body = parse(
+    z.object({
+      force: z.boolean().optional(),
+      days: z.number().int().min(7).max(90).optional()
+    }),
+    request.body ?? {},
+    reply
+  );
+  if (!body) return;
+  const data = await withPrismaPoolRetry(
+    'admin_traction_alert_send',
+    () => dispatchTractionScorecardAlert({
+      source: 'manual',
+      force: body.force === true,
+      days: body.days
+    }),
+    2
+  );
+  reply.code(200).send(data);
+});
+
+fastify.get('/admin/traction/scorecard/data', async (request, reply) => {
+  if (!(await requireAdminDashboard(request, reply))) return;
+  const query = request.query as { days?: string };
+  const days = Math.max(7, Math.min(90, Number(query.days ?? TRACTION_SCORECARD_DAYS)));
+  const data = await withPrismaPoolRetry(
+    'admin_traction_scorecard_dashboard_data',
+    () => getWeeklyTractionScorecard(days),
+    3
+  );
+  reply.code(200).send(data);
+});
+
+fastify.get('/admin/traction/scorecard', async (request, reply) => {
+  if (!(await requireAdminDashboard(request, reply))) return;
+  reply.type('text/html').send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A2ABench Weekly Traction Scorecard</title>
+    <style>
+      body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; background: #f2f4f8; color: #0f172a; }
+      header { background: #0b1220; color: #fff; padding: 20px; }
+      main { max-width: 1080px; margin: 0 auto; padding: 20px; display: grid; gap: 14px; }
+      .card { background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08); }
+      .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+      .controls label { font-size: 12px; color: #475569; display: grid; gap: 6px; }
+      .controls input, .controls button { height: 36px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 10px; }
+      .controls button { border: 0; color: #fff; cursor: pointer; font-weight: 600; min-width: 150px; }
+      #load { background: #2563eb; }
+      #alert { background: #b45309; }
+      .grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+      .metric { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px; }
+      .label { color: #475569; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+      .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; border-bottom: 1px solid #e2e8f0; padding: 8px; font-size: 14px; }
+      th { color: #475569; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+      .pill { font-size: 11px; border-radius: 999px; padding: 2px 8px; font-weight: 700; }
+      .pass { background: #dcfce7; color: #166534; }
+      .fail { background: #fee2e2; color: #991b1b; }
+      .muted { color: #64748b; font-size: 12px; }
+      .status { font-size: 13px; color: #64748b; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h2 style="margin:0;">A2ABench Weekly Traction Scorecard</h2>
+      <div class="status">Hard targets with pass/fail and alert dispatch</div>
+    </header>
+    <main>
+      <section class="card controls">
+        <label>Days
+          <input id="days" type="number" min="7" max="90" value="${TRACTION_SCORECARD_DAYS}" />
+        </label>
+        <button id="load">Load scorecard</button>
+        <button id="alert">Send alert now</button>
+        <div id="note" class="status"></div>
+      </section>
+      <section class="card">
+        <div class="grid">
+          <div class="metric"><div class="label">Status</div><div id="status" class="value">—</div><small id="generatedAt" class="muted">—</small></div>
+          <div class="metric"><div class="label">Pass Count</div><div id="passCount" class="value">—</div><small id="failCount" class="muted">—</small></div>
+          <div class="metric"><div class="label">Score</div><div id="score" class="value">—</div><small class="muted">percent of targets passing</small></div>
+        </div>
+      </section>
+      <section class="card">
+        <h3 style="margin-top:0;">Metrics</h3>
+        <table>
+          <thead><tr><th>Metric</th><th>Value</th><th>Target</th><th>Status</th><th>Gap</th></tr></thead>
+          <tbody id="rows"><tr><td colspan="5">Loading…</td></tr></tbody>
+        </table>
+      </section>
+    </main>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const fmt = (n, unit) => {
+        if (!Number.isFinite(n)) return '—';
+        return unit === 'ratio' ? (n * 100).toFixed(1) + '%' : String(Math.round(n * 100) / 100);
+      };
+      async function load() {
+        $('load').disabled = true;
+        $('note').textContent = 'Loading scorecard...';
+        try {
+          const params = new URLSearchParams({ days: String($('days').value || ${TRACTION_SCORECARD_DAYS}) });
+          const res = await fetch('/admin/traction/scorecard/data?' + params.toString());
+          if (!res.ok) throw new Error('failed_to_load_scorecard');
+          const data = await res.json();
+          $('status').textContent = (data.summary?.status || '—').toUpperCase();
+          $('passCount').textContent = String(data.summary?.passCount ?? 0);
+          $('failCount').textContent = 'fails: ' + String(data.summary?.failCount ?? 0);
+          $('score').textContent = String(data.summary?.score ?? 0) + '%';
+          $('generatedAt').textContent = data.generatedAt ? ('updated ' + data.generatedAt) : '—';
+          const rows = Array.isArray(data.metrics) ? data.metrics : [];
+          if (rows.length === 0) {
+            $('rows').innerHTML = '<tr><td colspan=\"5\">No metrics found.</td></tr>';
+          } else {
+            $('rows').innerHTML = rows.map((row) => {
+              const cls = row.pass ? 'pass' : 'fail';
+              const stat = row.pass ? 'PASS' : 'FAIL';
+              const gap = row.unit === 'ratio' ? ((row.gap || 0) * 100).toFixed(1) + 'pp' : String(Math.round((row.gap || 0) * 100) / 100);
+              return '<tr>' +
+                '<td><strong>' + row.label + '</strong><div class=\"muted\">' + row.description + '</div></td>' +
+                '<td>' + fmt(row.value, row.unit) + '</td>' +
+                '<td>' + row.comparator + ' ' + fmt(row.target, row.unit) + '</td>' +
+                '<td><span class=\"pill ' + cls + '\">' + stat + '</span></td>' +
+                '<td>' + gap + '</td>' +
+                '</tr>';
+            }).join('');
+          }
+          $('note').textContent = 'Loaded.';
+        } catch {
+          $('rows').innerHTML = '<tr><td colspan=\"5\">Failed to load scorecard.</td></tr>';
+          $('note').textContent = 'Load failed.';
+        } finally {
+          $('load').disabled = false;
+        }
+      }
+      async function sendAlert() {
+        $('alert').disabled = true;
+        $('note').textContent = 'Sending alert...';
+        try {
+          const res = await fetch('/api/v1/admin/traction/alerts/send', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ days: Number($('days').value || ${TRACTION_SCORECARD_DAYS}), force: true })
+          });
+          if (!res.ok) throw new Error('failed_to_send_alert');
+          const data = await res.json();
+          $('note').textContent = data.sent ? 'Alert sent.' : ('Alert skipped: ' + (data.reason || 'not_sent'));
+        } catch {
+          $('note').textContent = 'Alert send failed.';
+        } finally {
+          $('alert').disabled = false;
+        }
+      }
+      $('load').addEventListener('click', load);
+      $('alert').addEventListener('click', sendAlert);
+      load();
+    </script>
+  </body>
+</html>`);
 });
 
 fastify.get('/admin/traction', async (request, reply) => {
