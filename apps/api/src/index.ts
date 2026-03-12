@@ -86,6 +86,11 @@ const DELIVERY_REQUIRE_RECENT_ACTIVITY = (process.env.DELIVERY_REQUIRE_RECENT_AC
 const DELIVERY_ACTIVE_WEBHOOK_WINDOW_HOURS = Math.max(1, Number(process.env.DELIVERY_ACTIVE_WEBHOOK_WINDOW_HOURS ?? 24));
 const DELIVERY_ACTIVE_INBOX_WINDOW_MINUTES = Math.max(1, Number(process.env.DELIVERY_ACTIVE_INBOX_WINDOW_MINUTES ?? 15));
 const DELIVERY_NEW_SUBSCRIPTION_GRACE_MINUTES = Math.max(1, Number(process.env.DELIVERY_NEW_SUBSCRIPTION_GRACE_MINUTES ?? 120));
+const DELIVERY_REQUEUE_OPENED_ENABLED = (process.env.DELIVERY_REQUEUE_OPENED_ENABLED ?? 'true').toLowerCase() === 'true';
+const DELIVERY_REQUEUE_AFTER_MINUTES = Math.max(1, Number(process.env.DELIVERY_REQUEUE_AFTER_MINUTES ?? 6));
+const DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION = Math.max(1, Number(process.env.DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION ?? 5));
+const DELIVERY_REQUEUE_SCAN_LIMIT = Math.max(1, Math.min(2000, Number(process.env.DELIVERY_REQUEUE_SCAN_LIMIT ?? 400)));
+const DELIVERY_REQUEUE_LOOP_INTERVAL_MS = Math.max(15_000, Number(process.env.DELIVERY_REQUEUE_LOOP_INTERVAL_MS ?? 60_000));
 const ACCEPTANCE_REMINDER_STAGES_HOURS = (process.env.ACCEPTANCE_REMINDER_STAGES_HOURS ?? '1,24,72')
   .split(',')
   .map((value) => Number(value.trim()))
@@ -136,6 +141,33 @@ const TRACTION_ALERT_WEBHOOK_URL = (process.env.TRACTION_ALERT_WEBHOOK_URL ?? ''
 const TRACTION_ALERT_COOLDOWN_MINUTES = Math.max(1, Number(process.env.TRACTION_ALERT_COOLDOWN_MINUTES ?? 360));
 const TRACTION_ALERT_LOOP_ENABLED = (process.env.TRACTION_ALERT_LOOP_ENABLED ?? 'true').toLowerCase() === 'true';
 const TRACTION_ALERT_LOOP_INTERVAL_MS = Math.max(60_000, Number(process.env.TRACTION_ALERT_LOOP_INTERVAL_MS ?? 900_000));
+const IMPORT_SEED_LOOP_ENABLED = (process.env.IMPORT_SEED_LOOP_ENABLED ?? (AGENT_OPEN_MODE ? 'true' : 'false')).toLowerCase() === 'true';
+const IMPORT_SEED_LOOP_INTERVAL_MS = Math.max(60_000, Number(process.env.IMPORT_SEED_LOOP_INTERVAL_MS ?? 1_800_000));
+const IMPORT_SEED_HTTP_TIMEOUT_MS = Math.max(2_000, Number(process.env.IMPORT_SEED_HTTP_TIMEOUT_MS ?? 12_000));
+const IMPORT_SEED_MAX_ITEMS = Math.max(1, Number(process.env.IMPORT_SEED_MAX_ITEMS ?? 300));
+const IMPORT_SEED_ACTOR_HANDLE = (process.env.IMPORT_SEED_ACTOR_HANDLE ?? 'import-bot').trim() || 'import-bot';
+const IMPORT_SEED_QUALITY_GATE = (process.env.IMPORT_SEED_QUALITY_GATE ?? 'true').toLowerCase() === 'true';
+const IMPORT_SEED_DRY_RUN = (process.env.IMPORT_SEED_DRY_RUN ?? 'false').toLowerCase() === 'true';
+const IMPORT_SEED_GITHUB_REPOS = (process.env.IMPORT_SEED_GITHUB_REPOS
+  ?? 'vercel/next.js,microsoft/typescript,nodejs/node,facebook/react,prisma/prisma,vitejs/vite')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
+const IMPORT_SEED_GITHUB_PER_REPO = Math.max(1, Number(process.env.IMPORT_SEED_GITHUB_PER_REPO ?? 20));
+const IMPORT_SEED_GITHUB_MAX_PAGES = Math.max(1, Number(process.env.IMPORT_SEED_GITHUB_MAX_PAGES ?? 3));
+const IMPORT_SEED_DISCORD_REPOS = (process.env.IMPORT_SEED_DISCORD_REPOS
+  ?? 'discord/discord-api-docs,discordjs/discord.js')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
+const IMPORT_SEED_DISCORD_PER_REPO = Math.max(1, Number(process.env.IMPORT_SEED_DISCORD_PER_REPO ?? 12));
+const IMPORT_SEED_STACKOVERFLOW_TAGS = (process.env.IMPORT_SEED_STACKOVERFLOW_TAGS
+  ?? 'typescript,node.js,python,reactjs')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
+const IMPORT_SEED_STACKOVERFLOW_PER_TAG = Math.max(1, Number(process.env.IMPORT_SEED_STACKOVERFLOW_PER_TAG ?? 10));
+const IMPORT_SEED_GITHUB_TOKEN = (process.env.IMPORT_SEED_GITHUB_TOKEN ?? '').trim();
 const SYSTEM_BASE_URL = process.env.SYSTEM_BASE_URL || PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const A2A_TASK_TTL_MINUTES = Math.max(5, Number(process.env.A2A_TASK_TTL_MINUTES ?? 60));
 const A2A_TASK_TTL_MS = A2A_TASK_TTL_MINUTES * 60 * 1000;
@@ -172,11 +204,15 @@ let reminderLoopTimer: NodeJS.Timeout | null = null;
 let autoCloseLoopTimer: NodeJS.Timeout | null = null;
 let subscriptionPruneLoopTimer: NodeJS.Timeout | null = null;
 let tractionAlertLoopTimer: NodeJS.Timeout | null = null;
+let deliveryRequeueLoopTimer: NodeJS.Timeout | null = null;
+let sourceImportLoopTimer: NodeJS.Timeout | null = null;
 let deliveryLoopRunning = false;
 let reminderLoopRunning = false;
 let autoCloseLoopRunning = false;
 let subscriptionPruneLoopRunning = false;
 let tractionAlertLoopRunning = false;
+let deliveryRequeueLoopRunning = false;
+let sourceImportLoopRunning = false;
 let lastTractionAlertDigest: string | null = null;
 let lastTractionAlertStatus: 'pass' | 'fail' | null = null;
 let lastTractionAlertAt = 0;
@@ -805,7 +841,7 @@ function agentCard(baseUrl: string) {
         methods: ['sendMessage', 'sendStreamingMessage', 'getTask', 'cancelTask'],
         defaultInput: {
           sendMessage: {
-            action: 'next_best_job',
+            action: 'next_job',
             args: { agentName: 'my-agent' }
           }
         }
@@ -877,6 +913,11 @@ function agentCard(baseUrl: string) {
         id: 'agent_quickstart',
         name: 'Agent Quickstart',
         description: 'Return the highest-priority open question and one-call actions to answer it.'
+      },
+      {
+        id: 'next_job',
+        name: 'Next Job (One Call)',
+        description: 'Return one executable answer_job request payload for the best next question.'
       },
       {
         id: 'next_best_job',
@@ -969,6 +1010,7 @@ const A2A_ACTIONS = new Set([
   'search',
   'fetch',
   'answer',
+  'next_job',
   'next_best_job',
   'agent_quickstart',
   'questions_unanswered',
@@ -1005,8 +1047,10 @@ function normalizeA2aAction(action: string | null | undefined) {
     .replace(/^_+|_+$/g, '');
   if (!raw) return '';
   const aliases: Record<string, string> = {
+    nextjob: 'next_job',
+    jobsnext: 'next_job',
+    next_job_one_call: 'next_job',
     nextbestjob: 'next_best_job',
-    next_job: 'next_best_job',
     quickstart: 'agent_quickstart',
     unanswered: 'questions_unanswered',
     unanswered_queue: 'questions_unanswered',
@@ -1065,6 +1109,9 @@ function inferA2aActionFromText(messageText: string) {
   const fetchMatch = text.match(/^fetch\s+([a-zA-Z0-9_-]+)$/i);
   if (fetchMatch) {
     return { action: 'fetch', args: { id: fetchMatch[1] } };
+  }
+  if (/next[\s_-]*job/i.test(text)) {
+    return { action: 'next_job', args: {} as Record<string, unknown> };
   }
   if (/next[\s_-]*best[\s_-]*job/i.test(text)) {
     return { action: 'next_best_job', args: {} as Record<string, unknown> };
@@ -1307,6 +1354,13 @@ function buildA2aActionRequest(action: string, args: Record<string, unknown>, fa
       return {
         method: 'GET' as const,
         url: `/api/v1/agent/next-best-job${encodeQuery({ agentName: agentName || undefined })}`
+      };
+    }
+    case 'next_job': {
+      const agentName = firstString(args.agentName, args.agent, fallbackAgentName);
+      return {
+        method: 'GET' as const,
+        url: `/api/v1/agent/jobs/next${encodeQuery({ agentName: agentName || undefined })}`
       };
     }
     case 'agent_quickstart': {
@@ -1985,6 +2039,7 @@ const CAPTURED_ROUTES = new Set([
   '/api/v1/agent/inbox',
   '/api/v1/subscriptions',
   '/api/v1/subscriptions/:id/disable',
+  '/api/v1/agent/jobs/next',
   '/api/v1/agent/next-best-job',
   '/api/v1/search',
   '/api/v1/questions/unanswered',
@@ -2003,11 +2058,13 @@ const CAPTURED_ROUTES = new Set([
   '/api/v1/admin/retention/weekly',
   '/api/v1/admin/delivery/process',
   '/api/v1/admin/delivery/queue',
+  '/api/v1/admin/delivery/requeue-opened-unanswered',
   '/api/v1/admin/subscriptions/health',
   '/api/v1/admin/subscriptions/prune',
   '/api/v1/admin/reminders/process',
   '/api/v1/admin/autoclose/process',
   '/api/v1/admin/import/questions',
+  '/api/v1/admin/import/sources/run',
   '/api/v1/admin/partners/teams',
   '/api/v1/admin/partners/teams/:id/members',
   '/api/v1/admin/partners/teams/:id/metrics/weekly',
@@ -2396,6 +2453,244 @@ async function processDeliveryQueue(limit = DELIVERY_PROCESS_LIMIT) {
   }
 
   return { processed: due.length, delivered, failed, pending };
+}
+
+async function processOpenedUnansweredRequeue(options?: { limit?: number; dryRun?: boolean }) {
+  const enabled = DELIVERY_REQUEUE_OPENED_ENABLED;
+  if (!enabled) {
+    return {
+      enabled: false,
+      dryRun: options?.dryRun === true,
+      scanned: 0,
+      eligible: 0,
+      requeued: 0,
+      skipped: {
+        answeredAfterOpen: 0,
+        alreadyPending: 0,
+        maxRequeuesReached: 0,
+        inactiveSubscription: 0,
+        eventNotEnabled: 0
+      },
+      windowMinutes: DELIVERY_REQUEUE_AFTER_MINUTES,
+      maxPerQuestionSubscription: DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION
+    };
+  }
+
+  const dryRun = options?.dryRun === true;
+  const now = new Date();
+  const staleBefore = new Date(now.getTime() - DELIVERY_REQUEUE_AFTER_MINUTES * 60 * 1000);
+  const scanLimit = Math.max(1, Math.min(2000, options?.limit ?? DELIVERY_REQUEUE_SCAN_LIMIT));
+
+  const openedRows = await prisma.deliveryQueue.findMany({
+    where: {
+      event: 'question.created',
+      questionId: { not: null },
+      deliveredAt: { not: null, lte: staleBefore }
+    },
+    select: {
+      id: true,
+      subscriptionId: true,
+      agentName: true,
+      event: true,
+      payload: true,
+      questionId: true,
+      answerId: true,
+      webhookUrl: true,
+      webhookSecret: true,
+      maxAttempts: true,
+      createdAt: true,
+      deliveredAt: true
+    },
+    orderBy: { deliveredAt: 'asc' },
+    take: scanLimit
+  });
+
+  if (openedRows.length === 0) {
+    return {
+      enabled,
+      dryRun,
+      scanned: 0,
+      eligible: 0,
+      requeued: 0,
+      skipped: {
+        answeredAfterOpen: 0,
+        alreadyPending: 0,
+        maxRequeuesReached: 0,
+        inactiveSubscription: 0,
+        eventNotEnabled: 0
+      },
+      windowMinutes: DELIVERY_REQUEUE_AFTER_MINUTES,
+      maxPerQuestionSubscription: DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION
+    };
+  }
+
+  const questionIds = Array.from(new Set(
+    openedRows
+      .map((row) => row.questionId)
+      .filter((value): value is string => Boolean(value && value.trim()))
+  ));
+  const subscriptionIds = Array.from(new Set(openedRows.map((row) => row.subscriptionId)));
+
+  const [latestAnswerRows, pendingRows, queueCountRows, subscriptions] = await Promise.all([
+    questionIds.length === 0
+      ? Promise.resolve([] as Array<{ questionId: string; _max: { createdAt: Date | null } }>)
+      : prisma.answer.groupBy({
+          by: ['questionId'],
+          where: { questionId: { in: questionIds } },
+          _max: { createdAt: true }
+        }),
+    questionIds.length === 0 || subscriptionIds.length === 0
+      ? Promise.resolve([] as Array<{ subscriptionId: string; questionId: string | null }>)
+      : prisma.deliveryQueue.findMany({
+          where: {
+            event: 'question.created',
+            deliveredAt: null,
+            questionId: { in: questionIds },
+            subscriptionId: { in: subscriptionIds }
+          },
+          select: {
+            subscriptionId: true,
+            questionId: true
+          }
+        }),
+    questionIds.length === 0 || subscriptionIds.length === 0
+      ? Promise.resolve([] as Array<{ subscriptionId: string; questionId: string | null; _count: { _all: number } }>)
+      : prisma.deliveryQueue.groupBy({
+          by: ['subscriptionId', 'questionId'],
+          where: {
+            event: 'question.created',
+            questionId: { in: questionIds },
+            subscriptionId: { in: subscriptionIds }
+          },
+          _count: { _all: true }
+        }),
+    subscriptionIds.length === 0
+      ? Promise.resolve([] as Array<{ id: string; active: boolean; events: string[]; webhookUrl: string | null; webhookSecret: string | null }>)
+      : prisma.questionSubscription.findMany({
+          where: { id: { in: subscriptionIds } },
+          select: {
+            id: true,
+            active: true,
+            events: true,
+            webhookUrl: true,
+            webhookSecret: true
+          }
+        })
+  ]);
+
+  const latestAnswerAtByQuestion = new Map<string, Date>();
+  for (const row of latestAnswerRows) {
+    if (row._max.createdAt) latestAnswerAtByQuestion.set(row.questionId, row._max.createdAt);
+  }
+
+  const pendingByKey = new Set<string>();
+  for (const row of pendingRows) {
+    if (!row.questionId) continue;
+    pendingByKey.add(`${row.subscriptionId}::${row.questionId}`);
+  }
+
+  const queueCountByKey = new Map<string, number>();
+  for (const row of queueCountRows) {
+    if (!row.questionId) continue;
+    queueCountByKey.set(`${row.subscriptionId}::${row.questionId}`, row._count._all);
+  }
+
+  const subscriptionById = new Map(subscriptions.map((row) => [row.id, row]));
+
+  const requeueRows: Prisma.DeliveryQueueCreateManyInput[] = [];
+  const skipped = {
+    answeredAfterOpen: 0,
+    alreadyPending: 0,
+    maxRequeuesReached: 0,
+    inactiveSubscription: 0,
+    eventNotEnabled: 0
+  };
+
+  for (const row of openedRows) {
+    const questionId = row.questionId?.trim();
+    if (!questionId || !row.deliveredAt) continue;
+    const key = `${row.subscriptionId}::${questionId}`;
+
+    const latestAnswerAt = latestAnswerAtByQuestion.get(questionId);
+    if (latestAnswerAt && latestAnswerAt.getTime() >= row.deliveredAt.getTime()) {
+      skipped.answeredAfterOpen += 1;
+      continue;
+    }
+    if (pendingByKey.has(key)) {
+      skipped.alreadyPending += 1;
+      continue;
+    }
+    const queueCount = queueCountByKey.get(key) ?? 0;
+    if (queueCount >= DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION) {
+      skipped.maxRequeuesReached += 1;
+      continue;
+    }
+    const subscription = subscriptionById.get(row.subscriptionId);
+    if (!subscription || !subscription.active) {
+      skipped.inactiveSubscription += 1;
+      continue;
+    }
+    if (!subscriptionWantsEvent(subscription.events, 'question.created')) {
+      skipped.eventNotEnabled += 1;
+      continue;
+    }
+
+    const payloadMeta = {
+      reason: 'opened_unanswered_timeout',
+      previousDeliveryId: row.id,
+      requeuedAt: now.toISOString(),
+      queueAttempt: queueCount + 1
+    };
+
+    const payload: Prisma.InputJsonValue = isJsonObject(row.payload)
+      ? ({
+          ...row.payload,
+          requeue: payloadMeta
+        } as Prisma.InputJsonObject)
+      : ({
+          event: 'question.created',
+          question: { id: questionId },
+          requeue: payloadMeta
+        } as Prisma.InputJsonObject);
+
+    requeueRows.push({
+      subscriptionId: row.subscriptionId,
+      agentName: row.agentName,
+      event: 'question.created',
+      payload,
+      questionId,
+      answerId: null,
+      webhookUrl: subscription.webhookUrl ?? row.webhookUrl,
+      webhookSecret: subscription.webhookSecret ?? row.webhookSecret,
+      attemptCount: 0,
+      maxAttempts: Math.max(1, row.maxAttempts || DELIVERY_MAX_ATTEMPTS),
+      nextAttemptAt: now
+    });
+    pendingByKey.add(key);
+  }
+
+  let requeued = 0;
+  let delivery: { processed: number; delivered: number; failed: number; pending: number } | null = null;
+
+  if (!dryRun && requeueRows.length > 0) {
+    const created = await prisma.deliveryQueue.createMany({
+      data: requeueRows
+    });
+    requeued = created.count;
+    delivery = await processDeliveryQueue(Math.min(DELIVERY_PROCESS_LIMIT, Math.max(10, requeued * 3)));
+  }
+
+  return {
+    enabled,
+    dryRun,
+    scanned: openedRows.length,
+    eligible: requeueRows.length,
+    requeued: dryRun ? 0 : requeued,
+    skipped,
+    windowMinutes: DELIVERY_REQUEUE_AFTER_MINUTES,
+    maxPerQuestionSubscription: DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION,
+    delivery
+  };
 }
 
 async function pruneInactiveSubscriptions(options?: { limit?: number; dryRun?: boolean }) {
@@ -3205,6 +3500,326 @@ function assessImportQualityCandidate(input: { title: string; bodyMd: string; ur
 
   const ok = score >= 3 && !reasons.includes('noisy_title');
   return { ok, score, reasons, bodyTextLength, titleKey } as ImportQualityResult;
+}
+
+type SeedImportItem = {
+  sourceType: string;
+  externalId: string;
+  url: string;
+  title: string;
+  bodyMd: string;
+  tags: string[];
+  createdAt?: string;
+};
+
+function stripMarkdownForImport(value: string | null | undefined, max = 3000) {
+  const text = (value ?? '')
+    .replace(/\r/g, '')
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[(.*?)\]\((.*?)\)/g, '$1')
+    .replace(/[*_>#-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text.slice(0, max);
+}
+
+function sanitizeImportTitle(title: string) {
+  return title.trim().replace(/\s+/g, ' ').slice(0, 240);
+}
+
+async function fetchGithubSeedItems(
+  repo: string,
+  limit: number,
+  sourceType: 'github' | 'discord',
+  maxPages = 1
+) {
+  const rows: SeedImportItem[] = [];
+  const perPage = Math.min(100, Math.max(25, limit * 2));
+  const headers: Record<string, string> = {
+    accept: 'application/vnd.github+json',
+    'user-agent': 'a2abench-source-seed'
+  };
+  if (IMPORT_SEED_GITHUB_TOKEN) {
+    headers.authorization = `Bearer ${IMPORT_SEED_GITHUB_TOKEN}`;
+  }
+
+  for (let page = 1; page <= maxPages && rows.length < limit; page += 1) {
+    const url = `https://api.github.com/repos/${repo}/issues?state=open&sort=updated&direction=desc&per_page=${perPage}&page=${page}`;
+    const response = await fetch(url, {
+      headers,
+      signal: AbortSignal.timeout(IMPORT_SEED_HTTP_TIMEOUT_MS)
+    });
+    if (!response.ok) {
+      throw new Error(`github_seed_fetch_failed:${repo}:${response.status}`);
+    }
+    const issues = await response.json() as Array<{
+      number?: number;
+      title?: string;
+      body?: string | null;
+      html_url?: string;
+      comments?: number;
+      pull_request?: unknown;
+      assignee?: unknown;
+      created_at?: string;
+      updated_at?: string;
+      labels?: Array<{ name?: string }>;
+      user?: { login?: string };
+    }>;
+    if (issues.length === 0) break;
+
+    for (const issue of issues) {
+      if (issue.pull_request) continue;
+      const issueNumber = Number(issue.number);
+      if (!Number.isFinite(issueNumber)) continue;
+      const title = sanitizeImportTitle(String(issue.title ?? ''));
+      const htmlUrl = String(issue.html_url ?? '').trim();
+      const commentCount = Number(issue.comments ?? 0);
+      if (!title || !htmlUrl) continue;
+      if (commentCount > 8) continue;
+      if (issue.assignee) continue;
+
+      const body = stripMarkdownForImport(issue.body ?? '', 3200);
+      const technicalCue = /(error|exception|trace|stack|bug|cannot|failed|why|how|\?)/i.test(`${title}\n${body}`);
+      if (!technicalCue) continue;
+
+      const labels = (issue.labels ?? [])
+        .map((label) => (label?.name ?? '').toLowerCase().trim())
+        .filter(Boolean)
+        .slice(0, 3);
+      const rawTags = sourceType === 'discord'
+        ? Array.from(new Set(['discord', 'api', ...labels])).slice(0, 5)
+        : Array.from(new Set(['github', 'issues', ...labels])).slice(0, 5);
+      const tags = normalizeTags(rawTags);
+      const intro = sourceType === 'discord'
+        ? `Imported unresolved Discord ecosystem issue from ${repo}.`
+        : `Imported unresolved GitHub issue from ${repo}.`;
+      const owner = issue.user?.login ? `Opened by @${issue.user.login}.` : '';
+      const createdAt = issue.created_at ? new Date(issue.created_at) : null;
+      const ageHint = createdAt && Number.isFinite(createdAt.getTime())
+        ? `Opened ${Math.round((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24))} day(s) ago.`
+        : '';
+      const meta = [intro, owner, `Comments: ${commentCount}.`, ageHint, `Source: ${htmlUrl}`]
+        .filter(Boolean)
+        .join(' ');
+
+    rows.push({
+      sourceType,
+      externalId: `${repo}#${issueNumber}`,
+      url: htmlUrl,
+      title,
+      bodyMd: body ? `${body}\n\n${meta}` : meta,
+      tags: tags.length > 0 ? tags : normalizeTags(sourceType === 'discord' ? ['discord', 'api'] : ['github', 'issues']),
+      createdAt: issue.created_at
+    });
+      if (rows.length >= limit) break;
+    }
+  }
+
+  return rows;
+}
+
+async function fetchStackOverflowSeedItems(tag: string, limit: number) {
+  const encodedTag = encodeURIComponent(tag);
+  const url = `https://api.stackexchange.com/2.3/questions/no-answers?order=desc&sort=creation&site=stackoverflow&tagged=${encodedTag}&pagesize=${Math.min(100, Math.max(1, limit))}`;
+  const response = await fetch(url, {
+    headers: {
+      accept: 'application/json',
+      'user-agent': 'a2abench-source-seed'
+    },
+    signal: AbortSignal.timeout(IMPORT_SEED_HTTP_TIMEOUT_MS)
+  });
+  if (!response.ok) {
+    throw new Error(`stackoverflow_seed_fetch_failed:${tag}:${response.status}`);
+  }
+  const payload = await response.json() as {
+    items?: Array<{
+      question_id?: number;
+      title?: string;
+      link?: string;
+      tags?: string[];
+      creation_date?: number;
+      view_count?: number;
+      answer_count?: number;
+      score?: number;
+      owner?: { display_name?: string };
+    }>;
+  };
+  const rows: SeedImportItem[] = [];
+  for (const item of (payload.items ?? []).slice(0, limit)) {
+    const id = Number(item.question_id);
+    const title = sanitizeImportTitle(String(item.title ?? ''));
+    const link = String(item.link ?? '').trim();
+    if (!Number.isFinite(id) || !title || !link) continue;
+    const owner = (item.owner?.display_name ?? 'unknown').trim();
+    const tags = normalizeTags(
+      Array.from(new Set(['support', 'stackoverflow', tag, ...((item.tags ?? []).slice(0, 3))])).slice(0, 5)
+    );
+    const createdAtMs = Number(item.creation_date ?? 0) * 1000;
+    const createdAtIso = createdAtMs > 0 ? new Date(createdAtMs).toISOString() : undefined;
+    const body = [
+      `Imported unanswered Stack Overflow question for tag "${tag}".`,
+      `Owner: ${owner}.`,
+      `Score: ${Number(item.score ?? 0)}.`,
+      `Views: ${Number(item.view_count ?? 0)}.`,
+      `Answers: ${Number(item.answer_count ?? 0)}.`,
+      `Source: ${link}`
+    ].join(' ');
+    rows.push({
+      sourceType: 'support',
+      externalId: `stackoverflow#${id}`,
+      url: link,
+      title,
+      bodyMd: body,
+      tags: tags.length > 0 ? tags : ['support', 'stackoverflow'],
+      createdAt: createdAtIso
+    });
+  }
+  return rows;
+}
+
+function dedupeSeedImportItems(items: SeedImportItem[]) {
+  const deduped: SeedImportItem[] = [];
+  const seenExternal = new Set<string>();
+  const seenUrls = new Set<string>();
+  for (const item of items) {
+    const externalKey = `${normalizeSourceType(item.sourceType) ?? 'other'}:${item.externalId.trim().toLowerCase()}`;
+    const urlKey = `url:${item.url.trim().toLowerCase()}`;
+    if (seenExternal.has(externalKey) || seenUrls.has(urlKey)) continue;
+    seenExternal.add(externalKey);
+    seenUrls.add(urlKey);
+    deduped.push(item);
+  }
+  return deduped;
+}
+
+async function runSourceSeedImport(options?: { dryRun?: boolean; source?: 'loop' | 'manual' }) {
+  const dryRun = options?.dryRun ?? IMPORT_SEED_DRY_RUN;
+  const source = options?.source ?? 'loop';
+  const startedAt = new Date();
+  const warnings: string[] = [];
+  const selected: SeedImportItem[] = [];
+
+  for (const repo of IMPORT_SEED_GITHUB_REPOS) {
+    try {
+      const rows = await fetchGithubSeedItems(repo, IMPORT_SEED_GITHUB_PER_REPO, 'github', IMPORT_SEED_GITHUB_MAX_PAGES);
+      selected.push(...rows);
+    } catch (err) {
+      warnings.push(err instanceof Error ? err.message : `github_seed_failed:${repo}`);
+    }
+  }
+  for (const repo of IMPORT_SEED_DISCORD_REPOS) {
+    try {
+      const rows = await fetchGithubSeedItems(repo, IMPORT_SEED_DISCORD_PER_REPO, 'discord', IMPORT_SEED_GITHUB_MAX_PAGES);
+      selected.push(...rows);
+    } catch (err) {
+      warnings.push(err instanceof Error ? err.message : `discord_seed_failed:${repo}`);
+    }
+  }
+  for (const tag of IMPORT_SEED_STACKOVERFLOW_TAGS) {
+    try {
+      const rows = await fetchStackOverflowSeedItems(tag, IMPORT_SEED_STACKOVERFLOW_PER_TAG);
+      selected.push(...rows);
+    } catch (err) {
+      warnings.push(err instanceof Error ? err.message : `stackoverflow_seed_failed:${tag}`);
+    }
+  }
+
+  const deduped = dedupeSeedImportItems(selected)
+    .map((item) => ({
+      ...item,
+      sourceType: normalizeSourceType(item.sourceType) ?? 'other',
+      title: sanitizeImportTitle(item.title),
+      bodyMd: item.bodyMd.trim()
+    }))
+    .filter((item) => item.title.length >= 8 && item.bodyMd.length >= 3 && item.url.length > 0 && item.externalId.length > 0)
+    .slice(0, IMPORT_SEED_MAX_ITEMS);
+
+  if (deduped.length === 0) {
+    return {
+      source,
+      dryRun,
+      selected: 0,
+      created: 0,
+      skipped: 0,
+      warnings,
+      startedAt: startedAt.toISOString(),
+      finishedAt: new Date().toISOString(),
+      importResult: null
+    };
+  }
+
+  if (!ADMIN_TOKEN) {
+    return {
+      source,
+      dryRun,
+      selected: deduped.length,
+      created: 0,
+      skipped: deduped.length,
+      warnings: [...warnings, 'admin_token_missing'],
+      startedAt: startedAt.toISOString(),
+      finishedAt: new Date().toISOString(),
+      importResult: null
+    };
+  }
+
+  const baseUrl = (SYSTEM_BASE_URL || `http://127.0.0.1:${PORT}`).replace(/\/$/, '');
+  const importBody = {
+    sourceType: 'other',
+    actorHandle: IMPORT_SEED_ACTOR_HANDLE,
+    defaultTags: ['imported', 'seeded'],
+    qualityGate: IMPORT_SEED_QUALITY_GATE,
+    dryRun,
+    force: false,
+    items: deduped
+  };
+
+  const response = await fetch(`${baseUrl}/api/v1/admin/import/questions`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-admin-token': ADMIN_TOKEN
+    },
+    body: JSON.stringify(importBody),
+    signal: AbortSignal.timeout(Math.max(IMPORT_SEED_HTTP_TIMEOUT_MS, 30_000))
+  });
+
+  const responseText = await response.text();
+  let responseJson: unknown = responseText;
+  try {
+    responseJson = JSON.parse(responseText);
+  } catch {
+    // keep responseText
+  }
+  if (!response.ok) {
+    return {
+      source,
+      dryRun,
+      selected: deduped.length,
+      created: 0,
+      skipped: deduped.length,
+      warnings: [...warnings, `import_request_failed:${response.status}`],
+      startedAt: startedAt.toISOString(),
+      finishedAt: new Date().toISOString(),
+      importResult: responseJson
+    };
+  }
+
+  const parsed = (typeof responseJson === 'object' && responseJson !== null)
+    ? responseJson as { created?: number; skipped?: number }
+    : {};
+
+  return {
+    source,
+    dryRun,
+    selected: deduped.length,
+    created: Number(parsed.created ?? 0),
+    skipped: Number(parsed.skipped ?? 0),
+    warnings,
+    startedAt: startedAt.toISOString(),
+    finishedAt: new Date().toISOString(),
+    importResult: responseJson
+  };
 }
 
 type RecommendedQuestion = {
@@ -4774,6 +5389,48 @@ function startBackgroundWorkers() {
     deliveryLoopTimer.unref?.();
   }
 
+  if (DELIVERY_REQUEUE_OPENED_ENABLED && !deliveryRequeueLoopTimer) {
+    deliveryRequeueLoopTimer = setInterval(() => {
+      if (deliveryRequeueLoopRunning) return;
+      deliveryRequeueLoopRunning = true;
+      void withPrismaPoolRetry(
+        'delivery_requeue_opened_loop',
+        () => processOpenedUnansweredRequeue(),
+        3
+      )
+        .then((summary) => {
+          if (summary.requeued > 0) {
+            fastify.log.info({
+              requeued: summary.requeued,
+              scanned: summary.scanned,
+              skipped: summary.skipped
+            }, 'delivery requeue loop re-enqueued opened unanswered jobs');
+          }
+        })
+        .catch((err) => {
+          fastify.log.warn({ err }, 'delivery requeue loop failed');
+        })
+        .finally(() => {
+          deliveryRequeueLoopRunning = false;
+        });
+    }, DELIVERY_REQUEUE_LOOP_INTERVAL_MS);
+    deliveryRequeueLoopTimer.unref?.();
+    if (!deliveryRequeueLoopRunning) {
+      deliveryRequeueLoopRunning = true;
+      void withPrismaPoolRetry(
+        'delivery_requeue_opened_startup',
+        () => processOpenedUnansweredRequeue(),
+        3
+      )
+        .catch((err) => {
+          fastify.log.warn({ err }, 'delivery requeue startup run failed');
+        })
+        .finally(() => {
+          deliveryRequeueLoopRunning = false;
+        });
+    }
+  }
+
   if (REMINDER_LOOP_ENABLED && !reminderLoopTimer) {
     reminderLoopTimer = setInterval(() => {
       if (reminderLoopRunning) return;
@@ -4865,10 +5522,61 @@ function startBackgroundWorkers() {
     tractionAlertLoopTimer.unref?.();
   }
 
+  if (IMPORT_SEED_LOOP_ENABLED && !sourceImportLoopTimer) {
+    sourceImportLoopTimer = setInterval(() => {
+      if (sourceImportLoopRunning) return;
+      sourceImportLoopRunning = true;
+      void runSourceSeedImport({ source: 'loop' })
+        .then((summary) => {
+          if (summary.created > 0 || summary.warnings.length > 0) {
+            fastify.log.info({
+              selected: summary.selected,
+              created: summary.created,
+              skipped: summary.skipped,
+              warnings: summary.warnings.slice(0, 10),
+              dryRun: summary.dryRun
+            }, 'source seed loop imported unresolved questions');
+          }
+        })
+        .catch((err) => {
+          fastify.log.warn({ err }, 'source seed loop failed');
+        })
+        .finally(() => {
+          sourceImportLoopRunning = false;
+        });
+    }, IMPORT_SEED_LOOP_INTERVAL_MS);
+    sourceImportLoopTimer.unref?.();
+    if (!sourceImportLoopRunning) {
+      sourceImportLoopRunning = true;
+      void runSourceSeedImport({ source: 'loop' })
+        .then((summary) => {
+          if (summary.created > 0 || summary.warnings.length > 0) {
+            fastify.log.info({
+              selected: summary.selected,
+              created: summary.created,
+              skipped: summary.skipped,
+              warnings: summary.warnings.slice(0, 10),
+              dryRun: summary.dryRun
+            }, 'source seed startup import completed');
+          }
+        })
+        .catch((err) => {
+          fastify.log.warn({ err }, 'source seed startup import failed');
+        })
+        .finally(() => {
+          sourceImportLoopRunning = false;
+        });
+    }
+  }
+
   fastify.log.info({
     usageLogFlushMs: USAGE_LOG_FLUSH_INTERVAL_MS,
     deliveryLoopEnabled: DELIVERY_LOOP_ENABLED,
     deliveryLoopMs: DELIVERY_LOOP_INTERVAL_MS,
+    deliveryRequeueEnabled: DELIVERY_REQUEUE_OPENED_ENABLED,
+    deliveryRequeueAfterMinutes: DELIVERY_REQUEUE_AFTER_MINUTES,
+    deliveryRequeueMaxPerQuestionSubscription: DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION,
+    deliveryRequeueLoopMs: DELIVERY_REQUEUE_LOOP_INTERVAL_MS,
     reminderLoopEnabled: REMINDER_LOOP_ENABLED,
     reminderLoopMs: REMINDER_LOOP_INTERVAL_MS,
     autoCloseEnabled: AUTO_CLOSE_ENABLED,
@@ -4882,6 +5590,12 @@ function startBackgroundWorkers() {
     tractionAlertLoopEnabled: TRACTION_ALERT_LOOP_ENABLED,
     tractionAlertLoopIntervalMs: TRACTION_ALERT_LOOP_INTERVAL_MS,
     tractionAlertWebhookConfigured: TRACTION_ALERT_WEBHOOK_URL.length > 0,
+    sourceSeedLoopEnabled: IMPORT_SEED_LOOP_ENABLED,
+    sourceSeedLoopIntervalMs: IMPORT_SEED_LOOP_INTERVAL_MS,
+    sourceSeedGithubRepos: IMPORT_SEED_GITHUB_REPOS.length,
+    sourceSeedDiscordRepos: IMPORT_SEED_DISCORD_REPOS.length,
+    sourceSeedStackOverflowTags: IMPORT_SEED_STACKOVERFLOW_TAGS.length,
+    sourceSeedDryRun: IMPORT_SEED_DRY_RUN,
     pushSolvabilityFilterEnabled: PUSH_SOLVABILITY_FILTER_ENABLED,
     pushSolvabilityMinScore: PUSH_SOLVABILITY_MIN_SCORE,
     nextBestJobMinSolvability: NEXT_BEST_JOB_MIN_SOLVABILITY
@@ -4896,6 +5610,10 @@ async function stopBackgroundWorkers() {
   if (deliveryLoopTimer) {
     clearInterval(deliveryLoopTimer);
     deliveryLoopTimer = null;
+  }
+  if (deliveryRequeueLoopTimer) {
+    clearInterval(deliveryRequeueLoopTimer);
+    deliveryRequeueLoopTimer = null;
   }
   if (reminderLoopTimer) {
     clearInterval(reminderLoopTimer);
@@ -4912,6 +5630,10 @@ async function stopBackgroundWorkers() {
   if (tractionAlertLoopTimer) {
     clearInterval(tractionAlertLoopTimer);
     tractionAlertLoopTimer = null;
+  }
+  if (sourceImportLoopTimer) {
+    clearInterval(sourceImportLoopTimer);
+    sourceImportLoopTimer = null;
   }
 
   if (usageEventFlushPromise) {
@@ -7514,6 +8236,7 @@ fastify.get('/api/v1/agent/quickstart', {
       unansweredTotal
     },
     actions: {
+      nextJob: '/api/v1/agent/jobs/next',
       nextBestJob: '/api/v1/agent/next-best-job'
     },
     auth: {
@@ -7525,6 +8248,63 @@ fastify.get('/api/v1/agent/quickstart', {
     },
     recommendedQuestion: recommended ? formatRecommendedQuestion(recommended, baseUrl) : null
   };
+});
+
+fastify.get('/api/v1/agent/jobs/next', {
+  schema: {
+    tags: ['discovery'],
+    querystring: {
+      type: 'object',
+      properties: {
+        agentName: { type: 'string' }
+      }
+    }
+  }
+}, async (request, reply) => {
+  const query = request.query as { agentName?: string };
+  const agentName = normalizeAgentOrNull(query.agentName ?? getAgentNameWithBinding(request));
+  if (!agentName) {
+    reply.code(400).send({ error: 'agentName query param or X-Agent-Name header is required.' });
+    return;
+  }
+
+  const baseUrl = getBaseUrl(request);
+  const recommended = await getRecommendedQuestionForAgent(agentName);
+  const unansweredTotal = await prisma.question.count({
+    where: {
+      resolution: null,
+      answers: { none: {} }
+    }
+  });
+
+  if (!recommended) {
+    reply.code(200).send({
+      agentName,
+      demand: { unansweredTotal },
+      nextJob: null
+    });
+    return;
+  }
+
+  const formatted = formatRecommendedQuestion(recommended, baseUrl);
+  reply.code(200).send({
+    agentName,
+    demand: { unansweredTotal },
+    nextJob: {
+      question: formatted,
+      answerJobRequest: {
+        method: 'POST',
+        path: formatted.actions.answerJob.path,
+        headers: {
+          'X-Agent-Name': agentName
+        },
+        body: {
+          bodyMd: '<markdown answer>',
+          autoVerify: true
+        }
+      }
+    }
+  });
 });
 
 fastify.get('/api/v1/agent/next-best-job', {
@@ -10058,6 +10838,44 @@ fastify.post('/api/v1/admin/delivery/process', {
   });
 });
 
+fastify.post('/api/v1/admin/delivery/requeue-opened-unanswered', {
+  schema: {
+    tags: ['admin'],
+    security: [{ AdminToken: [] }],
+    body: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 2000 },
+        dryRun: { type: 'boolean' }
+      }
+    }
+  }
+}, async (request, reply) => {
+  if (!(await requireAdmin(request, reply))) return;
+  const body = parse(
+    z.object({
+      limit: z.number().int().min(1).max(2000).optional(),
+      dryRun: z.boolean().optional()
+    }),
+    request.body ?? {},
+    reply
+  );
+  if (!body) return;
+  const summary = await withPrismaPoolRetry(
+    'admin_delivery_requeue_opened_unanswered',
+    () => processOpenedUnansweredRequeue({
+      limit: body.limit,
+      dryRun: body.dryRun
+    }),
+    3
+  );
+  reply.code(200).send({
+    ok: true,
+    ...summary,
+    processedAt: new Date().toISOString()
+  });
+});
+
 fastify.get('/api/v1/admin/delivery/queue', {
   schema: {
     tags: ['admin'],
@@ -10428,6 +11246,37 @@ fastify.post('/api/v1/admin/import/questions', {
     created,
     skipped,
     results
+  });
+});
+
+fastify.post('/api/v1/admin/import/sources/run', {
+  schema: {
+    tags: ['admin'],
+    security: [{ AdminToken: [] }],
+    body: {
+      type: 'object',
+      properties: {
+        dryRun: { type: 'boolean' }
+      }
+    }
+  }
+}, async (request, reply) => {
+  if (!(await requireAdmin(request, reply))) return;
+  const body = parse(
+    z.object({
+      dryRun: z.boolean().optional()
+    }),
+    request.body ?? {},
+    reply
+  );
+  if (!body) return;
+  const summary = await runSourceSeedImport({
+    dryRun: body.dryRun,
+    source: 'manual'
+  });
+  reply.code(200).send({
+    ok: true,
+    ...summary
   });
 });
 

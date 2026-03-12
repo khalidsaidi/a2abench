@@ -7,7 +7,7 @@ FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/api/package.json apps/api/tsconfig.json ./apps/api/
 COPY apps/api/prisma ./apps/api/prisma
-RUN pnpm install --filter @a2abench/api...
+RUN pnpm install --frozen-lockfile --filter @a2abench/api... --include-workspace-root
 
 FROM deps AS build
 COPY apps/api/src ./apps/api/src
