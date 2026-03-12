@@ -213,6 +213,7 @@ let subscriptionPruneLoopRunning = false;
 let tractionAlertLoopRunning = false;
 let deliveryRequeueLoopRunning = false;
 let sourceImportLoopRunning = false;
+let sourceSeedGithubRateLimitUntilMs = 0;
 let lastTractionAlertDigest: string | null = null;
 let lastTractionAlertStatus: 'pass' | 'fail' | null = null;
 let lastTractionAlertAt = 0;
@@ -3551,6 +3552,14 @@ async function fetchGithubSeedItems(
       signal: AbortSignal.timeout(IMPORT_SEED_HTTP_TIMEOUT_MS)
     });
     if (!response.ok) {
+      if (response.status === 403) {
+        const resetRaw = response.headers.get('x-ratelimit-reset');
+        const parsedReset = resetRaw ? Number(resetRaw) : Number.NaN;
+        const resetMs = Number.isFinite(parsedReset) && parsedReset > 0
+          ? parsedReset * 1000
+          : (Date.now() + 15 * 60 * 1000);
+        throw new Error(`github_seed_rate_limited:${repo}:${Math.round(resetMs)}`);
+      }
       throw new Error(`github_seed_fetch_failed:${repo}:${response.status}`);
     }
     const issues = await response.json() as Array<{
@@ -3700,20 +3709,50 @@ async function runSourceSeedImport(options?: { dryRun?: boolean; source?: 'loop'
   const warnings: string[] = [];
   const selected: SeedImportItem[] = [];
 
-  for (const repo of IMPORT_SEED_GITHUB_REPOS) {
-    try {
-      const rows = await fetchGithubSeedItems(repo, IMPORT_SEED_GITHUB_PER_REPO, 'github', IMPORT_SEED_GITHUB_MAX_PAGES);
-      selected.push(...rows);
-    } catch (err) {
-      warnings.push(err instanceof Error ? err.message : `github_seed_failed:${repo}`);
+  const githubRateLimited = sourceSeedGithubRateLimitUntilMs > Date.now();
+  if (githubRateLimited) {
+    warnings.push(`github_seed_rate_limited_until:${new Date(sourceSeedGithubRateLimitUntilMs).toISOString()}`);
+  }
+
+  if (!githubRateLimited) {
+    for (const repo of IMPORT_SEED_GITHUB_REPOS) {
+      try {
+        const rows = await fetchGithubSeedItems(repo, IMPORT_SEED_GITHUB_PER_REPO, 'github', IMPORT_SEED_GITHUB_MAX_PAGES);
+        selected.push(...rows);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : `github_seed_failed:${repo}`;
+        if (message.startsWith('github_seed_rate_limited:')) {
+          const parts = message.split(':');
+          const resetMs = Number(parts[parts.length - 1]);
+          sourceSeedGithubRateLimitUntilMs = Number.isFinite(resetMs)
+            ? Math.max(resetMs, Date.now() + 5 * 60 * 1000)
+            : (Date.now() + 15 * 60 * 1000);
+          warnings.push(`github_seed_rate_limited_until:${new Date(sourceSeedGithubRateLimitUntilMs).toISOString()}`);
+          break;
+        }
+        warnings.push(message);
+      }
     }
   }
-  for (const repo of IMPORT_SEED_DISCORD_REPOS) {
-    try {
-      const rows = await fetchGithubSeedItems(repo, IMPORT_SEED_DISCORD_PER_REPO, 'discord', IMPORT_SEED_GITHUB_MAX_PAGES);
-      selected.push(...rows);
-    } catch (err) {
-      warnings.push(err instanceof Error ? err.message : `discord_seed_failed:${repo}`);
+
+  if (sourceSeedGithubRateLimitUntilMs <= Date.now()) {
+    for (const repo of IMPORT_SEED_DISCORD_REPOS) {
+      try {
+        const rows = await fetchGithubSeedItems(repo, IMPORT_SEED_DISCORD_PER_REPO, 'discord', IMPORT_SEED_GITHUB_MAX_PAGES);
+        selected.push(...rows);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : `discord_seed_failed:${repo}`;
+        if (message.startsWith('github_seed_rate_limited:')) {
+          const parts = message.split(':');
+          const resetMs = Number(parts[parts.length - 1]);
+          sourceSeedGithubRateLimitUntilMs = Number.isFinite(resetMs)
+            ? Math.max(resetMs, Date.now() + 5 * 60 * 1000)
+            : (Date.now() + 15 * 60 * 1000);
+          warnings.push(`github_seed_rate_limited_until:${new Date(sourceSeedGithubRateLimitUntilMs).toISOString()}`);
+          break;
+        }
+        warnings.push(message);
+      }
     }
   }
   for (const tag of IMPORT_SEED_STACKOVERFLOW_TAGS) {
