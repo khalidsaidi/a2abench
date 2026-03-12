@@ -35,6 +35,14 @@ const TRIAL_AUTO_SUBSCRIBE_TAGS_RAW = (process.env.TRIAL_AUTO_SUBSCRIBE_TAGS ?? 
   .split(',')
   .map((value) => value.trim().toLowerCase())
   .filter(Boolean);
+const KEYLESS_AUTH_ENABLED = (process.env.KEYLESS_AUTH_ENABLED ?? 'true').toLowerCase() === 'true';
+const KEYLESS_AUTH_ALLOW_ANONYMOUS = (process.env.KEYLESS_AUTH_ALLOW_ANONYMOUS ?? 'false').toLowerCase() === 'true';
+const KEYLESS_AUTH_ACTOR_TYPE = normalizeActorType(process.env.KEYLESS_AUTH_ACTOR_TYPE ?? 'public_external');
+const KEYLESS_DAILY_WRITE_LIMIT = Number(process.env.KEYLESS_DAILY_WRITE_LIMIT ?? 200);
+const KEYLESS_DAILY_QUESTION_LIMIT = Number(process.env.KEYLESS_DAILY_QUESTION_LIMIT ?? 80);
+const KEYLESS_DAILY_ANSWER_LIMIT = Number(process.env.KEYLESS_DAILY_ANSWER_LIMIT ?? 200);
+const KEYLESS_MAX_IDENTITIES_PER_IP_PER_DAY = Number(process.env.KEYLESS_MAX_IDENTITIES_PER_IP_PER_DAY ?? 0);
+const KEYLESS_AUTO_SUBSCRIBE = (process.env.KEYLESS_AUTO_SUBSCRIBE ?? 'true').toLowerCase() === 'true';
 const AGENT_QUICKSTART_CANDIDATES = Math.max(10, Number(process.env.AGENT_QUICKSTART_CANDIDATES ?? 200));
 const AUTO_CLOSE_ENABLED = (process.env.AUTO_CLOSE_ENABLED ?? 'true').toLowerCase() === 'true';
 const AUTO_CLOSE_AFTER_HOURS = Math.max(1, Number(process.env.AUTO_CLOSE_AFTER_HOURS ?? 72));
@@ -446,6 +454,23 @@ function resolveRoute(request: RouteRequest) {
   );
 }
 
+const KEYLESS_AUTH_ALLOWED_ROUTES = new Set([
+  '/api/v1/questions',
+  '/api/v1/questions/pending-acceptance',
+  '/api/v1/questions/:id/claim',
+  '/api/v1/questions/:id/claims/:claimId/release',
+  '/api/v1/questions/:id/answers',
+  '/api/v1/questions/:id/answer-job',
+  '/api/v1/questions/:id/bounty',
+  '/api/v1/questions/:id/accept/:answerId',
+  '/api/v1/questions/:id/accept/:answerId/link',
+  '/api/v1/answers/:id/vote',
+  '/api/v1/subscriptions',
+  '/api/v1/subscriptions/:id/disable',
+  '/api/v1/agent/inbox'
+]);
+const keylessIdentityBudget = new Map<string, Set<string>>();
+
 function isNoiseEvent(entry: { method: string; route: string; status: number }) {
   const method = entry.method.toUpperCase();
   if (method !== 'GET' && method !== 'HEAD') return false;
@@ -605,6 +630,7 @@ function timingSafeHexEqual(left: string, right: string) {
 type RequestAuthMeta = {
   apiKeyId: string;
   apiKeyPrefix: string;
+  authMode: 'bearer' | 'keyless_managed';
   actorType: ActorType;
   boundAgentName: string | null;
   presentedAgentName: string | null;
@@ -637,7 +663,7 @@ function getAgentNameWithBinding(
 function buildUsageApiKeyPrefix(meta: RequestAuthMeta) {
   const idFlag = meta.identityVerified ? '1' : '0';
   const sigFlag = meta.signatureVerified ? '1' : '0';
-  return `${meta.apiKeyPrefix}|actor=${meta.actorType}|idv=${idFlag}|sigv=${sigFlag}`;
+  return `${meta.apiKeyPrefix}|mode=${meta.authMode}|actor=${meta.actorType}|idv=${idFlag}|sigv=${sigFlag}`;
 }
 
 function getWriteAttribution(
@@ -1489,6 +1515,173 @@ async function requireAgentEventToken(request: { headers: Record<string, string 
   return true;
 }
 
+type ApiKeyWithUser = Prisma.ApiKeyGetPayload<{ include: { user: true } }>;
+
+function toNullableDailyLimit(value: number) {
+  if (!Number.isFinite(value)) return null;
+  if (value <= 0) return null;
+  return Math.round(value);
+}
+
+function allowKeylessIdentityForIp(ip: string, identityHash: string) {
+  if (KEYLESS_MAX_IDENTITIES_PER_IP_PER_DAY <= 0) return true;
+  const today = getUtcDateKey();
+  const prefix = `${today}|`;
+  for (const key of keylessIdentityBudget.keys()) {
+    if (!key.startsWith(prefix)) {
+      keylessIdentityBudget.delete(key);
+    }
+  }
+  const bucketKey = `${today}|${ip || 'unknown'}`;
+  let bucket = keylessIdentityBudget.get(bucketKey);
+  if (!bucket) {
+    bucket = new Set<string>();
+    keylessIdentityBudget.set(bucketKey, bucket);
+  }
+  if (bucket.has(identityHash)) return true;
+  if (bucket.size >= KEYLESS_MAX_IDENTITIES_PER_IP_PER_DAY) return false;
+  bucket.add(identityHash);
+  return true;
+}
+
+async function resolveKeylessManagedApiKey(
+  request: {
+    headers: Record<string, string | string[] | undefined>;
+    method?: string;
+    raw?: { url?: string };
+    url?: string;
+    routerPath?: string;
+    routeOptions?: { url?: string };
+    ip?: string;
+    socket?: { remoteAddress?: string };
+  },
+  reply: any
+): Promise<
+  | { status: 'ok'; apiKey: ApiKeyWithUser; boundAgentName: string; actorType: ActorType }
+  | { status: 'ineligible' }
+  | { status: 'failed' }
+> {
+  if (!KEYLESS_AUTH_ENABLED) return { status: 'ineligible' };
+  const route = resolveRoute(request as RouteRequest);
+  if (!KEYLESS_AUTH_ALLOWED_ROUTES.has(route)) return { status: 'ineligible' };
+
+  const presentedAgentName = normalizeAgentOrNull(getAgentName(request.headers));
+  if (!presentedAgentName && !KEYLESS_AUTH_ALLOW_ANONYMOUS) {
+    reply.code(401).send({
+      error: 'Missing API key',
+      hint: 'Send X-Agent-Name for keyless onboarding, or Authorization: Bearer <api-key>.'
+    });
+    return { status: 'failed' };
+  }
+
+  const ip = getClientIp(request as RouteRequest & { ip?: string; socket?: { remoteAddress?: string } }) ?? 'unknown';
+  const userAgent = normalizeHeader(request.headers['user-agent']).trim().toLowerCase().slice(0, 256);
+  const identitySeed = presentedAgentName
+    ? `agent:${presentedAgentName}`
+    : `anon:${ip}|${userAgent || 'unknown'}`;
+  const identityHash = sha256(`keyless:${identitySeed}`);
+  if (!allowKeylessIdentityForIp(ip, identityHash)) {
+    reply.code(429).send({
+      error: 'Too many keyless identities from this IP today.',
+      limit: KEYLESS_MAX_IDENTITIES_PER_IP_PER_DAY
+    });
+    return { status: 'failed' };
+  }
+
+  const boundAgentName = normalizeAgentOrNull(
+    presentedAgentName ?? `anon-${identityHash.slice(0, 12)}`
+  );
+  if (!boundAgentName) {
+    reply.code(400).send({ error: 'Unable to resolve agent identity for keyless onboarding.' });
+    return { status: 'failed' };
+  }
+
+  const actorType = KEYLESS_AUTH_ACTOR_TYPE;
+  const userHandle = `keyless-${identityHash.slice(0, 24)}`;
+  const user = await prisma.user.upsert({
+    where: { handle: userHandle },
+    update: {},
+    create: { handle: userHandle }
+  });
+  await ensureAgentProfile(boundAgentName);
+
+  const keyName = buildApiKeyName('keyless', {
+    boundAgentName,
+    actorType,
+    signatureRequired: false
+  });
+  const dailyWriteLimit = toNullableDailyLimit(KEYLESS_DAILY_WRITE_LIMIT);
+  const dailyQuestionLimit = toNullableDailyLimit(KEYLESS_DAILY_QUESTION_LIMIT);
+  const dailyAnswerLimit = toNullableDailyLimit(KEYLESS_DAILY_ANSWER_LIMIT);
+
+  let apiKey = await prisma.apiKey.findFirst({
+    where: {
+      userId: user.id,
+      name: keyName,
+      revokedAt: null,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }]
+    },
+    include: { user: true },
+    orderBy: { createdAt: 'desc' }
+  });
+
+  let keyCreated = false;
+  if (!apiKey) {
+    const key = `a2a_${crypto.randomBytes(24).toString('hex')}`;
+    const keyPrefix = key.slice(0, 8);
+    const keyHash = sha256(key);
+    apiKey = await prisma.apiKey.create({
+      data: {
+        userId: user.id,
+        name: keyName,
+        keyPrefix,
+        keyHash,
+        scopes: ['write:questions', 'write:answers'],
+        expiresAt: null,
+        dailyWriteLimit,
+        dailyQuestionLimit,
+        dailyAnswerLimit
+      },
+      include: { user: true }
+    });
+    keyCreated = true;
+  } else {
+    const hasQuestionScope = apiKey.scopes.includes('write:questions') || apiKey.scopes.includes('write:question');
+    const hasAnswerScope = apiKey.scopes.includes('write:answers') || apiKey.scopes.includes('write:answer');
+    const needsScopePatch = !hasQuestionScope || !hasAnswerScope;
+    const needsLimitPatch =
+      apiKey.dailyWriteLimit !== dailyWriteLimit
+      || apiKey.dailyQuestionLimit !== dailyQuestionLimit
+      || apiKey.dailyAnswerLimit !== dailyAnswerLimit;
+    if (needsScopePatch || needsLimitPatch) {
+      apiKey = await prisma.apiKey.update({
+        where: { id: apiKey.id },
+        data: {
+          scopes: ['write:questions', 'write:answers'],
+          dailyWriteLimit,
+          dailyQuestionLimit,
+          dailyAnswerLimit
+        },
+        include: { user: true }
+      });
+    }
+  }
+
+  if (keyCreated && KEYLESS_AUTO_SUBSCRIBE) {
+    await ensureTrialAutoSubscription(boundAgentName);
+  }
+
+  reply.header('X-A2ABench-Auth-Mode', 'keyless-managed');
+  reply.header('X-A2ABench-Agent-Name', boundAgentName.slice(0, 128));
+
+  return {
+    status: 'ok',
+    apiKey,
+    boundAgentName,
+    actorType
+  };
+}
+
 async function requireApiKey(
   request: {
     headers: Record<string, string | string[] | undefined>;
@@ -1500,25 +1693,47 @@ async function requireApiKey(
   reply: any,
   scope?: string
 ) {
+  const isWrite = isWriteMethod(request.method) || Boolean(scope && scope.startsWith('write:'));
   const key = extractBearerToken(request.headers);
-  if (!key) {
-    reply.code(401).send({ error: 'Missing API key' });
-    return null;
+  let apiKey: ApiKeyWithUser | null = null;
+  let authMode: RequestAuthMeta['authMode'] = 'bearer';
+
+  if (key) {
+    const keyPrefix = key.slice(0, 8);
+    const keyHash = sha256(key);
+    apiKey = await prisma.apiKey.findFirst({
+      where: { keyPrefix, keyHash, revokedAt: null },
+      include: { user: true }
+    });
+    if (!apiKey) {
+      reply.code(401).send({ error: 'Invalid API key' });
+      return null;
+    }
+    if (apiKey.expiresAt && apiKey.expiresAt.getTime() < Date.now()) {
+      reply.code(401).send({ error: 'API key expired' });
+      return null;
+    }
+  } else {
+    const keyless = await resolveKeylessManagedApiKey(request, reply);
+    if (keyless.status === 'ok') {
+      apiKey = keyless.apiKey;
+      authMode = 'keyless_managed';
+    } else if (keyless.status === 'failed') {
+      return null;
+    } else {
+      reply.code(401).send({
+        error: 'Missing API key',
+        hint: 'Send X-Agent-Name for keyless onboarding, or Authorization: Bearer <api-key>.'
+      });
+      return null;
+    }
   }
-  const keyPrefix = key.slice(0, 8);
-  const keyHash = sha256(key);
-  let apiKey = await prisma.apiKey.findFirst({
-    where: { keyPrefix, keyHash, revokedAt: null },
-    include: { user: true }
-  });
+
   if (!apiKey) {
     reply.code(401).send({ error: 'Invalid API key' });
     return null;
   }
-  if (apiKey.expiresAt && apiKey.expiresAt.getTime() < Date.now()) {
-    reply.code(401).send({ error: 'API key expired' });
-    return null;
-  }
+
   if (scope && apiKey.scopes.length > 0) {
     const aliases: Record<string, string[]> = {
       'write:questions': ['write:questions', 'write:question'],
@@ -1535,7 +1750,6 @@ async function requireApiKey(
   const identityMeta = parseApiKeyIdentityMeta(apiKey.name);
   let boundAgentName = normalizeAgentOrNull(identityMeta.boundAgentName);
   const presentedAgentName = normalizeAgentOrNull(getAgentName(request.headers));
-  const isWrite = isWriteMethod(request.method) || Boolean(scope && scope.startsWith('write:'));
   const actorType = normalizeActorType(identityMeta.actorType);
 
   if (isWrite) {
@@ -1571,11 +1785,14 @@ async function requireApiKey(
     }
   }
 
-  const signatureRequired = isWrite && (AGENT_SIGNATURE_ENFORCE_WRITES || identityMeta.signatureRequired);
+  const signatureRequired = isWrite
+    && authMode === 'bearer'
+    && (AGENT_SIGNATURE_ENFORCE_WRITES || identityMeta.signatureRequired);
   let signatureVerified = false;
   const signature = normalizeHeader(request.headers['x-agent-signature']).trim().toLowerCase();
   const timestampRaw = normalizeHeader(request.headers['x-agent-timestamp']).trim();
   const signatureProvided = Boolean(signature) || Boolean(timestampRaw);
+  const canVerifySignature = Boolean(key);
   if (signatureRequired || signatureProvided) {
     if (!signature || !timestampRaw) {
       if (signatureRequired) {
@@ -1599,14 +1816,17 @@ async function requireApiKey(
             reply.code(401).send({ error: 'Request signature timestamp skew too large.' });
             return null;
           }
-        } else {
+        } else if (canVerifySignature) {
           const path = getSignatureRequestPath(request);
-          const expected = computeAgentSignature(key, request.method ?? 'POST', path, timestampRaw, keyPrefix);
+          const expected = computeAgentSignature(key!, request.method ?? 'POST', path, timestampRaw, apiKey.keyPrefix);
           signatureVerified = timingSafeHexEqual(expected, signature);
           if (!signatureVerified && signatureRequired) {
             reply.code(401).send({ error: 'Invalid request signature.' });
             return null;
           }
+        } else if (signatureRequired) {
+          reply.code(401).send({ error: 'Request signatures require bearer API keys.' });
+          return null;
         }
       }
     }
@@ -1618,6 +1838,7 @@ async function requireApiKey(
   request.authMeta = {
     apiKeyId: apiKey.id,
     apiKeyPrefix: apiKey.keyPrefix,
+    authMode,
     actorType,
     boundAgentName,
     presentedAgentName,
@@ -6649,9 +6870,12 @@ fastify.get('/api/v1/agent/quickstart', {
     actions: {
       nextBestJob: '/api/v1/agent/next-best-job'
     },
-    trial: {
-      mintKey: 'POST /api/v1/auth/trial-key',
-      hint: 'Use {"handle":"your-agent-name"} to keep a stable identity.'
+    auth: {
+      mode: 'keyless_managed_default',
+      hint: 'Writes work with X-Agent-Name and no bearer key on supported routes. Bearer keys still work.',
+      requiredHeaderForKeyless: 'X-Agent-Name',
+      fallbackBearer: 'Authorization: Bearer <api-key>',
+      trialKeyOptional: 'POST /api/v1/auth/trial-key'
     },
     recommendedQuestion: recommended ? formatRecommendedQuestion(recommended, baseUrl) : null
   };
@@ -6974,7 +7198,7 @@ fastify.get('/api/v1/auth/trial-key', {
   reply
     .header('Allow', 'POST')
     .code(405)
-    .send({ error: 'method_not_allowed', hint: 'POST /api/v1/auth/trial-key with {}' });
+    .send({ error: 'method_not_allowed', hint: 'POST /api/v1/auth/trial-key with {} (optional; keyless writes are enabled on core routes).' });
 });
 
 fastify.post('/api/v1/auth/trial-key', {

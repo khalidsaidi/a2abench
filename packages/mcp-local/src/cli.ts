@@ -7,14 +7,16 @@ import { z } from 'zod';
 
 const API_BASE_URL = process.env.API_BASE_URL ?? 'https://a2abench-api.web.app';
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL ?? API_BASE_URL;
-let apiKey = process.env.API_KEY ?? '';
+const STATIC_API_KEY = process.env.API_KEY ?? '';
+let apiKey = STATIC_API_KEY;
 const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-local';
 const LLM_PROVIDER = process.env.LLM_PROVIDER ?? '';
 const LLM_API_KEY = process.env.LLM_API_KEY ?? '';
 const LLM_MODEL = process.env.LLM_MODEL ?? '';
 const AGENT_SIGNATURE_SIGN_WRITES = (process.env.AGENT_SIGNATURE_SIGN_WRITES ?? 'true').toLowerCase() === 'true';
+const MCP_USE_API_KEY_BY_DEFAULT = (process.env.MCP_USE_API_KEY_BY_DEFAULT ?? 'false').toLowerCase() === 'true';
 const MCP_AUTO_TRIAL_KEYS = (process.env.MCP_AUTO_TRIAL_KEYS ?? 'true').toLowerCase() === 'true';
-const TRIAL_KEY_HINT = 'Get a trial key at /api/v1/auth/trial-key';
+const TRIAL_KEY_HINT = 'Keyless writes use X-Agent-Name. Optional bearer fallback: POST /api/v1/auth/trial-key';
 
 const server = new McpServer({
   name: 'A2ABench',
@@ -43,6 +45,11 @@ function buildWriteSignatureHeaders(authHeader: string, method: string, path: st
   };
 }
 
+function shouldUseDefaultApiKey() {
+  if (!apiKey) return false;
+  return MCP_USE_API_KEY_BY_DEFAULT || apiKey !== STATIC_API_KEY;
+}
+
 async function apiGet(path: string, params?: Record<string, string>, authHeaderOverride?: string) {
   const url = new URL(path, API_BASE_URL);
   if (params) {
@@ -54,7 +61,7 @@ async function apiGet(path: string, params?: Record<string, string>, authHeaderO
   }
   if (authHeaderOverride) {
     headers.authorization = authHeaderOverride;
-  } else if (apiKey) {
+  } else if (shouldUseDefaultApiKey()) {
     headers.authorization = `Bearer ${apiKey}`;
   }
   const response = await fetch(url, { headers });
@@ -80,7 +87,7 @@ async function apiPost(
   }
   if (authHeaderOverride) {
     headers.authorization = authHeaderOverride;
-  } else if (apiKey) {
+  } else if (shouldUseDefaultApiKey()) {
     headers.authorization = `Bearer ${apiKey}`;
   }
   if (AGENT_SIGNATURE_SIGN_WRITES && headers.authorization) {
@@ -148,36 +155,14 @@ async function mintTrialKey(forceRefresh = false) {
 }
 
 async function postWriteWithAutoTrial(path: string, body: Record<string, unknown>, query?: Record<string, string>) {
-  let authHeader = apiKey ? `Bearer ${apiKey}` : '';
+  let authHeader = shouldUseDefaultApiKey() ? `Bearer ${apiKey}` : '';
   let usedTrialKey = false;
-
-  if (!authHeader && MCP_AUTO_TRIAL_KEYS) {
-    try {
-      const minted = await mintTrialKey();
-      if (minted) {
-        authHeader = `Bearer ${minted}`;
-        usedTrialKey = true;
-      }
-    } catch {
-      // fall back to standard error response below
-    }
-  }
-
-  if (!authHeader) {
-    return {
-      response: new Response(JSON.stringify({ error: 'Missing API key', hint: TRIAL_KEY_HINT }), {
-        status: 401,
-        headers: { 'content-type': 'application/json' }
-      }),
-      usedTrialKey
-    };
-  }
-
-  let response = await apiPost(path, body, query, authHeader);
+  let response = await apiPost(path, body, query, authHeader || undefined);
   const failureText = await response.clone().text();
   if (isAuthOrLimitFailure(response.status, failureText) && MCP_AUTO_TRIAL_KEYS) {
+    const shouldForceRefresh = usedTrialKey || response.status === 429;
     try {
-      const minted = await mintTrialKey(true);
+      const minted = await mintTrialKey(shouldForceRefresh);
       if (minted) {
         authHeader = `Bearer ${minted}`;
         usedTrialKey = true;
@@ -192,36 +177,14 @@ async function postWriteWithAutoTrial(path: string, body: Record<string, unknown
 }
 
 async function getProtectedWithAutoTrial(path: string, params?: Record<string, string>) {
-  let authHeader = apiKey ? `Bearer ${apiKey}` : '';
+  let authHeader = shouldUseDefaultApiKey() ? `Bearer ${apiKey}` : '';
   let usedTrialKey = false;
-
-  if (!authHeader && MCP_AUTO_TRIAL_KEYS) {
-    try {
-      const minted = await mintTrialKey();
-      if (minted) {
-        authHeader = `Bearer ${minted}`;
-        usedTrialKey = true;
-      }
-    } catch {
-      // fall back to standard error response below
-    }
-  }
-
-  if (!authHeader) {
-    return {
-      response: new Response(JSON.stringify({ error: 'Missing API key', hint: TRIAL_KEY_HINT }), {
-        status: 401,
-        headers: { 'content-type': 'application/json' }
-      }),
-      usedTrialKey
-    };
-  }
-
-  let response = await apiGet(path, params, authHeader);
+  let response = await apiGet(path, params, authHeader || undefined);
   const failureText = await response.clone().text();
   if (isAuthOrLimitFailure(response.status, failureText) && MCP_AUTO_TRIAL_KEYS) {
+    const shouldForceRefresh = usedTrialKey || response.status === 429;
     try {
-      const minted = await mintTrialKey(true);
+      const minted = await mintTrialKey(shouldForceRefresh);
       if (minted) {
         authHeader = `Bearer ${minted}`;
         usedTrialKey = true;
@@ -423,7 +386,7 @@ server.registerTool(
   'create_question',
   {
     title: 'Create question',
-    description: 'Create a new question thread (auto-mints a trial key when missing).',
+    description: 'Create a new question thread (keyless by default; optional trial fallback).',
     inputSchema: {
       title: z.string().min(8),
       bodyMd: z.string().min(3),
@@ -461,7 +424,7 @@ server.registerTool(
           type: 'text',
           text: JSON.stringify({
             ...data,
-            auth: writeResult.usedTrialKey ? 'trial_key' : 'provided_key',
+            auth: writeResult.usedTrialKey ? 'trial_key' : (shouldUseDefaultApiKey() ? 'provided_key' : 'keyless_managed'),
             url: `${PUBLIC_BASE_URL}/q/${data.id}`
           })
         }
@@ -474,7 +437,7 @@ server.registerTool(
   'create_answer',
   {
     title: 'Create answer',
-    description: 'Create an answer for a question (auto-mints a trial key when missing).',
+    description: 'Create an answer for a question (keyless by default; optional trial fallback).',
     inputSchema: {
       id: z.string().min(1),
       bodyMd: z.string().min(3)
@@ -506,7 +469,7 @@ server.registerTool(
           type: 'text',
           text: JSON.stringify({
             ...data,
-            auth: writeResult.usedTrialKey ? 'trial_key' : 'provided_key',
+            auth: writeResult.usedTrialKey ? 'trial_key' : (shouldUseDefaultApiKey() ? 'provided_key' : 'keyless_managed'),
             url: `${PUBLIC_BASE_URL}/q/${id}`
           })
         }
@@ -562,7 +525,7 @@ server.registerTool(
           type: 'text',
           text: JSON.stringify({
             ...data,
-            auth: writeResult.usedTrialKey ? 'trial_key' : 'provided_key',
+            auth: writeResult.usedTrialKey ? 'trial_key' : (shouldUseDefaultApiKey() ? 'provided_key' : 'keyless_managed'),
             url: `${PUBLIC_BASE_URL}/q/${questionId}`
           })
         }
@@ -575,7 +538,7 @@ server.registerTool(
   'claim_question',
   {
     title: 'Claim question',
-    description: 'Claim a question before answering (auto-mints a trial key when missing).',
+    description: 'Claim a question before answering (keyless by default; optional trial fallback).',
     inputSchema: {
       questionId: z.string().min(1),
       ttlMinutes: z.number().int().min(5).max(240).optional()
@@ -609,7 +572,7 @@ server.registerTool(
           type: 'text',
           text: JSON.stringify({
             ...data,
-            auth: writeResult.usedTrialKey ? 'trial_key' : 'provided_key'
+            auth: writeResult.usedTrialKey ? 'trial_key' : (shouldUseDefaultApiKey() ? 'provided_key' : 'keyless_managed')
           })
         }
       ]
@@ -621,7 +584,7 @@ server.registerTool(
   'release_claim',
   {
     title: 'Release claim',
-    description: 'Release a question claim you currently hold (auto-mints a trial key when missing).',
+    description: 'Release a question claim you currently hold (keyless by default; optional trial fallback).',
     inputSchema: {
       questionId: z.string().min(1),
       claimId: z.string().min(1)
@@ -653,7 +616,7 @@ server.registerTool(
           type: 'text',
           text: JSON.stringify({
             ...data,
-            auth: writeResult.usedTrialKey ? 'trial_key' : 'provided_key'
+            auth: writeResult.usedTrialKey ? 'trial_key' : (shouldUseDefaultApiKey() ? 'provided_key' : 'keyless_managed')
           })
         }
       ]
@@ -700,7 +663,7 @@ server.registerTool(
           type: 'text',
           text: JSON.stringify({
             ...data,
-            auth: readResult.usedTrialKey ? 'trial_key' : 'provided_key'
+            auth: readResult.usedTrialKey ? 'trial_key' : (shouldUseDefaultApiKey() ? 'provided_key' : 'keyless_managed')
           })
         }
       ]
@@ -768,7 +731,7 @@ server.registerTool(
   'place_bounty',
   {
     title: 'Place bounty',
-    description: 'Set or update bounty for a question (requires API key).',
+    description: 'Set or update bounty for a question.',
     inputSchema: {
       id: z.string().min(1),
       amount: z.number().int().min(1).max(100000),
@@ -777,21 +740,18 @@ server.registerTool(
     }
   },
   async ({ id, amount, expiresAt, active }) => {
-    if (!apiKey) {
-      return {
-        isError: true,
-        content: [{ type: 'text', text: JSON.stringify({ error: 'Missing API key', hint: 'Get a trial key at /api/v1/auth/trial-key' }) }]
-      };
-    }
-    const response = await apiPost(`/api/v1/questions/${id}/bounty`, { amount, expiresAt, active });
+    const { response, usedTrialKey } = await postWriteWithAutoTrial(`/api/v1/questions/${id}/bounty`, { amount, expiresAt, active });
     if (!response.ok) {
       const text = await response.text();
       return {
         isError: true,
-        content: [{ type: 'text', text: JSON.stringify({ error: text || 'Failed to place bounty', status: response.status }) }]
+        content: [{ type: 'text', text: JSON.stringify({ error: text || 'Failed to place bounty', status: response.status, hint: response.status === 401 ? TRIAL_KEY_HINT : undefined }) }]
       };
     }
     const data = (await response.json()) as Record<string, unknown>;
+    if (usedTrialKey) {
+      data.authMode = 'trial_fallback';
+    }
     return {
       content: [{ type: 'text', text: JSON.stringify(data) }]
     };
@@ -802,28 +762,25 @@ server.registerTool(
   'vote_answer',
   {
     title: 'Vote answer',
-    description: 'Vote +1 or -1 on an answer (requires API key).',
+    description: 'Vote +1 or -1 on an answer.',
     inputSchema: {
       id: z.string().min(1),
       value: z.union([z.literal(1), z.literal(-1)])
     }
   },
   async ({ id, value }) => {
-    if (!apiKey) {
-      return {
-        isError: true,
-        content: [{ type: 'text', text: JSON.stringify({ error: 'Missing API key', hint: 'Get a trial key at /api/v1/auth/trial-key' }) }]
-      };
-    }
-    const response = await apiPost(`/api/v1/answers/${id}/vote`, { value });
+    const { response, usedTrialKey } = await postWriteWithAutoTrial(`/api/v1/answers/${id}/vote`, { value });
     if (!response.ok) {
       const text = await response.text();
       return {
         isError: true,
-        content: [{ type: 'text', text: JSON.stringify({ error: text || 'Failed to vote answer', status: response.status }) }]
+        content: [{ type: 'text', text: JSON.stringify({ error: text || 'Failed to vote answer', status: response.status, hint: response.status === 401 ? TRIAL_KEY_HINT : undefined }) }]
       };
     }
     const data = (await response.json()) as Record<string, unknown>;
+    if (usedTrialKey) {
+      data.authMode = 'trial_fallback';
+    }
     return {
       content: [{ type: 'text', text: JSON.stringify(data) }]
     };
@@ -834,28 +791,25 @@ server.registerTool(
   'accept_answer',
   {
     title: 'Accept answer',
-    description: 'Accept an answer for a question (requires API key of question owner).',
+    description: 'Accept an answer for a question (must be question owner identity).',
     inputSchema: {
       questionId: z.string().min(1),
       answerId: z.string().min(1)
     }
   },
   async ({ questionId, answerId }) => {
-    if (!apiKey) {
-      return {
-        isError: true,
-        content: [{ type: 'text', text: JSON.stringify({ error: 'Missing API key', hint: 'Get a trial key at /api/v1/auth/trial-key' }) }]
-      };
-    }
-    const response = await apiPost(`/api/v1/questions/${questionId}/accept/${answerId}`, {});
+    const { response, usedTrialKey } = await postWriteWithAutoTrial(`/api/v1/questions/${questionId}/accept/${answerId}`, {});
     if (!response.ok) {
       const text = await response.text();
       return {
         isError: true,
-        content: [{ type: 'text', text: JSON.stringify({ error: text || 'Failed to accept answer', status: response.status }) }]
+        content: [{ type: 'text', text: JSON.stringify({ error: text || 'Failed to accept answer', status: response.status, hint: response.status === 401 ? TRIAL_KEY_HINT : undefined }) }]
       };
     }
     const data = (await response.json()) as Record<string, unknown>;
+    if (usedTrialKey) {
+      data.authMode = 'trial_fallback';
+    }
     return {
       content: [{ type: 'text', text: JSON.stringify(data) }]
     };
@@ -873,7 +827,8 @@ Usage:
 Environment:
   API_BASE_URL   Base API URL (default: https://a2abench-api.web.app)
   PUBLIC_BASE_URL Canonical base URL for citations (default: API_BASE_URL)
-  API_KEY        Optional bearer token for write/auth endpoints (create_question/create_answer auto-mint trial key when missing)
+  API_KEY        Optional bearer token (writes default to keyless using X-Agent-Name)
+  MCP_USE_API_KEY_BY_DEFAULT  Set true to always send API_KEY when present
   MCP_AGENT_NAME Agent identifier header (default: a2abench-mcp-local)
 `);
     process.exit(0);

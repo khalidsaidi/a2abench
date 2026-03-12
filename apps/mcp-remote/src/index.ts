@@ -11,6 +11,7 @@ const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL ?? API_BASE_URL;
 const PUBLIC_MCP_URL =
   process.env.PUBLIC_MCP_URL ?? 'https://a2abench-mcp.web.app/mcp';
 const API_KEY = process.env.API_KEY ?? '';
+const MCP_USE_API_KEY_BY_DEFAULT = (process.env.MCP_USE_API_KEY_BY_DEFAULT ?? 'false').toLowerCase() === 'true';
 const MCP_AUTO_TRIAL_KEYS = (process.env.MCP_AUTO_TRIAL_KEYS ?? 'true').toLowerCase() === 'true';
 const PORT = Number(process.env.PORT ?? process.env.MCP_PORT ?? 4000);
 const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-remote';
@@ -26,7 +27,7 @@ const ALLOWED_ORIGINS = (process.env.MCP_ALLOWED_ORIGINS ?? '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
-const TRIAL_KEY_HINT = 'Get a trial key at /api/v1/auth/trial-key';
+const TRIAL_KEY_HINT = 'Keyless writes use X-Agent-Name. Optional bearer fallback: POST /api/v1/auth/trial-key';
 const TRIAL_KEY_CACHE_MS = 55 * 60 * 1000;
 const trialKeyCache = new Map<string, { authHeader: string; expiresAtMs: number }>();
 
@@ -216,20 +217,13 @@ async function apiGet(path: string, params?: Record<string, string>, authHeaderO
   if (agentName) {
     headers['X-Agent-Name'] = agentName;
   }
+  const ctxAuth = requestContext.getStore()?.authHeader;
   if (authHeaderOverride) {
     headers.authorization = authHeaderOverride;
-  } else if (API_KEY) {
-    const ctxAuth = requestContext.getStore()?.authHeader;
-    if (ctxAuth) {
-      headers.authorization = ctxAuth;
-    } else {
-      headers.authorization = `Bearer ${API_KEY}`;
-    }
-  } else {
-    const ctxAuth = requestContext.getStore()?.authHeader;
-    if (ctxAuth) {
-      headers.authorization = ctxAuth;
-    }
+  } else if (ctxAuth) {
+    headers.authorization = ctxAuth;
+  } else if (MCP_USE_API_KEY_BY_DEFAULT && API_KEY) {
+    headers.authorization = `Bearer ${API_KEY}`;
   }
   const response = await fetch(url, { headers });
   return response;
@@ -254,15 +248,13 @@ async function apiPost(
   if (agentName) {
     headers['X-Agent-Name'] = agentName;
   }
+  const ctxAuth = requestContext.getStore()?.authHeader;
   if (authHeaderOverride) {
     headers.authorization = authHeaderOverride;
-  } else {
-    const ctxAuth = requestContext.getStore()?.authHeader;
-    if (ctxAuth) {
-      headers.authorization = ctxAuth;
-    } else if (API_KEY) {
-      headers.authorization = `Bearer ${API_KEY}`;
-    }
+  } else if (ctxAuth) {
+    headers.authorization = ctxAuth;
+  } else if (MCP_USE_API_KEY_BY_DEFAULT && API_KEY) {
+    headers.authorization = `Bearer ${API_KEY}`;
   }
   if (AGENT_SIGNATURE_SIGN_WRITES && headers.authorization) {
     const signatureHeaders = buildWriteSignatureHeaders(headers.authorization, 'POST', url.pathname);
@@ -357,36 +349,9 @@ async function postWriteWithAutoTrial(
   query?: Record<string, string>
 ) {
   const requestAuth = requestContext.getStore()?.authHeader?.trim() ?? '';
-  let authHeader = requestAuth || (API_KEY ? `Bearer ${API_KEY}` : '');
+  let authHeader = requestAuth || (MCP_USE_API_KEY_BY_DEFAULT && API_KEY ? `Bearer ${API_KEY}` : '');
   let usedTrialKey = false;
-
-  if (!authHeader && MCP_AUTO_TRIAL_KEYS) {
-    try {
-      const minted = await mintTrialAuthHeader();
-      if (minted) {
-        authHeader = minted;
-        usedTrialKey = true;
-      }
-    } catch (error) {
-      logEvent('warn', {
-        kind: 'trial_key_mint_failed',
-        error: error instanceof Error ? error.message : 'unknown'
-      });
-    }
-  }
-
-  if (!authHeader) {
-    const bodyText = JSON.stringify({ error: 'Missing API key', hint: TRIAL_KEY_HINT });
-    return {
-      response: new Response(bodyText, {
-        status: 401,
-        headers: { 'content-type': 'application/json' }
-      }),
-      usedTrialKey
-    };
-  }
-
-  let response = await apiPost(path, body, query, authHeader);
+  let response = await apiPost(path, body, query, authHeader || undefined);
   const failureText = await response.clone().text();
   if (isAuthOrLimitFailure(response.status, failureText) && MCP_AUTO_TRIAL_KEYS) {
     const shouldForceRefresh = usedTrialKey || response.status === 429;
@@ -411,36 +376,9 @@ async function postWriteWithAutoTrial(
 
 async function getProtectedWithAutoTrial(path: string, query?: Record<string, string>) {
   const requestAuth = requestContext.getStore()?.authHeader?.trim() ?? '';
-  let authHeader = requestAuth || (API_KEY ? `Bearer ${API_KEY}` : '');
+  let authHeader = requestAuth || (MCP_USE_API_KEY_BY_DEFAULT && API_KEY ? `Bearer ${API_KEY}` : '');
   let usedTrialKey = false;
-
-  if (!authHeader && MCP_AUTO_TRIAL_KEYS) {
-    try {
-      const minted = await mintTrialAuthHeader();
-      if (minted) {
-        authHeader = minted;
-        usedTrialKey = true;
-      }
-    } catch (error) {
-      logEvent('warn', {
-        kind: 'trial_key_mint_failed',
-        error: error instanceof Error ? error.message : 'unknown'
-      });
-    }
-  }
-
-  if (!authHeader) {
-    const bodyText = JSON.stringify({ error: 'Missing API key', hint: TRIAL_KEY_HINT });
-    return {
-      response: new Response(bodyText, {
-        status: 401,
-        headers: { 'content-type': 'application/json' }
-      }),
-      usedTrialKey
-    };
-  }
-
-  let response = await apiGet(path, query, authHeader);
+  let response = await apiGet(path, query, authHeader || undefined);
   const failureText = await response.clone().text();
   if (isAuthOrLimitFailure(response.status, failureText) && MCP_AUTO_TRIAL_KEYS) {
     const shouldForceRefresh = usedTrialKey || response.status === 429;
@@ -789,7 +727,7 @@ function registerTools(server: McpServer) {
     'create_question',
     {
       title: 'Create question',
-      description: 'Create a new question thread (auto-mints a trial key when missing).',
+      description: 'Create a new question thread (keyless by default; optional trial fallback).',
       inputSchema: {
         title: z.string().min(8),
         bodyMd: z.string().min(3),
@@ -853,7 +791,9 @@ function registerTools(server: McpServer) {
             type: 'text',
             text: JSON.stringify({
               ...data,
-              auth: writeResult.usedTrialKey ? 'trial_key' : 'provided_key',
+              auth: writeResult.usedTrialKey
+                ? 'trial_key'
+                : ((requestContext.getStore()?.authHeader || (MCP_USE_API_KEY_BY_DEFAULT && API_KEY)) ? 'provided_key' : 'keyless_managed'),
               url: `${PUBLIC_BASE_URL}/q/${data.id}`
             })
           }
@@ -866,7 +806,7 @@ function registerTools(server: McpServer) {
     'create_answer',
     {
       title: 'Create answer',
-      description: 'Create an answer for a question (auto-mints a trial key when missing).',
+      description: 'Create an answer for a question (keyless by default; optional trial fallback).',
       inputSchema: {
         id: z.string().min(1),
         bodyMd: z.string().min(3)
@@ -924,7 +864,9 @@ function registerTools(server: McpServer) {
             type: 'text',
             text: JSON.stringify({
               ...data,
-              auth: writeResult.usedTrialKey ? 'trial_key' : 'provided_key',
+              auth: writeResult.usedTrialKey
+                ? 'trial_key'
+                : ((requestContext.getStore()?.authHeader || (MCP_USE_API_KEY_BY_DEFAULT && API_KEY)) ? 'provided_key' : 'keyless_managed'),
               url: `${PUBLIC_BASE_URL}/q/${id}`
             })
           }
@@ -1006,7 +948,9 @@ function registerTools(server: McpServer) {
             type: 'text',
             text: JSON.stringify({
               ...data,
-              auth: writeResult.usedTrialKey ? 'trial_key' : 'provided_key',
+              auth: writeResult.usedTrialKey
+                ? 'trial_key'
+                : ((requestContext.getStore()?.authHeader || (MCP_USE_API_KEY_BY_DEFAULT && API_KEY)) ? 'provided_key' : 'keyless_managed'),
               url: `${PUBLIC_BASE_URL}/q/${questionId}`
             })
           }
@@ -1019,7 +963,7 @@ function registerTools(server: McpServer) {
     'claim_question',
     {
       title: 'Claim question',
-      description: 'Claim a question before answering (auto-mints a trial key when missing).',
+      description: 'Claim a question before answering (keyless by default; optional trial fallback).',
       inputSchema: {
         questionId: z.string().min(1),
         ttlMinutes: z.number().int().min(5).max(240).optional()
@@ -1079,7 +1023,9 @@ function registerTools(server: McpServer) {
             type: 'text',
             text: JSON.stringify({
               ...data,
-              auth: writeResult.usedTrialKey ? 'trial_key' : 'provided_key'
+              auth: writeResult.usedTrialKey
+                ? 'trial_key'
+                : ((requestContext.getStore()?.authHeader || (MCP_USE_API_KEY_BY_DEFAULT && API_KEY)) ? 'provided_key' : 'keyless_managed')
             })
           }
         ]
@@ -1091,7 +1037,7 @@ function registerTools(server: McpServer) {
     'release_claim',
     {
       title: 'Release claim',
-      description: 'Release a question claim you currently hold (auto-mints a trial key when missing).',
+      description: 'Release a question claim you currently hold (keyless by default; optional trial fallback).',
       inputSchema: {
         questionId: z.string().min(1),
         claimId: z.string().min(1)
@@ -1149,7 +1095,9 @@ function registerTools(server: McpServer) {
             type: 'text',
             text: JSON.stringify({
               ...data,
-              auth: writeResult.usedTrialKey ? 'trial_key' : 'provided_key'
+              auth: writeResult.usedTrialKey
+                ? 'trial_key'
+                : ((requestContext.getStore()?.authHeader || (MCP_USE_API_KEY_BY_DEFAULT && API_KEY)) ? 'provided_key' : 'keyless_managed')
             })
           }
         ]
@@ -1222,7 +1170,9 @@ function registerTools(server: McpServer) {
             type: 'text',
             text: JSON.stringify({
               ...data,
-              auth: readResult.usedTrialKey ? 'trial_key' : 'provided_key'
+              auth: readResult.usedTrialKey
+                ? 'trial_key'
+                : ((requestContext.getStore()?.authHeader || (MCP_USE_API_KEY_BY_DEFAULT && API_KEY)) ? 'provided_key' : 'keyless_managed')
             })
           }
         ]
@@ -1336,7 +1286,7 @@ function registerTools(server: McpServer) {
     'place_bounty',
     {
       title: 'Place bounty',
-      description: 'Set or update bounty for a question (requires API key).',
+      description: 'Set or update bounty for a question.',
       inputSchema: {
         id: z.string().min(1),
         amount: z.number().int().min(1).max(100000),
@@ -1347,24 +1297,14 @@ function registerTools(server: McpServer) {
     async ({ id, amount, expiresAt, active }) => {
       const toolStart = Date.now();
       const requestId = requestContext.getStore()?.requestId ?? null;
-      const authHeader = requestContext.getStore()?.authHeader ?? (API_KEY ? `Bearer ${API_KEY}` : '');
-      if (!authHeader) {
-        metrics.totalToolCalls += 1;
-        bumpMap(metrics.byTool, 'place_bounty');
-        bumpMap(metrics.toolErrors, 'place_bounty');
-        captureToolEvent('place_bounty', { id, amount, expiresAt, active }, { error: 'Missing API key' }, 401, Date.now() - toolStart);
-        return {
-          isError: true,
-          content: [{ type: 'text', text: JSON.stringify({ error: 'Missing API key', hint: 'Get a trial key at /api/v1/auth/trial-key' }) }]
-        };
-      }
-      const response = await apiPost(`/api/v1/questions/${id}/bounty`, { amount, expiresAt, active });
+      const writeResult = await postWriteWithAutoTrial(`/api/v1/questions/${id}/bounty`, { amount, expiresAt, active });
+      const response = writeResult.response;
       if (!response.ok) {
         metrics.totalToolCalls += 1;
         bumpMap(metrics.byTool, 'place_bounty');
         bumpMap(metrics.toolErrors, 'place_bounty');
         const text = await response.text();
-        const hint = response.status === 401 ? 'Get a trial key at /api/v1/auth/trial-key' : undefined;
+        const hint = response.status === 401 ? TRIAL_KEY_HINT : undefined;
         logEvent('warn', {
           kind: 'mcp_tool',
           tool: 'place_bounty',
@@ -1389,6 +1329,9 @@ function registerTools(server: McpServer) {
         requestId
       });
       captureToolEvent('place_bounty', { id, amount, expiresAt, active }, data, response.status, Date.now() - toolStart);
+      if (writeResult.usedTrialKey) {
+        data.authMode = 'trial_fallback';
+      }
       return {
         content: [{ type: 'text', text: JSON.stringify(data) }]
       };
@@ -1399,7 +1342,7 @@ function registerTools(server: McpServer) {
     'vote_answer',
     {
       title: 'Vote answer',
-      description: 'Vote +1 or -1 on an answer (requires API key).',
+      description: 'Vote +1 or -1 on an answer.',
       inputSchema: {
         id: z.string().min(1),
         value: z.union([z.literal(1), z.literal(-1)])
@@ -1408,24 +1351,14 @@ function registerTools(server: McpServer) {
     async ({ id, value }) => {
       const toolStart = Date.now();
       const requestId = requestContext.getStore()?.requestId ?? null;
-      const authHeader = requestContext.getStore()?.authHeader ?? (API_KEY ? `Bearer ${API_KEY}` : '');
-      if (!authHeader) {
-        metrics.totalToolCalls += 1;
-        bumpMap(metrics.byTool, 'vote_answer');
-        bumpMap(metrics.toolErrors, 'vote_answer');
-        captureToolEvent('vote_answer', { id, value }, { error: 'Missing API key' }, 401, Date.now() - toolStart);
-        return {
-          isError: true,
-          content: [{ type: 'text', text: JSON.stringify({ error: 'Missing API key', hint: 'Get a trial key at /api/v1/auth/trial-key' }) }]
-        };
-      }
-      const response = await apiPost(`/api/v1/answers/${id}/vote`, { value });
+      const writeResult = await postWriteWithAutoTrial(`/api/v1/answers/${id}/vote`, { value });
+      const response = writeResult.response;
       if (!response.ok) {
         metrics.totalToolCalls += 1;
         bumpMap(metrics.byTool, 'vote_answer');
         bumpMap(metrics.toolErrors, 'vote_answer');
         const text = await response.text();
-        const hint = response.status === 401 ? 'Get a trial key at /api/v1/auth/trial-key' : undefined;
+        const hint = response.status === 401 ? TRIAL_KEY_HINT : undefined;
         logEvent('warn', {
           kind: 'mcp_tool',
           tool: 'vote_answer',
@@ -1450,6 +1383,9 @@ function registerTools(server: McpServer) {
         requestId
       });
       captureToolEvent('vote_answer', { id, value }, data, response.status, Date.now() - toolStart);
+      if (writeResult.usedTrialKey) {
+        data.authMode = 'trial_fallback';
+      }
       return {
         content: [{ type: 'text', text: JSON.stringify(data) }]
       };
@@ -1460,7 +1396,7 @@ function registerTools(server: McpServer) {
     'accept_answer',
     {
       title: 'Accept answer',
-      description: 'Accept an answer for a question (requires owner API key).',
+      description: 'Accept an answer for a question (must be question owner identity).',
       inputSchema: {
         questionId: z.string().min(1),
         answerId: z.string().min(1)
@@ -1469,24 +1405,14 @@ function registerTools(server: McpServer) {
     async ({ questionId, answerId }) => {
       const toolStart = Date.now();
       const requestId = requestContext.getStore()?.requestId ?? null;
-      const authHeader = requestContext.getStore()?.authHeader ?? (API_KEY ? `Bearer ${API_KEY}` : '');
-      if (!authHeader) {
-        metrics.totalToolCalls += 1;
-        bumpMap(metrics.byTool, 'accept_answer');
-        bumpMap(metrics.toolErrors, 'accept_answer');
-        captureToolEvent('accept_answer', { questionId, answerId }, { error: 'Missing API key' }, 401, Date.now() - toolStart);
-        return {
-          isError: true,
-          content: [{ type: 'text', text: JSON.stringify({ error: 'Missing API key', hint: 'Get a trial key at /api/v1/auth/trial-key' }) }]
-        };
-      }
-      const response = await apiPost(`/api/v1/questions/${questionId}/accept/${answerId}`, {});
+      const writeResult = await postWriteWithAutoTrial(`/api/v1/questions/${questionId}/accept/${answerId}`, {});
+      const response = writeResult.response;
       if (!response.ok) {
         metrics.totalToolCalls += 1;
         bumpMap(metrics.byTool, 'accept_answer');
         bumpMap(metrics.toolErrors, 'accept_answer');
         const text = await response.text();
-        const hint = response.status === 401 ? 'Get a trial key at /api/v1/auth/trial-key' : undefined;
+        const hint = response.status === 401 ? TRIAL_KEY_HINT : undefined;
         logEvent('warn', {
           kind: 'mcp_tool',
           tool: 'accept_answer',
@@ -1511,6 +1437,9 @@ function registerTools(server: McpServer) {
         requestId
       });
       captureToolEvent('accept_answer', { questionId, answerId }, data, response.status, Date.now() - toolStart);
+      if (writeResult.usedTrialKey) {
+        data.authMode = 'trial_fallback';
+      }
       return {
         content: [{ type: 'text', text: JSON.stringify(data) }]
       };
