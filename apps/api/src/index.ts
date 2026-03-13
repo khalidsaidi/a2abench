@@ -48,6 +48,8 @@ const AGENT_QUICKSTART_CANDIDATES = Math.max(10, Number(process.env.AGENT_QUICKS
 const AUTO_CLOSE_ENABLED = (process.env.AUTO_CLOSE_ENABLED ?? 'true').toLowerCase() === 'true';
 const AUTO_CLOSE_AFTER_HOURS = Math.max(1, Number(process.env.AUTO_CLOSE_AFTER_HOURS ?? (AGENT_OPEN_MODE ? 6 : 72)));
 const AUTO_CLOSE_MIN_ANSWER_AGE_HOURS = Math.max(1, Number(process.env.AUTO_CLOSE_MIN_ANSWER_AGE_HOURS ?? (AGENT_OPEN_MODE ? 1 : 24)));
+const AUTO_CLOSE_AFTER_MINUTES = Math.max(1, Number(process.env.AUTO_CLOSE_AFTER_MINUTES ?? (AGENT_OPEN_MODE ? 5 : AUTO_CLOSE_AFTER_HOURS * 60)));
+const AUTO_CLOSE_MIN_ANSWER_AGE_MINUTES = Math.max(1, Number(process.env.AUTO_CLOSE_MIN_ANSWER_AGE_MINUTES ?? (AGENT_OPEN_MODE ? 2 : AUTO_CLOSE_MIN_ANSWER_AGE_HOURS * 60)));
 const AUTO_CLOSE_PROCESS_LIMIT = Math.max(1, Number(process.env.AUTO_CLOSE_PROCESS_LIMIT ?? 100));
 const AUTO_CLOSE_LOOP_INTERVAL_MS = Math.max(10_000, Number(process.env.AUTO_CLOSE_LOOP_INTERVAL_MS ?? (AGENT_OPEN_MODE ? 60_000 : 300_000)));
 const AUTO_CLOSE_AGENT_NAME = normalizeAgentOrNull(process.env.AUTO_CLOSE_AGENT_NAME) ?? 'system-autoclose';
@@ -367,6 +369,15 @@ function startOfUtcWeek(now = new Date()) {
   const diffToMonday = (day + 6) % 7;
   dayStart.setUTCDate(dayStart.getUTCDate() - diffToMonday);
   return dayStart;
+}
+
+function formatDurationMinutes(minutes: number) {
+  const rounded = Math.max(1, Math.round(minutes));
+  if (rounded % 60 === 0) {
+    const hours = rounded / 60;
+    return `${hours}h`;
+  }
+  return `${rounded}m`;
 }
 
 function getBaseUrl(request: { headers: Record<string, string | string[] | undefined>; protocol?: string }) {
@@ -5954,8 +5965,8 @@ async function processAcceptanceReminders(baseUrl: string, limit = ACCEPTANCE_RE
 
 async function processAutoCloseQuestions(baseUrl: string, limit = AUTO_CLOSE_PROCESS_LIMIT) {
   const now = new Date();
-  const questionCutoff = new Date(now.getTime() - (AUTO_CLOSE_AFTER_HOURS * 60 * 60 * 1000));
-  const answerCutoff = new Date(now.getTime() - (AUTO_CLOSE_MIN_ANSWER_AGE_HOURS * 60 * 60 * 1000));
+  const questionCutoff = new Date(now.getTime() - (AUTO_CLOSE_AFTER_MINUTES * 60 * 1000));
+  const answerCutoff = new Date(now.getTime() - (AUTO_CLOSE_MIN_ANSWER_AGE_MINUTES * 60 * 1000));
   const take = Math.max(20, Math.min(1000, Math.max(1, limit) * 4));
   const candidates = await prisma.question.findMany({
     where: {
@@ -6028,6 +6039,8 @@ async function processAutoCloseQuestions(baseUrl: string, limit = AUTO_CLOSE_PRO
     failed,
     policy: {
       enabled: AUTO_CLOSE_ENABLED,
+      afterMinutes: AUTO_CLOSE_AFTER_MINUTES,
+      minAnswerAgeMinutes: AUTO_CLOSE_MIN_ANSWER_AGE_MINUTES,
       afterHours: AUTO_CLOSE_AFTER_HOURS,
       minAnswerAgeHours: AUTO_CLOSE_MIN_ANSWER_AGE_HOURS,
       acceptedBy: AUTO_CLOSE_AGENT_NAME
@@ -6260,6 +6273,8 @@ function startBackgroundWorkers() {
     reminderLoopMs: REMINDER_LOOP_INTERVAL_MS,
     autoCloseEnabled: AUTO_CLOSE_ENABLED,
     autoCloseLoopMs: AUTO_CLOSE_LOOP_INTERVAL_MS,
+    autoCloseAfterMinutes: AUTO_CLOSE_AFTER_MINUTES,
+    autoCloseMinAnswerAgeMinutes: AUTO_CLOSE_MIN_ANSWER_AGE_MINUTES,
     autoCloseAfterHours: AUTO_CLOSE_AFTER_HOURS,
     autoCloseMinAnswerAgeHours: AUTO_CLOSE_MIN_ANSWER_AGE_HOURS,
     subscriptionPruneEnabled: SUBSCRIPTION_PRUNE_ENABLED,
@@ -9263,7 +9278,7 @@ fastify.get('/api/v1/incentives/rules', {
       },
       {
         id: 'autoclose-sla',
-        description: `If enabled, unresolved questions older than ${AUTO_CLOSE_AFTER_HOURS}h with an answer older than ${AUTO_CLOSE_MIN_ANSWER_AGE_HOURS}h are auto-accepted by ${AUTO_CLOSE_AGENT_NAME}.`
+        description: `If enabled, unresolved questions older than ${formatDurationMinutes(AUTO_CLOSE_AFTER_MINUTES)} with an answer older than ${formatDurationMinutes(AUTO_CLOSE_MIN_ANSWER_AGE_MINUTES)} are auto-accepted by ${AUTO_CLOSE_AGENT_NAME}.`
       }
     ],
     claimFlow: {
@@ -9275,6 +9290,8 @@ fastify.get('/api/v1/incentives/rules', {
     autoClose: {
       enabled: AUTO_CLOSE_ENABLED,
       process: 'POST /api/v1/admin/autoclose/process',
+      afterMinutes: AUTO_CLOSE_AFTER_MINUTES,
+      minAnswerAgeMinutes: AUTO_CLOSE_MIN_ANSWER_AGE_MINUTES,
       afterHours: AUTO_CLOSE_AFTER_HOURS,
       minAnswerAgeHours: AUTO_CLOSE_MIN_ANSWER_AGE_HOURS
     }
