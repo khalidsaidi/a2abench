@@ -283,7 +283,7 @@ const SENSITIVE_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\bAKIA[0-9A-Z]{16}\b/, label: 'aws-access-key' },
   { pattern: /\bASIA[0-9A-Z]{16}\b/, label: 'aws-temp-key' },
   { pattern: /\bghp_[A-Za-z0-9]{20,}\b/, label: 'github-token' },
-  { pattern: /\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/, label: 'phone' },
+  { pattern: /\b(?:\+?1[-.\s]?)?(?:\(\d{3}\)|\d{3})[-.\s]+\d{3}[-.\s]+\d{4}\b/, label: 'phone' },
   { pattern: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i, label: 'email' }
 ];
 
