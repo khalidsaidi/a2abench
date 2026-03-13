@@ -2460,18 +2460,18 @@ async function processDeliveryQueue(limit = DELIVERY_PROCESS_LIMIT) {
 async function markAgentPullDeliveryOpened(
   agentName: string,
   preferredQuestionId?: string | null,
-  options?: { fallbackToAny?: boolean }
+  options?: { fallbackToAny?: boolean; createIfMissing?: boolean }
 ) {
   const normalizedAgent = normalizeAgentOrNull(agentName);
   if (!normalizedAgent) return null;
   const now = new Date();
   const fallbackToAny = options?.fallbackToAny !== false;
+  const createIfMissing = options?.createIfMissing === true;
   const baseWhere: Prisma.DeliveryQueueWhereInput = {
     agentName: normalizedAgent,
     event: 'question.created',
     deliveredAt: null,
-    attemptCount: { lt: DELIVERY_MAX_ATTEMPTS },
-    nextAttemptAt: { lte: now }
+    attemptCount: { lt: DELIVERY_MAX_ATTEMPTS }
   };
 
   const preferredQuestion = preferredQuestionId?.trim() ?? null;
@@ -2491,7 +2491,76 @@ async function markAgentPullDeliveryOpened(
         orderBy: { createdAt: 'asc' }
       })
     : null);
-  if (!fallback) return null;
+  if (!fallback) {
+    if (!createIfMissing || !preferredQuestion) return null;
+    const existingOpened = await prisma.deliveryQueue.findFirst({
+      where: {
+        agentName: normalizedAgent,
+        event: 'question.created',
+        questionId: preferredQuestion,
+        deliveredAt: { not: null }
+      },
+      orderBy: { deliveredAt: 'desc' }
+    });
+    if (existingOpened) {
+      return {
+        id: existingOpened.id,
+        questionId: existingOpened.questionId ?? null,
+        openedAt: existingOpened.deliveredAt?.toISOString() ?? now.toISOString(),
+        via: 'pull_discovery'
+      };
+    }
+
+    const subscription = await prisma.questionSubscription.findFirst({
+      where: {
+        agentName: normalizedAgent,
+        active: true,
+        webhookUrl: null
+      },
+      select: {
+        id: true,
+        events: true
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    if (!subscription || !subscriptionWantsEvent(subscription.events, 'question.created')) return null;
+
+    const synthetic = await prisma.deliveryQueue.create({
+      data: {
+        subscriptionId: subscription.id,
+        agentName: normalizedAgent,
+        event: 'question.created',
+        payload: {
+          event: 'question.created',
+          question: {
+            id: preferredQuestion
+          },
+          meta: {
+            openedVia: 'pull_discovery_backfill',
+            openedAt: now.toISOString()
+          }
+        },
+        questionId: preferredQuestion,
+        answerId: null,
+        webhookUrl: null,
+        webhookSecret: null,
+        attemptCount: 1,
+        maxAttempts: DELIVERY_MAX_ATTEMPTS,
+        nextAttemptAt: now,
+        lastAttemptAt: now,
+        deliveredAt: now,
+        lastStatus: 200,
+        lastError: 'opened_via_pull_discovery'
+      }
+    });
+
+    return {
+      id: synthetic.id,
+      questionId: synthetic.questionId ?? null,
+      openedAt: now.toISOString(),
+      via: 'pull_discovery'
+    };
+  }
 
   await prisma.deliveryQueue.update({
     where: { id: fallback.id },
@@ -8394,7 +8463,7 @@ fastify.get('/api/v1/agent/quickstart', {
   const autoSubscription = agentName ? await ensureJobDiscoverySubscription(agentName) : null;
   const recommended = await getRecommendedQuestionForAgent(agentName);
   const openedDelivery = (agentName && recommended)
-    ? await markAgentPullDeliveryOpened(agentName, recommended.id)
+    ? await markAgentPullDeliveryOpened(agentName, recommended.id, { fallbackToAny: false })
     : null;
   const unansweredTotal = await prisma.question.count({
     where: {
@@ -8457,7 +8526,7 @@ fastify.get('/api/v1/agent/jobs/next', {
   const baseUrl = getBaseUrl(request);
   const recommended = await getRecommendedQuestionForAgent(agentName);
   const openedDelivery = recommended
-    ? await markAgentPullDeliveryOpened(agentName, recommended.id)
+    ? await markAgentPullDeliveryOpened(agentName, recommended.id, { fallbackToAny: false })
     : null;
   const unansweredTotal = await prisma.question.count({
     where: {
@@ -8531,7 +8600,7 @@ fastify.get('/api/v1/agent/next-best-job', {
   const baseUrl = getBaseUrl(request);
   const recommended = await getRecommendedQuestionForAgent(agentName);
   const openedDelivery = (agentName && recommended)
-    ? await markAgentPullDeliveryOpened(agentName, recommended.id)
+    ? await markAgentPullDeliveryOpened(agentName, recommended.id, { fallbackToAny: false })
     : null;
   const unansweredTotal = await prisma.question.count({
     where: {
@@ -9581,7 +9650,7 @@ fastify.post('/api/v1/questions/:id/answers', {
     }
   }
   const openedDelivery = agentName
-    ? await markAgentPullDeliveryOpened(agentName, id, { fallbackToAny: false })
+    ? await markAgentPullDeliveryOpened(agentName, id, { fallbackToAny: false, createIfMissing: true })
     : null;
 
   if (!question.resolution) {
@@ -9770,7 +9839,7 @@ fastify.post('/api/v1/questions/:id/answer-job', {
       }
     });
   }
-  const openedDelivery = await markAgentPullDeliveryOpened(agentName, id, { fallbackToAny: false });
+  const openedDelivery = await markAgentPullDeliveryOpened(agentName, id, { fallbackToAny: false, createIfMissing: true });
 
   const baseUrl = getBaseUrl(request);
   const acceptLink = buildAcceptLink(baseUrl, question.id, answer.id, question.userId);
