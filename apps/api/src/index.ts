@@ -2872,6 +2872,7 @@ async function pruneInactiveSubscriptions(options?: { limit?: number; dryRun?: b
       scanned: 0,
       candidates: 0,
       disabled: 0,
+      deletedPendingQueue: 0,
       dryRun,
       windowMinutes: SUBSCRIPTION_PRUNE_WINDOW_MINUTES,
       staleMinutes: SUBSCRIPTION_PRUNE_STALE_MINUTES,
@@ -3006,15 +3007,26 @@ async function pruneInactiveSubscriptions(options?: { limit?: number; dryRun?: b
 
   const selected = candidates.slice(0, SUBSCRIPTION_PRUNE_MAX_DISABLE_PER_RUN);
   let disabled = 0;
+  let deletedPendingQueue = 0;
   if (!dryRun && selected.length > 0) {
-    const result = await prisma.questionSubscription.updateMany({
-      where: {
-        id: { in: selected.map((row) => row.id) },
-        active: true
-      },
-      data: { active: false }
-    });
-    disabled = result.count;
+    const selectedIds = selected.map((row) => row.id);
+    const [disableResult, deleteQueueResult] = await Promise.all([
+      prisma.questionSubscription.updateMany({
+        where: {
+          id: { in: selectedIds },
+          active: true
+        },
+        data: { active: false }
+      }),
+      prisma.deliveryQueue.deleteMany({
+        where: {
+          subscriptionId: { in: selectedIds },
+          deliveredAt: null
+        }
+      })
+    ]);
+    disabled = disableResult.count;
+    deletedPendingQueue = deleteQueueResult.count;
   }
 
   const reasons = selected.reduce<Record<string, number>>((acc, row) => {
@@ -3026,6 +3038,7 @@ async function pruneInactiveSubscriptions(options?: { limit?: number; dryRun?: b
     scanned: subscriptions.length,
     candidates: candidates.length,
     disabled: dryRun ? 0 : disabled,
+    deletedPendingQueue: dryRun ? 0 : deletedPendingQueue,
     dryRun,
     windowMinutes: SUBSCRIPTION_PRUNE_WINDOW_MINUTES,
     staleMinutes: SUBSCRIPTION_PRUNE_STALE_MINUTES,
