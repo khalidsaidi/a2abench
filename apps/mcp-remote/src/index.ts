@@ -1121,9 +1121,12 @@ function registerTools(server: McpServer) {
     'answer_next_job',
     {
       title: 'Answer next job',
-      description: 'One-call answer flow: fetch next job for this agent, then claim+answer+verify in one command.',
+      description: 'One-call answer flow: fetch next job, auto-draft with BYOK (optional), then claim+answer+verify.',
       inputSchema: {
-        bodyMd: z.string().min(3),
+        bodyMd: z.string().min(3).optional(),
+        mode: z.enum(['balanced', 'strict']).optional(),
+        topK: z.number().int().min(1).max(10).optional(),
+        includeEvidence: z.boolean().optional(),
         ttlMinutes: z.number().int().min(5).max(240).optional(),
         forceTakeover: z.boolean().optional(),
         acceptToken: z.string().max(4000).optional(),
@@ -1131,7 +1134,7 @@ function registerTools(server: McpServer) {
         autoVerify: z.boolean().optional()
       }
     },
-    async ({ bodyMd, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify }) => {
+    async ({ bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify }) => {
       const toolStart = Date.now();
       const requestId = requestContext.getStore()?.requestId ?? null;
       const nextJobResponse = await getProtectedWithAutoTrial('/api/v1/agent/jobs/next');
@@ -1149,7 +1152,7 @@ function registerTools(server: McpServer) {
         });
         captureToolEvent(
           'answer_next_job',
-          { bodyMd, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+          { bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
           { error: text || 'Failed to fetch next job', status: nextJobResponse.response.status },
           nextJobResponse.response.status,
           Date.now() - toolStart
@@ -1181,7 +1184,7 @@ function registerTools(server: McpServer) {
         });
         captureToolEvent(
           'answer_next_job',
-          { bodyMd, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+          { bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
           { error: 'No next job available for this agent.', status: 409, nextJob: null, demand: nextJobData.demand ?? null },
           409,
           Date.now() - toolStart
@@ -1202,7 +1205,167 @@ function registerTools(server: McpServer) {
         };
       }
 
-      const payload: Record<string, unknown> = { bodyMd };
+      let resolvedBodyMd = typeof bodyMd === 'string' ? bodyMd.trim() : '';
+      let generatedDraft: Record<string, unknown> | null = null;
+      if (!resolvedBodyMd) {
+        const ctx = requestContext.getStore();
+        const hasByok = Boolean((ctx?.llmProvider ?? '').trim() && (ctx?.llmApiKey ?? '').trim());
+        if (!hasByok) {
+          metrics.totalToolCalls += 1;
+          bumpMap(metrics.byTool, 'answer_next_job');
+          bumpMap(metrics.toolErrors, 'answer_next_job');
+          const errorPayload = {
+            error: 'bodyMd is required unless BYOK headers are provided (X-LLM-Provider + X-LLM-API-Key).',
+            status: 400
+          };
+          captureToolEvent(
+            'answer_next_job',
+            { bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+            errorPayload,
+            400,
+            Date.now() - toolStart
+          );
+          return {
+            isError: true,
+            content: [{ type: 'text', text: JSON.stringify(errorPayload) }]
+          };
+        }
+
+        const questionResponse = await getProtectedWithAutoTrial(`/api/v1/questions/${nextJob.questionId}`);
+        if (!questionResponse.response.ok) {
+          metrics.totalToolCalls += 1;
+          bumpMap(metrics.byTool, 'answer_next_job');
+          bumpMap(metrics.toolErrors, 'answer_next_job');
+          const text = await questionResponse.response.text();
+          const errorPayload = {
+            error: text || 'Failed to load next job question details',
+            status: questionResponse.response.status
+          };
+          captureToolEvent(
+            'answer_next_job',
+            { questionId: nextJob.questionId, bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+            errorPayload,
+            questionResponse.response.status,
+            Date.now() - toolStart
+          );
+          return {
+            isError: true,
+            content: [{ type: 'text', text: JSON.stringify(errorPayload) }]
+          };
+        }
+
+        const questionData = (await questionResponse.response.json()) as Record<string, unknown>;
+        const title = typeof questionData.title === 'string'
+          ? questionData.title.trim()
+          : (typeof nextJob.question.title === 'string' ? nextJob.question.title.trim() : '');
+        const bodyText = typeof questionData.bodyText === 'string'
+          ? questionData.bodyText.trim()
+          : (typeof questionData.bodyMd === 'string' ? questionData.bodyMd.trim() : '');
+        const draftQuery = [title, bodyText]
+          .filter((value) => typeof value === 'string' && value.trim().length > 0)
+          .join('\n\n')
+          .trim();
+        const limitedDraftQuery = draftQuery.slice(0, 500);
+        if (limitedDraftQuery.length < 8) {
+          metrics.totalToolCalls += 1;
+          bumpMap(metrics.byTool, 'answer_next_job');
+          bumpMap(metrics.toolErrors, 'answer_next_job');
+          const errorPayload = {
+            error: 'Could not build a useful draft query from the next job question.',
+            status: 422
+          };
+          captureToolEvent(
+            'answer_next_job',
+            { questionId: nextJob.questionId, bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+            errorPayload,
+            422,
+            Date.now() - toolStart
+          );
+          return {
+            isError: true,
+            content: [{ type: 'text', text: JSON.stringify(errorPayload) }]
+          };
+        }
+
+        const draftResponse = await postWriteWithAutoTrial('/answer', {
+          query: limitedDraftQuery,
+          top_k: topK ?? 5,
+          include_evidence: includeEvidence ?? false,
+          mode: mode ?? 'balanced'
+        });
+        if (!draftResponse.response.ok) {
+          metrics.totalToolCalls += 1;
+          bumpMap(metrics.byTool, 'answer_next_job');
+          bumpMap(metrics.toolErrors, 'answer_next_job');
+          const text = await draftResponse.response.text();
+          const errorPayload = {
+            error: text || 'Failed to auto-generate answer draft via /answer',
+            status: draftResponse.response.status
+          };
+          captureToolEvent(
+            'answer_next_job',
+            { questionId: nextJob.questionId, bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+            errorPayload,
+            draftResponse.response.status,
+            Date.now() - toolStart
+          );
+          return {
+            isError: true,
+            content: [{ type: 'text', text: JSON.stringify(errorPayload) }]
+          };
+        }
+
+        const draftData = (await draftResponse.response.json()) as Record<string, unknown>;
+        const draftMarkdown = typeof draftData.answer_markdown === 'string'
+          ? draftData.answer_markdown.trim()
+          : '';
+        if (!draftMarkdown) {
+          metrics.totalToolCalls += 1;
+          bumpMap(metrics.byTool, 'answer_next_job');
+          bumpMap(metrics.toolErrors, 'answer_next_job');
+          const errorPayload = {
+            error: 'Auto-generated draft is empty.',
+            status: 422
+          };
+          captureToolEvent(
+            'answer_next_job',
+            { questionId: nextJob.questionId, bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+            errorPayload,
+            422,
+            Date.now() - toolStart
+          );
+          return {
+            isError: true,
+            content: [{ type: 'text', text: JSON.stringify(errorPayload) }]
+          };
+        }
+
+        const citations = Array.isArray(draftData.citations)
+          ? draftData.citations
+          : [];
+        const citationLines = citations
+          .map((entry) => {
+            if (!entry || typeof entry !== 'object') return '';
+            const item = entry as Record<string, unknown>;
+            if (typeof item.url !== 'string' || typeof item.title !== 'string') return '';
+            return `- [${item.title}](${item.url})`;
+          })
+          .filter((line) => line.length > 0)
+          .slice(0, 6);
+        resolvedBodyMd = citationLines.length > 0
+          ? `${draftMarkdown}\n\nSources:\n${citationLines.join('\n')}`
+          : draftMarkdown;
+        generatedDraft = {
+          byok: true,
+          queryLength: limitedDraftQuery.length,
+          mode: mode ?? 'balanced',
+          topK: topK ?? 5,
+          includeEvidence: includeEvidence ?? false,
+          warningCount: Array.isArray(draftData.warnings) ? draftData.warnings.length : 0
+        };
+      }
+
+      const payload: Record<string, unknown> = { bodyMd: resolvedBodyMd };
       if (ttlMinutes !== undefined) payload.ttlMinutes = ttlMinutes;
       if (forceTakeover !== undefined) payload.forceTakeover = forceTakeover;
       if (acceptToken !== undefined) payload.acceptToken = acceptToken;
@@ -1225,7 +1388,7 @@ function registerTools(server: McpServer) {
         });
         captureToolEvent(
           'answer_next_job',
-          { questionId: nextJob.questionId, bodyMd, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+          { questionId: nextJob.questionId, bodyMd: resolvedBodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
           { error: text || 'Failed to complete answer job', status: response.status, hint },
           response.status,
           Date.now() - toolStart
@@ -1254,7 +1417,7 @@ function registerTools(server: McpServer) {
       });
       captureToolEvent(
         'answer_next_job',
-        { questionId: nextJob.questionId, bodyMd, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+        { questionId: nextJob.questionId, bodyMd: resolvedBodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
         data,
         response.status,
         Date.now() - toolStart
@@ -1272,6 +1435,7 @@ function registerTools(server: McpServer) {
                 url: typeof nextJob.question.url === 'string' ? nextJob.question.url : `${PUBLIC_BASE_URL}/q/${nextJob.questionId}`
               },
               answerJobRequest: nextJob.answerJobRequest,
+              generatedDraft,
               auth: writeResult.usedTrialKey
                 ? 'trial_key'
                 : ((requestContext.getStore()?.authHeader || (MCP_USE_API_KEY_BY_DEFAULT && API_KEY)) ? 'provided_key' : 'keyless_managed'),
