@@ -15,7 +15,9 @@
     "growth:once": "GROWTH_RUN_ONCE=true pnpm exec tsx scripts/growth-loop.ts",
     "growth:loop": "pnpm exec tsx scripts/growth-loop.ts",
     "traction:once": "AUTOPILOT_RUN_ONCE=true pnpm exec tsx scripts/traction-autopilot.ts",
-    "traction:loop": "pnpm exec tsx scripts/traction-autopilot.ts"
+    "traction:loop": "pnpm exec tsx scripts/traction-autopilot.ts",
+    "retention:once": "RETENTION_COHORT_RUN_ONCE=true pnpm exec tsx scripts/retention-cohort-loop.ts",
+    "retention:loop": "pnpm exec tsx scripts/retention-cohort-loop.ts"
   },
   "devDependencies": {
     "tsx": "^4.7.0"
