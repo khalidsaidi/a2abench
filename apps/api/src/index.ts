@@ -84,11 +84,12 @@ const DELIVERY_RETRY_MAX_MS = Math.max(DELIVERY_RETRY_BASE_MS, Number(process.en
 const DELIVERY_PROCESS_LIMIT = Math.max(1, Number(process.env.DELIVERY_PROCESS_LIMIT ?? 100));
 const DELIVERY_REQUIRE_RECENT_ACTIVITY = (process.env.DELIVERY_REQUIRE_RECENT_ACTIVITY ?? 'true').toLowerCase() === 'true';
 const DELIVERY_ACTIVE_WEBHOOK_WINDOW_HOURS = Math.max(1, Number(process.env.DELIVERY_ACTIVE_WEBHOOK_WINDOW_HOURS ?? 24));
-const DELIVERY_ACTIVE_INBOX_WINDOW_MINUTES = Math.max(1, Number(process.env.DELIVERY_ACTIVE_INBOX_WINDOW_MINUTES ?? 15));
-const DELIVERY_NEW_SUBSCRIPTION_GRACE_MINUTES = Math.max(1, Number(process.env.DELIVERY_NEW_SUBSCRIPTION_GRACE_MINUTES ?? 120));
+const DELIVERY_ACTIVE_INBOX_WINDOW_MINUTES = Math.max(1, Number(process.env.DELIVERY_ACTIVE_INBOX_WINDOW_MINUTES ?? (AGENT_OPEN_MODE ? 5 : 15)));
+const DELIVERY_NEW_SUBSCRIPTION_GRACE_MINUTES = Math.max(1, Number(process.env.DELIVERY_NEW_SUBSCRIPTION_GRACE_MINUTES ?? (AGENT_OPEN_MODE ? 10 : 120)));
+const DELIVERY_MAX_PENDING_PER_SUBSCRIPTION = Math.max(0, Number(process.env.DELIVERY_MAX_PENDING_PER_SUBSCRIPTION ?? (AGENT_OPEN_MODE ? 40 : 200)));
 const DELIVERY_REQUEUE_OPENED_ENABLED = (process.env.DELIVERY_REQUEUE_OPENED_ENABLED ?? 'true').toLowerCase() === 'true';
 const DELIVERY_REQUEUE_AFTER_MINUTES = Math.max(1, Number(process.env.DELIVERY_REQUEUE_AFTER_MINUTES ?? 6));
-const DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION = Math.max(1, Number(process.env.DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION ?? 5));
+const DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION = Math.max(1, Number(process.env.DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION ?? (AGENT_OPEN_MODE ? 2 : 5)));
 const DELIVERY_REQUEUE_SCAN_LIMIT = Math.max(1, Math.min(2000, Number(process.env.DELIVERY_REQUEUE_SCAN_LIMIT ?? 400)));
 const DELIVERY_REQUEUE_LOOP_INTERVAL_MS = Math.max(15_000, Number(process.env.DELIVERY_REQUEUE_LOOP_INTERVAL_MS ?? 60_000));
 const JOB_DISCOVERY_AUTO_SUBSCRIBE = (process.env.JOB_DISCOVERY_AUTO_SUBSCRIBE ?? (AGENT_OPEN_MODE ? 'true' : 'false')).toLowerCase() === 'true';
@@ -3162,13 +3163,40 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
       : undefined
   };
 
+  let pendingBySubscription = new Map<string, number>();
+  if (input.event === 'question.created' && DELIVERY_MAX_PENDING_PER_SUBSCRIPTION > 0 && subscriptions.length > 0) {
+    const pendingRows = await prisma.deliveryQueue.groupBy({
+      by: ['subscriptionId'],
+      where: {
+        subscriptionId: { in: subscriptions.map((sub) => sub.id) },
+        event: 'question.created',
+        deliveredAt: null,
+        attemptCount: { lt: DELIVERY_MAX_ATTEMPTS }
+      },
+      _count: { _all: true }
+    });
+    pendingBySubscription = new Map(
+      pendingRows.map((row) => [row.subscriptionId, row._count._all])
+    );
+  }
+
   let matchedSubscriptions = 0;
   let filteredBySolvability = 0;
+  let filteredByPendingCap = 0;
   const queued = subscriptions.flatMap((sub) => {
     const subscriptionTags = normalizeTags(sub.tags ?? []);
     if (!subscriptionMatches(subscriptionTags, input.question.tags)) return [];
     if (!subscriptionWantsEvent(sub.events, input.event)) return [];
     matchedSubscriptions += 1;
+
+    if (input.event === 'question.created' && DELIVERY_MAX_PENDING_PER_SUBSCRIPTION > 0) {
+      const pendingCount = pendingBySubscription.get(sub.id) ?? 0;
+      if (pendingCount >= DELIVERY_MAX_PENDING_PER_SUBSCRIPTION) {
+        filteredByPendingCap += 1;
+        return [];
+      }
+      pendingBySubscription.set(sub.id, pendingCount + 1);
+    }
 
     let solvability: QuestionSolvabilityResult | null = null;
     if (input.event === 'question.created') {
@@ -3222,14 +3250,16 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
   });
 
   if (queued.length === 0) {
-    if (matchedSubscriptions > 0 && filteredBySolvability > 0) {
+    if (matchedSubscriptions > 0 && (filteredBySolvability > 0 || filteredByPendingCap > 0)) {
       fastify.log.info({
         event: input.event,
         questionId: input.question.id,
         matchedSubscriptions,
         filteredBySolvability,
+        filteredByPendingCap,
+        pendingCapPerSubscription: DELIVERY_MAX_PENDING_PER_SUBSCRIPTION,
         threshold: PUSH_SOLVABILITY_MIN_SCORE
-      }, 'question webhook suppressed by solvability filter');
+      }, 'question webhook suppressed by delivery filters');
     }
     if (liveness.suppressedInactive > 0) {
       fastify.log.info({
