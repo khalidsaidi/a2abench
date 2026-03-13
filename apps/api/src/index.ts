@@ -189,6 +189,11 @@ const EXTERNAL_EXCLUDED_AGENT_PREFIXES = (process.env.EXTERNAL_EXCLUDED_AGENT_PR
   .split(',')
   .map((value) => value.trim().toLowerCase())
   .filter(Boolean);
+const PROXIED_EXTERNAL_AGENT_PREFIXES = (process.env.PROXIED_EXTERNAL_AGENT_PREFIXES
+  ?? 'a2abench-mcp-proxy-')
+  .split(',')
+  .map((value) => value.trim().toLowerCase())
+  .filter(Boolean);
 const EXTERNAL_EXCLUDED_AGENT_NAMES = new Set(
   (process.env.EXTERNAL_EXCLUDED_AGENT_NAMES
     ?? 'a2abench-mcp-remote,mcp-write-sign-check,partner-agent-test')
@@ -408,6 +413,12 @@ function isExcludedExternalAgentName(value: string | null | undefined) {
   if (!normalized) return false;
   if (EXTERNAL_EXCLUDED_AGENT_NAMES.has(normalized)) return true;
   return EXTERNAL_EXCLUDED_AGENT_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+function isProxiedExternalAgentName(value: string | null | undefined) {
+  const normalized = normalizeAgentName(value);
+  if (!normalized) return false;
+  return PROXIED_EXTERNAL_AGENT_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
 
 function isRealAgentName(value: string | null | undefined) {
@@ -4900,6 +4911,7 @@ async function getTractionFunnel(days: number, options?: {
   const attemptsAll = emptyAccumulator();
   const attemptsEligible = emptyAccumulator();
   const attemptsExcluded = emptyAccumulator();
+  const attemptsProxied = emptyAccumulator();
   const attemptsSynthetic = emptyAccumulator();
   const attemptsUnknownAgent = emptyAccumulator();
 
@@ -4908,6 +4920,10 @@ async function getTractionFunnel(days: number, options?: {
     applyAttemptRow(attemptsAll, row, normalizedAgent);
     if (!normalizedAgent) {
       applyAttemptRow(attemptsUnknownAgent, row, normalizedAgent);
+      continue;
+    }
+    if (isProxiedExternalAgentName(normalizedAgent)) {
+      applyAttemptRow(attemptsProxied, row, normalizedAgent);
       continue;
     }
     if (isExcludedExternalAgentName(normalizedAgent)) {
@@ -4926,12 +4942,14 @@ async function getTractionFunnel(days: number, options?: {
       totals: finalizeBucket(attemptsAll),
       buckets: {
         eligible: finalizeBucket(attemptsEligible),
+        proxied: finalizeBucket(attemptsProxied),
         excluded: finalizeBucket(attemptsExcluded),
         synthetic: finalizeBucket(attemptsSynthetic),
         unknownAgent: finalizeBucket(attemptsUnknownAgent)
       },
       shares: {
         eligibleWriteShare: ratio(attemptsEligible.writes, attemptsAll.writes),
+        proxiedWriteShare: ratio(attemptsProxied.writes, attemptsAll.writes),
         excludedWriteShare: ratio(attemptsExcluded.writes, attemptsAll.writes),
         syntheticWriteShare: ratio(attemptsSynthetic.writes, attemptsAll.writes),
         unknownAgentWriteShare: ratio(attemptsUnknownAgent.writes, attemptsAll.writes)
@@ -4941,12 +4959,14 @@ async function getTractionFunnel(days: number, options?: {
       totals: emptyAttemptBucket(),
       buckets: {
         eligible: emptyAttemptBucket(),
+        proxied: emptyAttemptBucket(),
         excluded: emptyAttemptBucket(),
         synthetic: emptyAttemptBucket(),
         unknownAgent: emptyAttemptBucket()
       },
       shares: {
         eligibleWriteShare: 0,
+        proxiedWriteShare: 0,
         excludedWriteShare: 0,
         syntheticWriteShare: 0,
         unknownAgentWriteShare: 0
@@ -4957,7 +4977,9 @@ async function getTractionFunnel(days: number, options?: {
     const likelyCause = attempts.totals.writes === 0
       ? 'no_external_write_attempts'
       : (attempts.buckets.eligible.writes === 0
-          ? 'all_external_writes_filtered_or_missing_agent_name'
+          ? (attempts.buckets.proxied.writes > 0
+              ? 'proxied_external_writes_only'
+              : 'all_external_writes_filtered_or_missing_agent_name')
           : 'eligible_writes_present_but_no_bound_agents');
     return {
       days: windowDays,
@@ -4998,6 +5020,7 @@ async function getTractionFunnel(days: number, options?: {
         likelyCause,
         hasAttemptedWrites: attempts.totals.writes > 0,
         hasEligibleAttemptedWrites: attempts.buckets.eligible.writes > 0,
+        hasProxiedAttemptedWrites: attempts.buckets.proxied.writes > 0,
         queueCoverageFromEligibleQuestionCreates: 0
       },
       daily: [],
@@ -5193,7 +5216,9 @@ async function getTractionFunnel(days: number, options?: {
   const likelyCause = attempts.totals.writes === 0
     ? 'no_external_write_attempts'
     : (attempts.buckets.eligible.writes === 0
-        ? 'all_external_writes_filtered_or_missing_agent_name'
+        ? (attempts.buckets.proxied.writes > 0
+            ? 'proxied_external_writes_only'
+            : 'all_external_writes_filtered_or_missing_agent_name')
         : (queued === 0
             ? 'eligible_writes_without_delivery_queue_activity'
             : (opened === 0
@@ -5241,6 +5266,7 @@ async function getTractionFunnel(days: number, options?: {
       likelyCause,
       hasAttemptedWrites: attempts.totals.writes > 0,
       hasEligibleAttemptedWrites: attempts.buckets.eligible.writes > 0,
+      hasProxiedAttemptedWrites: attempts.buckets.proxied.writes > 0,
       queueCoverageFromEligibleQuestionCreates
     },
     daily: Array.from(dailyMap.values()).sort((a, b) => a.day.localeCompare(b.day)),
@@ -7399,26 +7425,64 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
       answerWritesInRange: toNumber(row.answerWritesInRange)
     }))
     .filter((row) => row.writesInRange > 0 || row.writesLast24h > 0);
-  const externalRequestRealRows = externalRequestAgentStats.filter((row) => isExternalAdoptionAgentName(row.agentName));
-  const externalRequestStats = externalRequestRealRows.reduce((acc, row) => {
-    acc.writesInRange += row.writesInRange;
-    acc.writesLast24h += row.writesLast24h;
-    acc.verifiedWritesInRange += row.verifiedWritesInRange;
-    acc.signedWritesInRange += row.signedWritesInRange;
-    acc.questionWritesInRange += row.questionWritesInRange;
-    acc.answerWritesInRange += row.answerWritesInRange;
-    if (row.writesInRange > 0) acc.activeAgentsInRange += 1;
-    return acc;
-  }, {
-    writesInRange: 0,
-    writesLast24h: 0,
-    verifiedWritesInRange: 0,
-    signedWritesInRange: 0,
-    questionWritesInRange: 0,
-    answerWritesInRange: 0,
-    activeAgentsInRange: 0
-  });
-  const externalRequestTopAgents = externalRequestRealRows
+  const externalRequestStrictRows = externalRequestAgentStats.filter((row) => isExternalAdoptionAgentName(row.agentName));
+  const externalRequestProxiedRows = externalRequestAgentStats.filter((row) => isProxiedExternalAgentName(row.agentName));
+  const externalRequestExcludedRows = externalRequestAgentStats.filter((row) => (
+    !isExternalAdoptionAgentName(row.agentName)
+    && !isProxiedExternalAgentName(row.agentName)
+  ));
+
+  type ExternalRequestAggregate = {
+    writesInRange: number;
+    writesLast24h: number;
+    verifiedWritesInRange: number;
+    signedWritesInRange: number;
+    questionWritesInRange: number;
+    answerWritesInRange: number;
+    activeAgentsInRange: number;
+  };
+
+  function aggregateExternalRequestRows(rows: Array<{
+    writesInRange: number;
+    writesLast24h: number;
+    verifiedWritesInRange: number;
+    signedWritesInRange: number;
+    questionWritesInRange: number;
+    answerWritesInRange: number;
+  }>): ExternalRequestAggregate {
+    return rows.reduce<ExternalRequestAggregate>((acc, row) => {
+      acc.writesInRange += row.writesInRange;
+      acc.writesLast24h += row.writesLast24h;
+      acc.verifiedWritesInRange += row.verifiedWritesInRange;
+      acc.signedWritesInRange += row.signedWritesInRange;
+      acc.questionWritesInRange += row.questionWritesInRange;
+      acc.answerWritesInRange += row.answerWritesInRange;
+      if (row.writesInRange > 0) acc.activeAgentsInRange += 1;
+      return acc;
+    }, {
+      writesInRange: 0,
+      writesLast24h: 0,
+      verifiedWritesInRange: 0,
+      signedWritesInRange: 0,
+      questionWritesInRange: 0,
+      answerWritesInRange: 0,
+      activeAgentsInRange: 0
+    });
+  }
+
+  const externalRequestStrictStats = aggregateExternalRequestRows(externalRequestStrictRows);
+  const externalRequestProxiedStats = aggregateExternalRequestRows(externalRequestProxiedRows);
+  const externalRequestExcludedStats = aggregateExternalRequestRows(externalRequestExcludedRows);
+
+  const externalRequestTopAgents = externalRequestStrictRows
+    .map((row) => ({
+      agentName: row.agentName,
+      count: row.writesInRange
+    }))
+    .filter((row) => row.count > 0)
+    .sort((a, b) => b.count - a.count || a.agentName.localeCompare(b.agentName))
+    .slice(0, 10);
+  const externalRequestTopProxiedAgents = externalRequestProxiedRows
     .map((row) => ({
       agentName: row.agentName,
       count: row.writesInRange
@@ -7631,13 +7695,39 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
         answersPerQuestion: ratio(externalAnswersInRange, externalQuestionsInRange)
       },
       requests: {
-        writesInRange: externalRequestStats.writesInRange,
-        writesLast24h: externalRequestStats.writesLast24h,
-        identityVerifiedWritesInRange: externalRequestStats.verifiedWritesInRange,
-        signatureVerifiedWritesInRange: externalRequestStats.signedWritesInRange,
-        questionWritesInRange: externalRequestStats.questionWritesInRange,
-        answerWritesInRange: externalRequestStats.answerWritesInRange,
-        activeAgentsInRange: externalRequestStats.activeAgentsInRange
+        writesInRange: externalRequestStrictStats.writesInRange,
+        writesLast24h: externalRequestStrictStats.writesLast24h,
+        identityVerifiedWritesInRange: externalRequestStrictStats.verifiedWritesInRange,
+        signatureVerifiedWritesInRange: externalRequestStrictStats.signedWritesInRange,
+        questionWritesInRange: externalRequestStrictStats.questionWritesInRange,
+        answerWritesInRange: externalRequestStrictStats.answerWritesInRange,
+        activeAgentsInRange: externalRequestStrictStats.activeAgentsInRange,
+        proxiedWritesInRange: externalRequestProxiedStats.writesInRange,
+        proxiedWritesLast24h: externalRequestProxiedStats.writesLast24h,
+        proxiedIdentityVerifiedWritesInRange: externalRequestProxiedStats.verifiedWritesInRange,
+        proxiedSignatureVerifiedWritesInRange: externalRequestProxiedStats.signedWritesInRange,
+        proxiedQuestionWritesInRange: externalRequestProxiedStats.questionWritesInRange,
+        proxiedAnswerWritesInRange: externalRequestProxiedStats.answerWritesInRange,
+        proxiedActiveAgentsInRange: externalRequestProxiedStats.activeAgentsInRange,
+        excludedWritesInRange: externalRequestExcludedStats.writesInRange,
+        strict: {
+          writesInRange: externalRequestStrictStats.writesInRange,
+          writesLast24h: externalRequestStrictStats.writesLast24h,
+          identityVerifiedWritesInRange: externalRequestStrictStats.verifiedWritesInRange,
+          signatureVerifiedWritesInRange: externalRequestStrictStats.signedWritesInRange,
+          questionWritesInRange: externalRequestStrictStats.questionWritesInRange,
+          answerWritesInRange: externalRequestStrictStats.answerWritesInRange,
+          activeAgentsInRange: externalRequestStrictStats.activeAgentsInRange
+        },
+        proxied: {
+          writesInRange: externalRequestProxiedStats.writesInRange,
+          writesLast24h: externalRequestProxiedStats.writesLast24h,
+          identityVerifiedWritesInRange: externalRequestProxiedStats.verifiedWritesInRange,
+          signatureVerifiedWritesInRange: externalRequestProxiedStats.signedWritesInRange,
+          questionWritesInRange: externalRequestProxiedStats.questionWritesInRange,
+          answerWritesInRange: externalRequestProxiedStats.answerWritesInRange,
+          activeAgentsInRange: externalRequestProxiedStats.activeAgentsInRange
+        }
       },
       kpi: {
         currentAnswerers7d: externalCurrentAnswerers7d.size,
@@ -7646,7 +7736,8 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
         retainedAnswererRate7d: ratio(retainedExternalAnswerers7d.length, externalPreviousAnswerers7d.size)
       },
       qaDaily: externalQaDaily,
-      topAgents: externalRequestTopAgents
+      topAgents: externalRequestTopAgents,
+      topProxiedAgents: externalRequestTopProxiedAgents
     },
     qaDaily,
     traction: {
@@ -7888,6 +7979,8 @@ fastify.get('/admin/usage', async (request, reply) => {
           <div class="metric"><h3>Bound external agents</h3><div id="externalBoundAgents">—</div><small id="externalActorTypes">—</small></div>
           <div class="metric"><h3>External key users</h3><div id="externalUsers">—</div><small id="externalActiveAgents">—</small></div>
           <div class="metric"><h3>External writes (range)</h3><div id="externalWritesInRange">—</div><small id="externalWritesLast24h">—</small></div>
+          <div class="metric"><h3>Proxied external writes</h3><div id="externalProxiedWritesInRange">—</div><small id="externalProxiedWritesLast24h">—</small></div>
+          <div class="metric"><h3>Proxied active agents</h3><div id="externalProxiedActiveAgents">—</div><small id="externalProxiedAgentShare">—</small></div>
           <div class="metric"><h3>Identity-verified writes</h3><div id="externalIdentityWrites">—</div><small id="externalIdentityRate">—</small></div>
           <div class="metric"><h3>Signature-verified writes</h3><div id="externalSignatureWrites">—</div><small id="externalSignatureRate">—</small></div>
           <div class="metric"><h3>Questions (external)</h3><div id="externalQuestionsInRange">—</div><small id="externalQuestionsLast24h">—</small></div>
@@ -7908,6 +8001,11 @@ fastify.get('/admin/usage', async (request, reply) => {
       <div class="card">
         <h2 style="margin-top:0;">Top external agents (write requests)</h2>
         <div id="externalTopAgents" class="list"></div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;">Top proxied agents (anonymous)</h2>
+        <div id="externalTopProxiedAgents" class="list"></div>
       </div>
 
       <div class="card">
@@ -8011,6 +8109,10 @@ fastify.get('/admin/usage', async (request, reply) => {
       const externalActiveAgentsEl = document.getElementById('externalActiveAgents');
       const externalWritesInRangeEl = document.getElementById('externalWritesInRange');
       const externalWritesLast24hEl = document.getElementById('externalWritesLast24h');
+      const externalProxiedWritesInRangeEl = document.getElementById('externalProxiedWritesInRange');
+      const externalProxiedWritesLast24hEl = document.getElementById('externalProxiedWritesLast24h');
+      const externalProxiedActiveAgentsEl = document.getElementById('externalProxiedActiveAgents');
+      const externalProxiedAgentShareEl = document.getElementById('externalProxiedAgentShare');
       const externalIdentityWritesEl = document.getElementById('externalIdentityWrites');
       const externalIdentityRateEl = document.getElementById('externalIdentityRate');
       const externalSignatureWritesEl = document.getElementById('externalSignatureWrites');
@@ -8028,6 +8130,7 @@ fastify.get('/admin/usage', async (request, reply) => {
       const tractionChartEl = document.getElementById('tractionChart');
       const externalQaChartEl = document.getElementById('externalQaChart');
       const externalTopAgentsEl = document.getElementById('externalTopAgents');
+      const externalTopProxiedAgentsEl = document.getElementById('externalTopProxiedAgents');
       const ipsEl = document.getElementById('ips');
       const referrersEl = document.getElementById('referrers');
       const userAgentsEl = document.getElementById('userAgents');
@@ -8234,6 +8337,16 @@ fastify.get('/admin/usage', async (request, reply) => {
           externalActiveAgentsEl.textContent = 'active writers: ' + String(externalRequests.activeAgentsInRange ?? 0);
           externalWritesInRangeEl.textContent = String(externalRequests.writesInRange ?? 0);
           externalWritesLast24hEl.textContent = 'last 24h: ' + String(externalRequests.writesLast24h ?? 0);
+          externalProxiedWritesInRangeEl.textContent = String(externalRequests.proxiedWritesInRange ?? 0);
+          externalProxiedWritesLast24hEl.textContent = 'last 24h: ' + String(externalRequests.proxiedWritesLast24h ?? 0);
+          externalProxiedActiveAgentsEl.textContent = String(externalRequests.proxiedActiveAgentsInRange ?? 0);
+          externalProxiedAgentShareEl.textContent = 'of strict+proxied: ' + formatPercent(
+            ratio(
+              externalRequests.proxiedActiveAgentsInRange,
+              toNum(externalRequests.proxiedActiveAgentsInRange) + toNum(externalRequests.activeAgentsInRange)
+            ),
+            1
+          );
           externalIdentityWritesEl.textContent = String(externalRequests.identityVerifiedWritesInRange ?? 0);
           externalIdentityRateEl.textContent = 'of writes: ' + formatPercent(ratio(externalRequests.identityVerifiedWritesInRange, externalRequests.writesInRange), 1);
           externalSignatureWritesEl.textContent = String(externalRequests.signatureVerifiedWritesInRange ?? 0);
@@ -8251,6 +8364,7 @@ fastify.get('/admin/usage', async (request, reply) => {
           renderQaChart(external.qaDaily || [], externalQaChartEl, 'No external question/answer activity in this range.');
           renderTractionChart(traction.daily || []);
           renderList(externalTopAgentsEl, external.topAgents || [], 'agentName', 'count');
+          renderList(externalTopProxiedAgentsEl, external.topProxiedAgents || [], 'agentName', 'count');
           renderList(ipsEl, data.byIp || [], 'ip', 'count');
           renderList(referrersEl, data.byReferer || [], 'referer', 'count');
           renderList(userAgentsEl, data.byUserAgent || [], 'userAgent', 'count');
@@ -11394,6 +11508,12 @@ fastify.get('/admin/traction', async (request, reply) => {
           <div class="metric"><div class="label">Opened via webhook</div><div id="webhookOpened" class="value">—</div></div>
           <div class="metric"><div class="label">Opened via inbox</div><div id="inboxOpened" class="value">—</div></div>
           <div class="metric"><div class="label">Failed deliveries</div><div id="failed" class="value">—</div><small id="pending">—</small></div>
+          <div class="metric"><div class="label">Attempted writes</div><div id="attemptsTotal" class="value">—</div></div>
+          <div class="metric"><div class="label">Eligible writes</div><div id="attemptsEligible" class="value">—</div><small id="attemptsEligibleShare">—</small></div>
+          <div class="metric"><div class="label">Proxied writes</div><div id="attemptsProxied" class="value">—</div><small id="attemptsProxiedShare">—</small></div>
+          <div class="metric"><div class="label">Excluded writes</div><div id="attemptsExcluded" class="value">—</div><small id="attemptsExcludedShare">—</small></div>
+          <div class="metric"><div class="label">Unknown agent writes</div><div id="attemptsUnknown" class="value">—</div><small id="attemptsUnknownShare">—</small></div>
+          <div class="metric"><div class="label">Likely cause</div><div id="likelyCause" style="font-size:14px; font-weight:600; margin-top:8px;">—</div></div>
         </div>
       </section>
       <section class="card">
@@ -11433,6 +11553,16 @@ fastify.get('/admin/traction', async (request, reply) => {
           $('acceptRate').textContent = 'accept/answer: ' + fmtPct(data.conversion?.acceptRateFromAnswered);
           $('latencyP50').textContent = data.latencyMinutes?.median == null ? '—' : Number(data.latencyMinutes.median).toFixed(1);
           $('latencyP90').textContent = 'p90: ' + (data.latencyMinutes?.p90 == null ? '—' : Number(data.latencyMinutes.p90).toFixed(1));
+          $('attemptsTotal').textContent = fmtNum(data.attempts?.totals?.writes);
+          $('attemptsEligible').textContent = fmtNum(data.attempts?.buckets?.eligible?.writes);
+          $('attemptsProxied').textContent = fmtNum(data.attempts?.buckets?.proxied?.writes);
+          $('attemptsExcluded').textContent = fmtNum(data.attempts?.buckets?.excluded?.writes);
+          $('attemptsUnknown').textContent = fmtNum(data.attempts?.buckets?.unknownAgent?.writes);
+          $('attemptsEligibleShare').textContent = 'share: ' + fmtPct(data.attempts?.shares?.eligibleWriteShare);
+          $('attemptsProxiedShare').textContent = 'share: ' + fmtPct(data.attempts?.shares?.proxiedWriteShare);
+          $('attemptsExcludedShare').textContent = 'share: ' + fmtPct(data.attempts?.shares?.excludedWriteShare);
+          $('attemptsUnknownShare').textContent = 'share: ' + fmtPct(data.attempts?.shares?.unknownAgentWriteShare);
+          $('likelyCause').textContent = data.diagnostics?.likelyCause || '—';
           const responders = Array.isArray(data.topResponders) ? data.topResponders : [];
           if (responders.length === 0) {
             $('responders').innerHTML = '<tr><td colspan=\"4\">No responders in this window.</td></tr>';

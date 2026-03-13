@@ -15,6 +15,10 @@ const MCP_USE_API_KEY_BY_DEFAULT = (process.env.MCP_USE_API_KEY_BY_DEFAULT ?? 'f
 const MCP_AUTO_TRIAL_KEYS = (process.env.MCP_AUTO_TRIAL_KEYS ?? 'true').toLowerCase() === 'true';
 const PORT = Number(process.env.PORT ?? process.env.MCP_PORT ?? 4000);
 const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-remote';
+const MCP_DERIVE_AGENT_NAME = (process.env.MCP_DERIVE_AGENT_NAME ?? 'true').toLowerCase() === 'true';
+const MCP_DERIVED_AGENT_PREFIX = (process.env.MCP_DERIVED_AGENT_PREFIX ?? 'a2abench-mcp-proxy').trim().toLowerCase() || 'a2abench-mcp-proxy';
+const MCP_DERIVED_AGENT_HASH_LEN = Math.max(8, Math.min(32, Number(process.env.MCP_DERIVED_AGENT_HASH_LEN ?? 16)));
+const MCP_DERIVED_AGENT_SALT = process.env.MCP_DERIVED_AGENT_SALT ?? PUBLIC_MCP_URL;
 const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.30';
 const COMMIT_SHA = process.env.COMMIT_SHA ?? process.env.GIT_SHA ?? 'unknown';
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
@@ -164,6 +168,78 @@ function getClientIp(headers: Record<string, string | string[] | undefined>, fal
   const cfIpValue = Array.isArray(cfIp) ? cfIp[0] : cfIp;
   if (cfIpValue) return cfIpValue;
   return fallback ?? null;
+}
+
+function normalizeAgentNameInput(value: string | null | undefined) {
+  const normalized = (value ?? '').trim().toLowerCase();
+  if (!normalized) return null;
+  return normalized.slice(0, 128);
+}
+
+function sanitizeAgentLabel(value: string | null | undefined) {
+  const cleaned = (value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 20);
+  return cleaned || 'client';
+}
+
+function inferClientLabel(userAgent: string | null | undefined) {
+  const ua = (userAgent ?? '').trim().toLowerCase();
+  if (!ua) return 'client';
+  if (ua.includes('claude')) return 'claude';
+  if (ua.includes('openai')) return 'openai';
+  if (ua.includes('cursor')) return 'cursor';
+  if (ua.includes('vscode')) return 'vscode';
+  if (ua.includes('copilot')) return 'copilot';
+  const firstToken = ua.split(/[;()\s/]+/g).find((part) => part.trim().length >= 3) ?? ua.slice(0, 20);
+  return sanitizeAgentLabel(firstToken);
+}
+
+function deriveAnonymousAgentName(input: {
+  ip?: string;
+  userAgent?: string;
+  llmProvider?: string;
+  llmModel?: string;
+  authHeader?: string;
+}) {
+  const fingerprint = [
+    (input.ip ?? '').trim().toLowerCase(),
+    (input.userAgent ?? '').trim().toLowerCase(),
+    (input.llmProvider ?? '').trim().toLowerCase(),
+    (input.llmModel ?? '').trim().toLowerCase(),
+    extractApiKeyPrefix(input.authHeader ?? '') ?? ''
+  ].join('|');
+  if (!fingerprint.replace(/\|/g, '')) {
+    return normalizeAgentNameInput(MCP_AGENT_NAME) ?? 'a2abench-mcp-remote';
+  }
+  const digest = createHmac('sha256', MCP_DERIVED_AGENT_SALT).update(fingerprint).digest('hex').slice(0, MCP_DERIVED_AGENT_HASH_LEN);
+  const label = inferClientLabel(input.userAgent);
+  return `${MCP_DERIVED_AGENT_PREFIX}-${label}-${digest}`.slice(0, 128);
+}
+
+function resolveRequestAgentName(input: {
+  presentedAgentName?: string | null;
+  ip?: string;
+  userAgent?: string;
+  llmProvider?: string;
+  llmModel?: string;
+  authHeader?: string;
+}) {
+  const presented = normalizeAgentNameInput(input.presentedAgentName);
+  if (presented) return presented;
+  if (MCP_DERIVE_AGENT_NAME) {
+    return deriveAnonymousAgentName({
+      ip: input.ip,
+      userAgent: input.userAgent,
+      llmProvider: input.llmProvider,
+      llmModel: input.llmModel,
+      authHeader: input.authHeader
+    });
+  }
+  return normalizeAgentNameInput(MCP_AGENT_NAME) ?? 'a2abench-mcp-remote';
 }
 
 function redactString(value: string) {
@@ -1502,7 +1578,7 @@ async function main() {
     applyCors(res, origin);
 
     const agentHeader = req.headers['x-agent-name'] ?? req.headers['x-mcp-client-name'] ?? req.headers['mcp-client-name'];
-    const agentName = Array.isArray(agentHeader) ? agentHeader[0] : agentHeader;
+    const presentedAgentName = Array.isArray(agentHeader) ? agentHeader[0] : agentHeader;
     const authHeader = Array.isArray(req.headers.authorization)
       ? req.headers.authorization[0]
       : req.headers.authorization;
@@ -1517,6 +1593,14 @@ async function main() {
       : req.headers['x-llm-model'];
     const userAgent = Array.isArray(req.headers['user-agent']) ? req.headers['user-agent'][0] : req.headers['user-agent'];
     const ip = getClientIp(req.headers as Record<string, string | string[] | undefined>, req.socket?.remoteAddress ?? null) ?? undefined;
+    const resolvedAgentName = resolveRequestAgentName({
+      presentedAgentName,
+      ip,
+      userAgent: userAgent ?? undefined,
+      llmProvider: llmProvider ?? undefined,
+      llmModel: llmModel ?? undefined,
+      authHeader: authHeader ?? undefined
+    });
     const startMs = Date.now();
     const requestId =
       (Array.isArray(req.headers['x-request-id']) ? req.headers['x-request-id'][0] : req.headers['x-request-id']) ??
@@ -1560,7 +1644,8 @@ async function main() {
         status: res.statusCode,
         durationMs: Date.now() - startMs,
         requestId,
-        agentName: agentName ?? null,
+        agentName: resolvedAgentName ?? null,
+        presentedAgentName: presentedAgentName ?? null,
         userAgent: userAgent ?? null,
         path: '/.well-known/glama.json'
       });
@@ -1591,7 +1676,8 @@ async function main() {
         status: res.statusCode,
         durationMs: Date.now() - startMs,
         requestId,
-        agentName: agentName ?? null,
+        agentName: resolvedAgentName ?? null,
+        presentedAgentName: presentedAgentName ?? null,
         userAgent: userAgent ?? null,
         path: rawPath
       });
@@ -1623,7 +1709,8 @@ async function main() {
         status: res.statusCode,
         durationMs: Date.now() - startMs,
         requestId,
-        agentName: agentName ?? null,
+        agentName: resolvedAgentName ?? null,
+        presentedAgentName: presentedAgentName ?? null,
         userAgent: userAgent ?? null,
         path: rawPath
       });
@@ -1693,7 +1780,8 @@ async function main() {
         status: res.statusCode,
         durationMs: Date.now() - startMs,
         requestId,
-        agentName: agentName ?? null,
+        agentName: resolvedAgentName ?? null,
+        presentedAgentName: presentedAgentName ?? null,
         userAgent: userAgent ?? null,
         path: rawPath
       });
@@ -1717,7 +1805,8 @@ async function main() {
         status: res.statusCode,
         durationMs: Date.now() - startMs,
         requestId,
-        agentName: agentName ?? null,
+        agentName: resolvedAgentName ?? null,
+        presentedAgentName: presentedAgentName ?? null,
         userAgent: userAgent ?? null
       });
       return;
@@ -1757,7 +1846,7 @@ async function main() {
       if (wantsEventStream || hasMcpHeaders) {
         await requestContext.run(
           {
-            agentName: agentName ?? undefined,
+            agentName: resolvedAgentName ?? undefined,
             requestId,
             authHeader,
             llmProvider: llmProvider ?? undefined,
@@ -1778,7 +1867,8 @@ async function main() {
           status: res.statusCode,
           durationMs: Date.now() - startMs,
           requestId,
-          agentName: agentName ?? null,
+          agentName: resolvedAgentName ?? null,
+          presentedAgentName: presentedAgentName ?? null,
           userAgent: userAgent ?? null,
           mcp: true
         });
@@ -1818,7 +1908,8 @@ async function main() {
           status: res.statusCode,
           durationMs: Date.now() - startMs,
           requestId,
-          agentName: agentName ?? null,
+          agentName: resolvedAgentName ?? null,
+          presentedAgentName: presentedAgentName ?? null,
           userAgent: userAgent ?? null,
           html: true
         });
@@ -1864,7 +1955,8 @@ async function main() {
         status: res.statusCode,
         durationMs: Date.now() - startMs,
         requestId,
-        agentName: agentName ?? null,
+        agentName: resolvedAgentName ?? null,
+        presentedAgentName: presentedAgentName ?? null,
         userAgent: userAgent ?? null
       });
       return;
@@ -1879,7 +1971,7 @@ async function main() {
     try {
       await requestContext.run(
         {
-          agentName: agentName ?? undefined,
+          agentName: resolvedAgentName ?? undefined,
           requestId,
           authHeader,
           llmProvider: llmProvider ?? undefined,
@@ -1900,7 +1992,8 @@ async function main() {
         status: res.statusCode,
         durationMs: Date.now() - startMs,
         requestId,
-        agentName: agentName ?? null,
+        agentName: resolvedAgentName ?? null,
+        presentedAgentName: presentedAgentName ?? null,
         userAgent: userAgent ?? null
       });
     } catch (err) {
@@ -1915,7 +2008,8 @@ async function main() {
         status: res.statusCode,
         durationMs: Date.now() - startMs,
         requestId,
-        agentName: agentName ?? null,
+        agentName: resolvedAgentName ?? null,
+        presentedAgentName: presentedAgentName ?? null,
         userAgent: userAgent ?? null,
         error: err instanceof Error ? err.message : 'unknown_error',
         errorName: err instanceof Error ? err.name : 'unknown'

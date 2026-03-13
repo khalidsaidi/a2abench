@@ -29,15 +29,24 @@ type FunnelResponse = {
     };
     buckets?: {
       eligible?: { writes?: number; questionCreates?: number; answerCreates?: number };
+      proxied?: { writes?: number; questionCreates?: number; answerCreates?: number };
       excluded?: { writes?: number; questionCreates?: number; answerCreates?: number };
       synthetic?: { writes?: number; questionCreates?: number; answerCreates?: number };
       unknownAgent?: { writes?: number; questionCreates?: number; answerCreates?: number };
+    };
+    shares?: {
+      eligibleWriteShare?: number;
+      proxiedWriteShare?: number;
+      excludedWriteShare?: number;
+      syntheticWriteShare?: number;
+      unknownAgentWriteShare?: number;
     };
   };
   diagnostics?: {
     likelyCause?: string;
     hasAttemptedWrites?: boolean;
     hasEligibleAttemptedWrites?: boolean;
+    hasProxiedAttemptedWrites?: boolean;
     queueCoverageFromEligibleQuestionCreates?: number;
   };
 };
