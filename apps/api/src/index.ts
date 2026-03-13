@@ -127,6 +127,9 @@ const SUBSCRIPTION_PRUNE_INTERVAL_MS = Math.max(30_000, Number(process.env.SUBSC
 const SUBSCRIPTION_PRUNE_WINDOW_HOURS = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_WINDOW_HOURS ?? (AGENT_OPEN_MODE ? 6 : 24)));
 const SUBSCRIPTION_PRUNE_STALE_HOURS = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_STALE_HOURS ?? (AGENT_OPEN_MODE ? 1 : 6)));
 const SUBSCRIPTION_PRUNE_MIN_AGE_HOURS = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_MIN_AGE_HOURS ?? (AGENT_OPEN_MODE ? 1 : 2)));
+const SUBSCRIPTION_PRUNE_WINDOW_MINUTES = Math.max(5, Number(process.env.SUBSCRIPTION_PRUNE_WINDOW_MINUTES ?? (AGENT_OPEN_MODE ? 60 : SUBSCRIPTION_PRUNE_WINDOW_HOURS * 60)));
+const SUBSCRIPTION_PRUNE_STALE_MINUTES = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_STALE_MINUTES ?? (AGENT_OPEN_MODE ? 15 : SUBSCRIPTION_PRUNE_STALE_HOURS * 60)));
+const SUBSCRIPTION_PRUNE_MIN_AGE_MINUTES = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_MIN_AGE_MINUTES ?? (AGENT_OPEN_MODE ? 15 : SUBSCRIPTION_PRUNE_MIN_AGE_HOURS * 60)));
 const SUBSCRIPTION_PRUNE_MIN_QUEUED = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_MIN_QUEUED ?? (AGENT_OPEN_MODE ? 3 : 12)));
 const SUBSCRIPTION_PRUNE_MAX_FAILED = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_MAX_FAILED ?? (AGENT_OPEN_MODE ? 3 : 8)));
 const SUBSCRIPTION_PRUNE_MIN_OPEN_RATE = Math.max(0, Math.min(1, Number(process.env.SUBSCRIPTION_PRUNE_MIN_OPEN_RATE ?? (AGENT_OPEN_MODE ? 0.01 : 0.05))));
@@ -2846,9 +2849,9 @@ async function pruneInactiveSubscriptions(options?: { limit?: number; dryRun?: b
   const dryRun = options?.dryRun === true;
   const scanLimit = Math.max(1, Math.min(2000, options?.limit ?? SUBSCRIPTION_PRUNE_MAX_DISABLE_PER_RUN * 10));
   const now = new Date();
-  const windowSince = new Date(Date.now() - SUBSCRIPTION_PRUNE_WINDOW_HOURS * 60 * 60 * 1000);
-  const staleBefore = new Date(Date.now() - SUBSCRIPTION_PRUNE_STALE_HOURS * 60 * 60 * 1000);
-  const minCreatedAt = new Date(Date.now() - SUBSCRIPTION_PRUNE_MIN_AGE_HOURS * 60 * 60 * 1000);
+  const windowSince = new Date(Date.now() - SUBSCRIPTION_PRUNE_WINDOW_MINUTES * 60 * 1000);
+  const staleBefore = new Date(Date.now() - SUBSCRIPTION_PRUNE_STALE_MINUTES * 60 * 1000);
+  const minCreatedAt = new Date(Date.now() - SUBSCRIPTION_PRUNE_MIN_AGE_MINUTES * 60 * 1000);
 
   const subscriptions = await prisma.questionSubscription.findMany({
     where: {
@@ -2870,8 +2873,12 @@ async function pruneInactiveSubscriptions(options?: { limit?: number; dryRun?: b
       candidates: 0,
       disabled: 0,
       dryRun,
+      windowMinutes: SUBSCRIPTION_PRUNE_WINDOW_MINUTES,
+      staleMinutes: SUBSCRIPTION_PRUNE_STALE_MINUTES,
+      minAgeMinutes: SUBSCRIPTION_PRUNE_MIN_AGE_MINUTES,
       windowHours: SUBSCRIPTION_PRUNE_WINDOW_HOURS,
       staleHours: SUBSCRIPTION_PRUNE_STALE_HOURS,
+      minAgeHours: SUBSCRIPTION_PRUNE_MIN_AGE_HOURS,
       minQueued: SUBSCRIPTION_PRUNE_MIN_QUEUED,
       reasons: {},
       results: []
@@ -3020,8 +3027,12 @@ async function pruneInactiveSubscriptions(options?: { limit?: number; dryRun?: b
     candidates: candidates.length,
     disabled: dryRun ? 0 : disabled,
     dryRun,
+    windowMinutes: SUBSCRIPTION_PRUNE_WINDOW_MINUTES,
+    staleMinutes: SUBSCRIPTION_PRUNE_STALE_MINUTES,
+    minAgeMinutes: SUBSCRIPTION_PRUNE_MIN_AGE_MINUTES,
     windowHours: SUBSCRIPTION_PRUNE_WINDOW_HOURS,
     staleHours: SUBSCRIPTION_PRUNE_STALE_HOURS,
+    minAgeHours: SUBSCRIPTION_PRUNE_MIN_AGE_HOURS,
     minQueued: SUBSCRIPTION_PRUNE_MIN_QUEUED,
     reasons,
     results: selected.map((row) => ({
@@ -6279,7 +6290,12 @@ function startBackgroundWorkers() {
     autoCloseMinAnswerAgeHours: AUTO_CLOSE_MIN_ANSWER_AGE_HOURS,
     subscriptionPruneEnabled: SUBSCRIPTION_PRUNE_ENABLED,
     subscriptionPruneIntervalMs: SUBSCRIPTION_PRUNE_INTERVAL_MS,
+    subscriptionPruneWindowMinutes: SUBSCRIPTION_PRUNE_WINDOW_MINUTES,
+    subscriptionPruneStaleMinutes: SUBSCRIPTION_PRUNE_STALE_MINUTES,
+    subscriptionPruneMinAgeMinutes: SUBSCRIPTION_PRUNE_MIN_AGE_MINUTES,
     subscriptionPruneWindowHours: SUBSCRIPTION_PRUNE_WINDOW_HOURS,
+    subscriptionPruneStaleHours: SUBSCRIPTION_PRUNE_STALE_HOURS,
+    subscriptionPruneMinAgeHours: SUBSCRIPTION_PRUNE_MIN_AGE_HOURS,
     tractionScorecardDays: TRACTION_SCORECARD_DAYS,
     tractionAlertLoopEnabled: TRACTION_ALERT_LOOP_ENABLED,
     tractionAlertLoopIntervalMs: TRACTION_ALERT_LOOP_INTERVAL_MS,
