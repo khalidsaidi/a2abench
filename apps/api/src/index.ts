@@ -11336,6 +11336,242 @@ fastify.get('/api/v1/admin/delivery/queue', {
   });
 });
 
+fastify.post('/api/v1/admin/delivery/cleanup-prefixes', {
+  schema: {
+    tags: ['admin'],
+    security: [{ AdminToken: [] }],
+    body: {
+      type: 'object',
+      required: ['prefixes'],
+      properties: {
+        prefixes: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 100,
+          items: { type: 'string' }
+        },
+        dryRun: { type: 'boolean' },
+        disableSubscriptions: { type: 'boolean' },
+        deletePendingQueue: { type: 'boolean' },
+        deleteAllQueue: { type: 'boolean' },
+        includeInactiveSubscriptions: { type: 'boolean' }
+      }
+    }
+  }
+}, async (request, reply) => {
+  if (!(await requireAdmin(request, reply))) return;
+  const body = parse(
+    z.object({
+      prefixes: z.array(z.string().min(1).max(64)).min(1).max(100),
+      dryRun: z.boolean().optional(),
+      disableSubscriptions: z.boolean().optional(),
+      deletePendingQueue: z.boolean().optional(),
+      deleteAllQueue: z.boolean().optional(),
+      includeInactiveSubscriptions: z.boolean().optional()
+    }),
+    request.body ?? {},
+    reply
+  );
+  if (!body) return;
+
+  const normalizedPrefixes = Array.from(new Set(
+    body.prefixes
+      .map((value) => normalizeAgentName(value))
+      .filter(Boolean)
+  ));
+  if (normalizedPrefixes.length === 0) {
+    reply.code(400).send({ error: 'No valid prefixes provided.' });
+    return;
+  }
+
+  const dryRun = body.dryRun === true;
+  const disableSubscriptions = body.disableSubscriptions !== false;
+  const deletePendingQueue = body.deletePendingQueue !== false;
+  const deleteAllQueue = body.deleteAllQueue === true;
+  const includeInactiveSubscriptions = body.includeInactiveSubscriptions === true;
+
+  const subscriptionWhere: Prisma.QuestionSubscriptionWhereInput = {
+    OR: normalizedPrefixes.map((prefix) => ({
+      agentName: { startsWith: prefix }
+    })),
+    ...(includeInactiveSubscriptions ? {} : { active: true })
+  };
+
+  const subscriptions = await prisma.questionSubscription.findMany({
+    where: subscriptionWhere,
+    select: {
+      id: true,
+      agentName: true,
+      active: true
+    }
+  });
+
+  const subscriptionIds = subscriptions.map((row) => row.id);
+  const uniqueAgents = Array.from(new Set(subscriptions.map((row) => row.agentName)));
+  const pendingWhere: Prisma.DeliveryQueueWhereInput = {
+    subscriptionId: { in: subscriptionIds },
+    event: 'question.created',
+    deliveredAt: null,
+    attemptCount: { lt: DELIVERY_MAX_ATTEMPTS }
+  };
+  const allQueueWhere: Prisma.DeliveryQueueWhereInput = {
+    subscriptionId: { in: subscriptionIds }
+  };
+
+  const [pendingQueueCount, allQueueCount] = subscriptionIds.length === 0
+    ? [0, 0]
+    : await Promise.all([
+        prisma.deliveryQueue.count({ where: pendingWhere }),
+        prisma.deliveryQueue.count({ where: allQueueWhere })
+      ]);
+
+  const actions = {
+    disabledSubscriptions: 0,
+    deletedPendingQueue: 0,
+    deletedQueueAll: 0
+  };
+
+  if (!dryRun && subscriptionIds.length > 0) {
+    if (disableSubscriptions) {
+      const result = await prisma.questionSubscription.updateMany({
+        where: {
+          id: { in: subscriptionIds },
+          active: true
+        },
+        data: { active: false }
+      });
+      actions.disabledSubscriptions = result.count;
+    }
+
+    if (deleteAllQueue) {
+      const result = await prisma.deliveryQueue.deleteMany({
+        where: allQueueWhere
+      });
+      actions.deletedQueueAll = result.count;
+    } else if (deletePendingQueue) {
+      const result = await prisma.deliveryQueue.deleteMany({
+        where: pendingWhere
+      });
+      actions.deletedPendingQueue = result.count;
+    }
+  }
+
+  reply.code(200).send({
+    ok: true,
+    dryRun,
+    prefixes: normalizedPrefixes,
+    includeInactiveSubscriptions,
+    options: {
+      disableSubscriptions,
+      deletePendingQueue,
+      deleteAllQueue
+    },
+    matched: {
+      subscriptions: subscriptions.length,
+      uniqueAgents: uniqueAgents.length,
+      pendingQueue: pendingQueueCount,
+      queueAll: allQueueCount
+    },
+    actions,
+    sampleAgents: uniqueAgents.slice(0, 20),
+    processedAt: new Date().toISOString()
+  });
+});
+
+fastify.post('/api/v1/admin/delivery/cleanup-inactive', {
+  schema: {
+    tags: ['admin'],
+    security: [{ AdminToken: [] }],
+    body: {
+      type: 'object',
+      properties: {
+        dryRun: { type: 'boolean' },
+        events: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 20,
+          items: { type: 'string' }
+        },
+        onlyPending: { type: 'boolean' },
+        olderThanMinutes: { type: 'integer', minimum: 1, maximum: 10080 }
+      }
+    }
+  }
+}, async (request, reply) => {
+  if (!(await requireAdmin(request, reply))) return;
+  const body = parse(
+    z.object({
+      dryRun: z.boolean().optional(),
+      events: z.array(z.string().min(1).max(64)).min(1).max(20).optional(),
+      onlyPending: z.boolean().optional(),
+      olderThanMinutes: z.number().int().min(1).max(10080).optional()
+    }),
+    request.body ?? {},
+    reply
+  );
+  if (!body) return;
+
+  const dryRun = body.dryRun === true;
+  const onlyPending = body.onlyPending !== false;
+  const olderThanMinutes = body.olderThanMinutes ?? 30;
+  const staleBefore = new Date(Date.now() - olderThanMinutes * 60 * 1000);
+  const events = Array.from(new Set(
+    (body.events ?? ['question.created'])
+      .map((value) => String(value).trim().toLowerCase())
+      .filter(Boolean)
+  ));
+  if (events.length === 0) {
+    reply.code(400).send({ error: 'No valid events provided.' });
+    return;
+  }
+
+  const inactiveSubscriptions = await prisma.questionSubscription.findMany({
+    where: { active: false },
+    select: { id: true, agentName: true }
+  });
+  const inactiveIds = inactiveSubscriptions.map((row) => row.id);
+  const inactiveAgents = Array.from(new Set(inactiveSubscriptions.map((row) => row.agentName)));
+
+  const where: Prisma.DeliveryQueueWhereInput = {
+    subscriptionId: { in: inactiveIds },
+    event: { in: events },
+    createdAt: { lte: staleBefore },
+    ...(onlyPending
+      ? {
+          deliveredAt: null,
+          attemptCount: { lt: DELIVERY_MAX_ATTEMPTS }
+        }
+      : {})
+  };
+
+  const matched = inactiveIds.length === 0 ? 0 : await prisma.deliveryQueue.count({ where });
+  const action = {
+    deleted: 0
+  };
+  if (!dryRun && matched > 0) {
+    const result = await prisma.deliveryQueue.deleteMany({ where });
+    action.deleted = result.count;
+  }
+
+  reply.code(200).send({
+    ok: true,
+    dryRun,
+    options: {
+      events,
+      onlyPending,
+      olderThanMinutes
+    },
+    matched: {
+      inactiveSubscriptions: inactiveIds.length,
+      inactiveAgents: inactiveAgents.length,
+      queueRows: matched
+    },
+    actions: action,
+    sampleAgents: inactiveAgents.slice(0, 20),
+    processedAt: new Date().toISOString()
+  });
+});
+
 fastify.get('/api/v1/admin/subscriptions/health', {
   schema: {
     tags: ['admin'],

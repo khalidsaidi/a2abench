@@ -64,6 +64,14 @@ const DELIVERY_LIMIT = intEnv(process.env.AUTOPILOT_DELIVERY_LIMIT, 500, 1, 500)
 const REQUEUE_LIMIT = intEnv(process.env.AUTOPILOT_REQUEUE_LIMIT, 1000, 1, 2000);
 const PRUNE_LIMIT = intEnv(process.env.AUTOPILOT_PRUNE_LIMIT, 500, 1, 2000);
 const REQUEST_TIMEOUT_MS = intEnv(process.env.AUTOPILOT_REQUEST_TIMEOUT_MS, 180000, 5000, 900000);
+const CLEANUP_INTERVAL_MINUTES = intEnv(process.env.AUTOPILOT_CLEANUP_INTERVAL_MINUTES, 30, 1, 720);
+const CLEANUP_PREFIXES = listEnv(
+  process.env.AUTOPILOT_CLEANUP_PREFIXES,
+  ['pending-cap-', 'probe', 'openflow', 'jobsnext', 'adopt', 'fpfix']
+);
+const CLEANUP_DELETE_ALL_QUEUE = boolEnv(process.env.AUTOPILOT_CLEANUP_DELETE_ALL_QUEUE, false);
+const INACTIVE_CLEANUP_INTERVAL_MINUTES = intEnv(process.env.AUTOPILOT_INACTIVE_CLEANUP_INTERVAL_MINUTES, 20, 1, 720);
+const INACTIVE_CLEANUP_OLDER_THAN_MINUTES = intEnv(process.env.AUTOPILOT_INACTIVE_CLEANUP_OLDER_THAN_MINUTES, 30, 1, 10080);
 
 function resolveAdminToken() {
   const fromEnv = (process.env.ADMIN_TOKEN ?? '').trim();
@@ -99,6 +107,14 @@ function floatEnv(raw: string | undefined, fallback: number, min: number, max: n
   const parsed = Number(raw ?? fallback);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, parsed));
+}
+
+function listEnv(raw: string | undefined, fallback: string[]) {
+  if (!raw || !raw.trim()) return fallback;
+  return raw
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 function sleep(ms: number) {
@@ -195,18 +211,29 @@ async function main() {
     loopSeconds: LOOP_SECONDS,
     importIntervalMinutes: IMPORT_INTERVAL_MINUTES,
     maintenanceIntervalSeconds: MAINTENANCE_INTERVAL_SECONDS,
+    cleanupIntervalMinutes: CLEANUP_INTERVAL_MINUTES,
     targets: {
       openRate: OPEN_RATE_TARGET,
       answerRateFromOpened: ANSWER_RATE_TARGET
     },
     triggers: {
       pendingQueue: PENDING_QUEUE_TRIGGER
+    },
+    cleanup: {
+      prefixes: CLEANUP_PREFIXES,
+      deleteAllQueue: CLEANUP_DELETE_ALL_QUEUE
+    },
+    inactiveCleanup: {
+      intervalMinutes: INACTIVE_CLEANUP_INTERVAL_MINUTES,
+      olderThanMinutes: INACTIVE_CLEANUP_OLDER_THAN_MINUTES
     }
   })}\n`);
 
   let iteration = 0;
   let lastImportAt = 0;
   let lastMaintenanceAt = 0;
+  let lastCleanupAt = 0;
+  let lastInactiveCleanupAt = 0;
 
   while (true) {
     iteration += 1;
@@ -217,6 +244,32 @@ async function main() {
     const funnel = await getFunnel();
     const scorecard = await getScorecard();
     const pendingQueue = await getPendingQueue();
+
+    const needsCleanup = CLEANUP_PREFIXES.length > 0
+      && (now - lastCleanupAt >= CLEANUP_INTERVAL_MINUTES * 60 * 1000
+        || pendingQueue.count >= PENDING_QUEUE_TRIGGER);
+    if (needsCleanup) {
+      actions.push(await runAction('delivery_cleanup_prefixes', () => postAdmin('/api/v1/admin/delivery/cleanup-prefixes', {
+        prefixes: CLEANUP_PREFIXES,
+        dryRun: false,
+        disableSubscriptions: true,
+        deletePendingQueue: !CLEANUP_DELETE_ALL_QUEUE,
+        deleteAllQueue: CLEANUP_DELETE_ALL_QUEUE,
+        includeInactiveSubscriptions: true
+      })));
+      lastCleanupAt = now;
+    }
+
+    const needsInactiveCleanup = now - lastInactiveCleanupAt >= INACTIVE_CLEANUP_INTERVAL_MINUTES * 60 * 1000;
+    if (needsInactiveCleanup) {
+      actions.push(await runAction('delivery_cleanup_inactive', () => postAdmin('/api/v1/admin/delivery/cleanup-inactive', {
+        dryRun: false,
+        onlyPending: true,
+        olderThanMinutes: INACTIVE_CLEANUP_OLDER_THAN_MINUTES,
+        events: ['question.created']
+      })));
+      lastInactiveCleanupAt = now;
+    }
 
     const needsImport = now - lastImportAt >= IMPORT_INTERVAL_MINUTES * 60 * 1000;
     if (needsImport) {
