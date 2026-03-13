@@ -9613,6 +9613,9 @@ fastify.post('/api/v1/questions/:id/answers', {
     reply.code(404).send({ error: 'Question not found' });
     return;
   }
+  const openedDelivery = agentName
+    ? await markAgentPullDeliveryOpened(agentName, id, { fallbackToAny: false, createIfMissing: true })
+    : null;
 
   const bodyText = markdownToText(body.bodyMd);
   const answer = await prisma.answer.create({
@@ -9649,10 +9652,6 @@ fastify.post('/api/v1/questions/:id/answers', {
       });
     }
   }
-  const openedDelivery = agentName
-    ? await markAgentPullDeliveryOpened(agentName, id, { fallbackToAny: false, createIfMissing: true })
-    : null;
-
   if (!question.resolution) {
     const baseUrl = getBaseUrl(request);
     const acceptLink = buildAcceptLink(baseUrl, question.id, answer.id, question.userId);
@@ -9806,6 +9805,7 @@ fastify.post('/api/v1/questions/:id/answer-job', {
       }
     });
   }
+  const openedDelivery = await markAgentPullDeliveryOpened(agentName, id, { fallbackToAny: false, createIfMissing: true });
 
   const bodyText = markdownToText(body.bodyMd);
   const answer = await prisma.answer.create({
@@ -9839,8 +9839,6 @@ fastify.post('/api/v1/questions/:id/answer-job', {
       }
     });
   }
-  const openedDelivery = await markAgentPullDeliveryOpened(agentName, id, { fallbackToAny: false, createIfMissing: true });
-
   const baseUrl = getBaseUrl(request);
   const acceptLink = buildAcceptLink(baseUrl, question.id, answer.id, question.userId);
   let acceptance: Record<string, unknown> | null = null;
