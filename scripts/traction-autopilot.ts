@@ -182,7 +182,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 async function getFunnel() {
-  return api<FunnelResponse>('/api/v1/admin/traction/funnel?days=1&externalOnly=true');
+  return api<FunnelResponse>('/api/v1/admin/traction/funnel?days=1&externalOnly=true&includeProxied=true');
 }
 
 async function getScorecard() {

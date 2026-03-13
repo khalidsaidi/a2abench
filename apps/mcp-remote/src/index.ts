@@ -19,6 +19,7 @@ const MCP_DERIVE_AGENT_NAME = (process.env.MCP_DERIVE_AGENT_NAME ?? 'true').toLo
 const MCP_DERIVED_AGENT_PREFIX = (process.env.MCP_DERIVED_AGENT_PREFIX ?? 'a2abench-mcp-proxy').trim().toLowerCase() || 'a2abench-mcp-proxy';
 const MCP_DERIVED_AGENT_HASH_LEN = Math.max(8, Math.min(32, Number(process.env.MCP_DERIVED_AGENT_HASH_LEN ?? 16)));
 const MCP_DERIVED_AGENT_SALT = process.env.MCP_DERIVED_AGENT_SALT ?? PUBLIC_MCP_URL;
+const MCP_INLINE_NEXT_JOB = (process.env.MCP_INLINE_NEXT_JOB ?? 'true').toLowerCase() === 'true';
 const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.30';
 const COMMIT_SHA = process.env.COMMIT_SHA ?? process.env.GIT_SHA ?? 'unknown';
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
@@ -477,6 +478,36 @@ async function getProtectedWithAutoTrial(path: string, query?: Record<string, st
   return { response, usedTrialKey };
 }
 
+async function getInlineNextJobSuggestion() {
+  if (!MCP_INLINE_NEXT_JOB) return null;
+  try {
+    const response = await apiGet('/api/v1/agent/jobs/next');
+    if (!response.ok) return null;
+    const data = (await response.json()) as Record<string, unknown>;
+    const recommended = (data.recommended && typeof data.recommended === 'object')
+      ? (data.recommended as Record<string, unknown>)
+      : null;
+    if (!recommended || typeof recommended.id !== 'string' || !recommended.id.trim()) return null;
+    const answerJobRequest = (data.answerJobRequest && typeof data.answerJobRequest === 'object')
+      ? (data.answerJobRequest as Record<string, unknown>)
+      : null;
+    const subscription = (data.subscription && typeof data.subscription === 'object')
+      ? (data.subscription as Record<string, unknown>)
+      : null;
+    return {
+      question: {
+        id: String(recommended.id),
+        title: typeof recommended.title === 'string' ? recommended.title : '',
+        url: typeof recommended.url === 'string' ? recommended.url : `${PUBLIC_BASE_URL}/q/${String(recommended.id)}`
+      },
+      answerJobRequest: answerJobRequest ?? null,
+      subscription: subscription ?? null
+    };
+  } catch {
+    return null;
+  }
+}
+
 function createMcpServer() {
   return new McpServer({
     name: 'A2ABench',
@@ -851,6 +882,7 @@ function registerTools(server: McpServer) {
         };
       }
       const data = (await response.json()) as Record<string, unknown>;
+      const inlineNextJob = await getInlineNextJobSuggestion();
       metrics.totalToolCalls += 1;
       bumpMap(metrics.byTool, 'create_question');
       logEvent('info', {
@@ -870,7 +902,8 @@ function registerTools(server: McpServer) {
               auth: writeResult.usedTrialKey
                 ? 'trial_key'
                 : ((requestContext.getStore()?.authHeader || (MCP_USE_API_KEY_BY_DEFAULT && API_KEY)) ? 'provided_key' : 'keyless_managed'),
-              url: `${PUBLIC_BASE_URL}/q/${data.id}`
+              url: `${PUBLIC_BASE_URL}/q/${data.id}`,
+              nextJob: inlineNextJob
             })
           }
         ]
@@ -924,6 +957,7 @@ function registerTools(server: McpServer) {
         };
       }
       const data = (await response.json()) as Record<string, unknown>;
+      const inlineNextJob = await getInlineNextJobSuggestion();
       metrics.totalToolCalls += 1;
       bumpMap(metrics.byTool, 'create_answer');
       logEvent('info', {
@@ -943,7 +977,8 @@ function registerTools(server: McpServer) {
               auth: writeResult.usedTrialKey
                 ? 'trial_key'
                 : ((requestContext.getStore()?.authHeader || (MCP_USE_API_KEY_BY_DEFAULT && API_KEY)) ? 'provided_key' : 'keyless_managed'),
-              url: `${PUBLIC_BASE_URL}/q/${id}`
+              url: `${PUBLIC_BASE_URL}/q/${id}`,
+              nextJob: inlineNextJob
             })
           }
         ]
@@ -1008,6 +1043,7 @@ function registerTools(server: McpServer) {
         };
       }
       const data = (await response.json()) as Record<string, unknown>;
+      const inlineNextJob = await getInlineNextJobSuggestion();
       metrics.totalToolCalls += 1;
       bumpMap(metrics.byTool, 'answer_job');
       logEvent('info', {
@@ -1027,7 +1063,8 @@ function registerTools(server: McpServer) {
               auth: writeResult.usedTrialKey
                 ? 'trial_key'
                 : ((requestContext.getStore()?.authHeader || (MCP_USE_API_KEY_BY_DEFAULT && API_KEY)) ? 'provided_key' : 'keyless_managed'),
-              url: `${PUBLIC_BASE_URL}/q/${questionId}`
+              url: `${PUBLIC_BASE_URL}/q/${questionId}`,
+              nextJob: inlineNextJob
             })
           }
         ]

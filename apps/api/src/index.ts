@@ -3034,6 +3034,7 @@ async function filterSubscriptionsForEventDelivery(
     id: string;
     createdAt: Date;
     webhookUrl: string | null;
+    agentName: string;
   }>,
   event: string
 ) {
@@ -3072,6 +3073,10 @@ async function filterSubscriptionsForEventDelivery(
   let suppressedInactive = 0;
 
   for (const sub of subscriptions) {
+    if (isProxiedExternalAgentName(sub.agentName)) {
+      eligible.push(sub);
+      continue;
+    }
     if (sub.createdAt >= graceSince) {
       eligible.push(sub);
       continue;
@@ -3110,7 +3115,8 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
     fetchedSubscriptions.map((sub) => ({
       id: sub.id,
       createdAt: sub.createdAt,
-      webhookUrl: sub.webhookUrl ?? null
+      webhookUrl: sub.webhookUrl ?? null,
+      agentName: sub.agentName
     })),
     input.event
   );
@@ -3199,6 +3205,7 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
     if (!subscriptionMatches(subscriptionTags, input.question.tags)) return [];
     if (!subscriptionWantsEvent(sub.events, input.event)) return [];
     matchedSubscriptions += 1;
+    const isProxiedSubscriber = isProxiedExternalAgentName(sub.agentName);
 
     if (input.event === 'question.created' && DELIVERY_MAX_PENDING_PER_SUBSCRIPTION > 0) {
       const pendingCount = pendingBySubscription.get(sub.id) ?? 0;
@@ -3221,7 +3228,7 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
         createdAt: input.question.createdAt,
         preferredTags: new Set(subscriptionTags)
       }, PUSH_SOLVABILITY_MIN_SCORE);
-      if (PUSH_SOLVABILITY_FILTER_ENABLED && !solvability.pass) {
+      if (PUSH_SOLVABILITY_FILTER_ENABLED && !solvability.pass && !isProxiedSubscriber) {
         filteredBySolvability += 1;
         return [];
       }
@@ -4503,8 +4510,9 @@ function percentileFromSorted(values: number[], percentile: number) {
   return values[lower] * (1 - weight) + values[upper] * weight;
 }
 
-async function getExternalIdentityScope(options?: { includeSynthetic?: boolean }) {
+async function getExternalIdentityScope(options?: { includeSynthetic?: boolean; includeProxied?: boolean }) {
   const includeSynthetic = options?.includeSynthetic === true;
+  const includeProxied = options?.includeProxied === true;
   const actorTypes = Array.from(new Set(
     Array.from(EXTERNAL_TRACTION_ACTOR_TYPES)
       .map((value) => normalizeActorType(value))
@@ -4523,9 +4531,10 @@ async function getExternalIdentityScope(options?: { includeSynthetic?: boolean }
     const normalizedBound = normalizeAgentOrNull(meta.boundAgentName);
     const isSynthetic = isSyntheticAgentName(normalizedBound);
     const isExcluded = isExcludedExternalAgentName(normalizedBound);
+    const isProxied = isProxiedExternalAgentName(normalizedBound);
     if (normalizedBound && isSynthetic) filteredOutBoundAgents.add(normalizedBound);
-    if (normalizedBound && isExcluded) filteredOutExcludedBoundAgents.add(normalizedBound);
-    if (isExcluded) continue;
+    if (normalizedBound && isExcluded && !isProxied) filteredOutExcludedBoundAgents.add(normalizedBound);
+    if (isExcluded && !(includeProxied && isProxied)) continue;
     if (!includeSynthetic && isSynthetic) continue;
     userIds.add(row.userId);
     if (normalizedBound) boundAgents.add(normalizedBound);
@@ -4727,23 +4736,27 @@ async function getAgentScorecard(agentName: string, days: number) {
 async function getTractionFunnel(days: number, options?: {
   externalOnly?: boolean;
   includeSynthetic?: boolean;
+  includeProxied?: boolean;
   answerWindowHours?: number;
 }) {
   const windowDays = Math.max(1, Math.min(90, Math.floor(days)));
   const answerWindowHours = Math.max(1, Math.min(168, Math.floor(options?.answerWindowHours ?? 24)));
   const answerWindowMs = answerWindowHours * 60 * 60 * 1000;
   const includeSynthetic = options?.includeSynthetic === true;
+  const includeProxied = options?.includeProxied === true;
   const externalOnly = options?.externalOnly !== false;
   const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
   const now = new Date();
 
-  const identity = externalOnly ? await getExternalIdentityScope({ includeSynthetic }) : null;
+  const identity = externalOnly ? await getExternalIdentityScope({ includeSynthetic, includeProxied }) : null;
   const scopedAgents = identity?.boundAgents ?? [];
   const scopedAgentSet = new Set(
     scopedAgents
       .map((value) => normalizeAgentOrNull(value))
       .filter((value): value is string => Boolean(value))
-      .filter((value) => !isExcludedExternalAgentName(value))
+      .filter((value) => includeProxied
+        ? (!isExcludedExternalAgentName(value) || isProxiedExternalAgentName(value))
+        : !isExcludedExternalAgentName(value))
       .filter((value) => includeSynthetic || !isSyntheticAgentName(value))
   );
   const scopeApplied = externalOnly ? Array.from(scopedAgentSet) : null;
@@ -4923,7 +4936,11 @@ async function getTractionFunnel(days: number, options?: {
       continue;
     }
     if (isProxiedExternalAgentName(normalizedAgent)) {
-      applyAttemptRow(attemptsProxied, row, normalizedAgent);
+      if (includeProxied) {
+        applyAttemptRow(attemptsEligible, row, normalizedAgent);
+      } else {
+        applyAttemptRow(attemptsProxied, row, normalizedAgent);
+      }
       continue;
     }
     if (isExcludedExternalAgentName(normalizedAgent)) {
@@ -4986,6 +5003,7 @@ async function getTractionFunnel(days: number, options?: {
       since: since.toISOString(),
       externalOnly,
       includeSynthetic,
+      includeProxied,
       answerWindowHours,
       identityScope: {
         actorTypes: identity?.actorTypes ?? [],
@@ -5058,7 +5076,9 @@ async function getTractionFunnel(days: number, options?: {
       questionId: row.questionId?.trim() ?? null
     }))
     .filter((row): row is typeof row & { agentName: string; questionId: string } => Boolean(row.agentName && row.questionId))
-    .filter((row) => !isExcludedExternalAgentName(row.agentName))
+    .filter((row) => includeProxied
+      ? (!isExcludedExternalAgentName(row.agentName) || isProxiedExternalAgentName(row.agentName))
+      : !isExcludedExternalAgentName(row.agentName))
     .filter((row) => includeSynthetic || !isSyntheticAgentName(row.agentName));
 
   const queued = deliveries.length;
@@ -5232,6 +5252,7 @@ async function getTractionFunnel(days: number, options?: {
     since: since.toISOString(),
     externalOnly,
     includeSynthetic,
+    includeProxied,
     answerWindowHours,
     identityScope: {
       actorTypes: identity?.actorTypes ?? [],
@@ -5388,6 +5409,7 @@ async function getWeeklyTractionScorecard(days = TRACTION_SCORECARD_DAYS): Promi
   const funnel = await getTractionFunnel(windowDays, {
     externalOnly: true,
     includeSynthetic: false,
+    includeProxied: true,
     answerWindowHours: 24
   });
 
@@ -7710,6 +7732,9 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
         proxiedAnswerWritesInRange: externalRequestProxiedStats.answerWritesInRange,
         proxiedActiveAgentsInRange: externalRequestProxiedStats.activeAgentsInRange,
         excludedWritesInRange: externalRequestExcludedStats.writesInRange,
+        combinedWritesInRange: externalRequestStrictStats.writesInRange + externalRequestProxiedStats.writesInRange,
+        combinedWritesLast24h: externalRequestStrictStats.writesLast24h + externalRequestProxiedStats.writesLast24h,
+        combinedActiveAgentsInRange: externalRequestStrictStats.activeAgentsInRange + externalRequestProxiedStats.activeAgentsInRange,
         strict: {
           writesInRange: externalRequestStrictStats.writesInRange,
           writesLast24h: externalRequestStrictStats.writesLast24h,
@@ -8334,9 +8359,9 @@ fastify.get('/admin/usage', async (request, reply) => {
           externalBoundAgentsEl.textContent = String(externalIdentity.boundAgents ?? 0);
           externalActorTypesEl.textContent = externalActorTypes.length ? externalActorTypes.join(', ') : 'no external actor types configured';
           externalUsersEl.textContent = String(externalIdentity.users ?? 0);
-          externalActiveAgentsEl.textContent = 'active writers: ' + String(externalRequests.activeAgentsInRange ?? 0);
+          externalActiveAgentsEl.textContent = 'strict: ' + String(externalRequests.activeAgentsInRange ?? 0) + ' · strict+proxied: ' + String(externalRequests.combinedActiveAgentsInRange ?? 0);
           externalWritesInRangeEl.textContent = String(externalRequests.writesInRange ?? 0);
-          externalWritesLast24hEl.textContent = 'last 24h: ' + String(externalRequests.writesLast24h ?? 0);
+          externalWritesLast24hEl.textContent = 'strict+proxied 24h: ' + String(externalRequests.combinedWritesLast24h ?? 0);
           externalProxiedWritesInRangeEl.textContent = String(externalRequests.proxiedWritesInRange ?? 0);
           externalProxiedWritesLast24hEl.textContent = 'last 24h: ' + String(externalRequests.proxiedWritesLast24h ?? 0);
           externalProxiedActiveAgentsEl.textContent = String(externalRequests.proxiedActiveAgentsInRange ?? 0);
@@ -11218,6 +11243,7 @@ fastify.get('/api/v1/admin/traction/funnel', {
         days: { type: 'integer', minimum: 1, maximum: 90 },
         externalOnly: { type: 'boolean' },
         includeSynthetic: { type: 'boolean' },
+        includeProxied: { type: 'boolean' },
         answerWindowHours: { type: 'integer', minimum: 1, maximum: 168 }
       }
     }
@@ -11228,6 +11254,7 @@ fastify.get('/api/v1/admin/traction/funnel', {
     days?: number;
     externalOnly?: boolean;
     includeSynthetic?: boolean;
+    includeProxied?: boolean;
     answerWindowHours?: number;
   };
   const data = await withPrismaPoolRetry(
@@ -11235,6 +11262,7 @@ fastify.get('/api/v1/admin/traction/funnel', {
     () => getTractionFunnel(query.days ?? 30, {
       externalOnly: query.externalOnly !== false,
       includeSynthetic: query.includeSynthetic === true,
+      includeProxied: query.includeProxied !== false,
       answerWindowHours: query.answerWindowHours ?? 24
     }),
     3
@@ -11496,6 +11524,12 @@ fastify.get('/admin/traction', async (request, reply) => {
             <option value="true">Yes</option>
           </select>
         </label>
+        <label>Include proxied
+          <select id="includeProxied">
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+          </select>
+        </label>
         <button id="load">Load funnel</button>
       </section>
       <section class="card">
@@ -11535,7 +11569,8 @@ fastify.get('/admin/traction', async (request, reply) => {
             days: String($('days').value || 30),
             answerWindowHours: String($('answerWindowHours').value || 24),
             externalOnly: $('externalOnly').value,
-            includeSynthetic: $('includeSynthetic').value
+            includeSynthetic: $('includeSynthetic').value,
+            includeProxied: $('includeProxied').value
           });
           const res = await fetch('/admin/traction/data?' + params.toString());
           if (!res.ok) throw new Error('failed_to_load');
@@ -11590,17 +11625,20 @@ fastify.get('/admin/traction/data', async (request, reply) => {
     days?: string;
     externalOnly?: string;
     includeSynthetic?: string;
+    includeProxied?: string;
     answerWindowHours?: string;
   };
   const days = Math.max(1, Math.min(90, Number(query.days ?? 30)));
   const answerWindowHours = Math.max(1, Math.min(168, Number(query.answerWindowHours ?? 24)));
   const externalOnly = query.externalOnly !== 'false';
   const includeSynthetic = query.includeSynthetic === 'true' || query.includeSynthetic === '1';
+  const includeProxied = !(query.includeProxied === 'false' || query.includeProxied === '0');
   const data = await withPrismaPoolRetry(
     'admin_traction_dashboard_data',
     () => getTractionFunnel(days, {
       externalOnly,
       includeSynthetic,
+      includeProxied,
       answerWindowHours
     }),
     3
