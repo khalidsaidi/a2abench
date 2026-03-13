@@ -4227,7 +4227,7 @@ function formatRecommendedQuestion(
   recommended: RecommendedQuestion,
   baseUrl: string
 ) {
-  const actions = getQuestionActionHints(recommended.id);
+  const actions = getQuestionActionHints(recommended.id, baseUrl);
   return {
     id: recommended.id,
     title: recommended.title,
@@ -4250,19 +4250,23 @@ function formatRecommendedQuestion(
   };
 }
 
-function getQuestionActionHints(questionId: string) {
+function getQuestionActionHints(questionId: string, baseUrl?: string) {
   const id = String(questionId).trim();
+  const answerJobPath = `/api/v1/questions/${id}/answer-job`;
+  const claimPath = `/api/v1/questions/${id}/claim`;
   return {
     answerJob: {
       method: 'POST',
-      path: `/api/v1/questions/${id}/answer-job`,
+      path: answerJobPath,
+      url: baseUrl ? `${baseUrl}${answerJobPath}` : null,
       body: {
         bodyMd: '<markdown answer>'
       }
     },
     claim: {
       method: 'POST',
-      path: `/api/v1/questions/${id}/claim`
+      path: claimPath,
+      url: baseUrl ? `${baseUrl}${claimPath}` : null
     }
   };
 }
@@ -4732,7 +4736,229 @@ async function getTractionFunnel(days: number, options?: {
       .filter((value) => includeSynthetic || !isSyntheticAgentName(value))
   );
   const scopeApplied = externalOnly ? Array.from(scopedAgentSet) : null;
+  const externalActorTypes = externalOnly
+    ? Array.from(new Set(
+      (identity?.actorTypes ?? [])
+        .map((value) => normalizeActorType(value))
+        .filter((value): value is ActorType => value !== 'unknown')
+    ))
+    : [];
+
+  type ExternalWriteAttemptRow = {
+    agentName: string | null;
+    writes: bigint | number | string;
+    successfulWrites: bigint | number | string;
+    failedWrites: bigint | number | string;
+    questionCreates: bigint | number | string;
+    answerCreates: bigint | number | string;
+    identityVerifiedWrites: bigint | number | string;
+    signatureVerifiedWrites: bigint | number | string;
+  };
+  const externalWriteAttemptRows = externalOnly && externalActorTypes.length > 0
+    ? await prisma.$queryRaw<Array<ExternalWriteAttemptRow>>`
+      SELECT
+        NULLIF("agentName", '') AS "agentName",
+        COUNT(*) AS writes,
+        COUNT(*) FILTER (WHERE "status" BETWEEN 200 AND 299) AS "successfulWrites",
+        COUNT(*) FILTER (WHERE "status" < 200 OR "status" >= 300) AS "failedWrites",
+        COUNT(*) FILTER (
+          WHERE UPPER("method") = 'POST'
+            AND "route" = '/api/v1/questions'
+        ) AS "questionCreates",
+        COUNT(*) FILTER (
+          WHERE UPPER("method") = 'POST'
+            AND "route" IN ('/api/v1/questions/:id/answers', '/api/v1/questions/:id/answer-job')
+        ) AS "answerCreates",
+        COUNT(*) FILTER (
+          WHERE POSITION('|idv=' IN COALESCE("apiKeyPrefix", '')) > 0
+            AND split_part(split_part(COALESCE("apiKeyPrefix", ''), '|idv=', 2), '|', 1) IN ('1', 'true')
+        ) AS "identityVerifiedWrites",
+        COUNT(*) FILTER (
+          WHERE POSITION('|sigv=' IN COALESCE("apiKeyPrefix", '')) > 0
+            AND split_part(split_part(COALESCE("apiKeyPrefix", ''), '|sigv=', 2), '|', 1) IN ('1', 'true')
+        ) AS "signatureVerifiedWrites"
+      FROM "UsageEvent"
+      WHERE "createdAt" >= ${since}
+        AND UPPER("method") IN ('POST', 'PUT', 'PATCH', 'DELETE')
+        AND "apiKeyPrefix" IS NOT NULL
+        AND POSITION('|actor=' IN "apiKeyPrefix") > 0
+        AND split_part(split_part("apiKeyPrefix", '|actor=', 2), '|', 1) IN (${Prisma.join(externalActorTypes)})
+      GROUP BY 1
+    `
+    : [];
+
+  type FunnelAttemptBucket = {
+    writes: number;
+    successfulWrites: number;
+    failedWrites: number;
+    questionCreates: number;
+    answerCreates: number;
+    identityVerifiedWrites: number;
+    signatureVerifiedWrites: number;
+    activeAgents: number;
+    topAgents: Array<{
+      agentName: string;
+      writes: number;
+      successfulWrites: number;
+      questionCreates: number;
+      answerCreates: number;
+    }>;
+  };
+
+  function emptyAttemptBucket(): FunnelAttemptBucket {
+    return {
+      writes: 0,
+      successfulWrites: 0,
+      failedWrites: 0,
+      questionCreates: 0,
+      answerCreates: 0,
+      identityVerifiedWrites: 0,
+      signatureVerifiedWrites: 0,
+      activeAgents: 0,
+      topAgents: []
+    };
+  }
+
+  type BucketAccumulator = {
+    writes: number;
+    successfulWrites: number;
+    failedWrites: number;
+    questionCreates: number;
+    answerCreates: number;
+    identityVerifiedWrites: number;
+    signatureVerifiedWrites: number;
+    agents: Map<string, {
+      agentName: string;
+      writes: number;
+      successfulWrites: number;
+      questionCreates: number;
+      answerCreates: number;
+    }>;
+  };
+
+  function emptyAccumulator(): BucketAccumulator {
+    return {
+      writes: 0,
+      successfulWrites: 0,
+      failedWrites: 0,
+      questionCreates: 0,
+      answerCreates: 0,
+      identityVerifiedWrites: 0,
+      signatureVerifiedWrites: 0,
+      agents: new Map()
+    };
+  }
+
+  function applyAttemptRow(bucket: BucketAccumulator, row: ExternalWriteAttemptRow, normalizedAgent: string | null) {
+    const writes = toNumber(row.writes);
+    const successfulWrites = toNumber(row.successfulWrites);
+    const failedWrites = toNumber(row.failedWrites);
+    const questionCreates = toNumber(row.questionCreates);
+    const answerCreates = toNumber(row.answerCreates);
+    const identityVerifiedWrites = toNumber(row.identityVerifiedWrites);
+    const signatureVerifiedWrites = toNumber(row.signatureVerifiedWrites);
+
+    bucket.writes += writes;
+    bucket.successfulWrites += successfulWrites;
+    bucket.failedWrites += failedWrites;
+    bucket.questionCreates += questionCreates;
+    bucket.answerCreates += answerCreates;
+    bucket.identityVerifiedWrites += identityVerifiedWrites;
+    bucket.signatureVerifiedWrites += signatureVerifiedWrites;
+
+    if (!normalizedAgent) return;
+    const current = bucket.agents.get(normalizedAgent) ?? {
+      agentName: normalizedAgent,
+      writes: 0,
+      successfulWrites: 0,
+      questionCreates: 0,
+      answerCreates: 0
+    };
+    current.writes += writes;
+    current.successfulWrites += successfulWrites;
+    current.questionCreates += questionCreates;
+    current.answerCreates += answerCreates;
+    bucket.agents.set(normalizedAgent, current);
+  }
+
+  function finalizeBucket(bucket: BucketAccumulator): FunnelAttemptBucket {
+    return {
+      writes: bucket.writes,
+      successfulWrites: bucket.successfulWrites,
+      failedWrites: bucket.failedWrites,
+      questionCreates: bucket.questionCreates,
+      answerCreates: bucket.answerCreates,
+      identityVerifiedWrites: bucket.identityVerifiedWrites,
+      signatureVerifiedWrites: bucket.signatureVerifiedWrites,
+      activeAgents: bucket.agents.size,
+      topAgents: Array.from(bucket.agents.values())
+        .sort((a, b) => b.writes - a.writes || b.successfulWrites - a.successfulWrites || a.agentName.localeCompare(b.agentName))
+        .slice(0, 20)
+    };
+  }
+
+  const attemptsAll = emptyAccumulator();
+  const attemptsEligible = emptyAccumulator();
+  const attemptsExcluded = emptyAccumulator();
+  const attemptsSynthetic = emptyAccumulator();
+  const attemptsUnknownAgent = emptyAccumulator();
+
+  for (const row of externalWriteAttemptRows) {
+    const normalizedAgent = normalizeAgentOrNull(row.agentName);
+    applyAttemptRow(attemptsAll, row, normalizedAgent);
+    if (!normalizedAgent) {
+      applyAttemptRow(attemptsUnknownAgent, row, normalizedAgent);
+      continue;
+    }
+    if (isExcludedExternalAgentName(normalizedAgent)) {
+      applyAttemptRow(attemptsExcluded, row, normalizedAgent);
+      continue;
+    }
+    if (isSyntheticAgentName(normalizedAgent)) {
+      applyAttemptRow(attemptsSynthetic, row, normalizedAgent);
+      continue;
+    }
+    applyAttemptRow(attemptsEligible, row, normalizedAgent);
+  }
+
+  const attempts = externalOnly
+    ? {
+      totals: finalizeBucket(attemptsAll),
+      buckets: {
+        eligible: finalizeBucket(attemptsEligible),
+        excluded: finalizeBucket(attemptsExcluded),
+        synthetic: finalizeBucket(attemptsSynthetic),
+        unknownAgent: finalizeBucket(attemptsUnknownAgent)
+      },
+      shares: {
+        eligibleWriteShare: ratio(attemptsEligible.writes, attemptsAll.writes),
+        excludedWriteShare: ratio(attemptsExcluded.writes, attemptsAll.writes),
+        syntheticWriteShare: ratio(attemptsSynthetic.writes, attemptsAll.writes),
+        unknownAgentWriteShare: ratio(attemptsUnknownAgent.writes, attemptsAll.writes)
+      }
+    }
+    : {
+      totals: emptyAttemptBucket(),
+      buckets: {
+        eligible: emptyAttemptBucket(),
+        excluded: emptyAttemptBucket(),
+        synthetic: emptyAttemptBucket(),
+        unknownAgent: emptyAttemptBucket()
+      },
+      shares: {
+        eligibleWriteShare: 0,
+        excludedWriteShare: 0,
+        syntheticWriteShare: 0,
+        unknownAgentWriteShare: 0
+      }
+    };
+
   if (externalOnly && scopedAgentSet.size === 0) {
+    const likelyCause = attempts.totals.writes === 0
+      ? 'no_external_write_attempts'
+      : (attempts.buckets.eligible.writes === 0
+          ? 'all_external_writes_filtered_or_missing_agent_name'
+          : 'eligible_writes_present_but_no_bound_agents');
     return {
       days: windowDays,
       since: since.toISOString(),
@@ -4743,7 +4969,8 @@ async function getTractionFunnel(days: number, options?: {
         actorTypes: identity?.actorTypes ?? [],
         boundAgents: 0,
         users: identity?.userIds.length ?? 0,
-        filteredOutSyntheticBoundAgents: identity?.filteredOutBoundAgents.length ?? 0
+        filteredOutSyntheticBoundAgents: identity?.filteredOutBoundAgents.length ?? 0,
+        filteredOutExcludedBoundAgents: identity?.filteredOutExcludedBoundAgents.length ?? 0
       },
       totals: {
         queued: 0,
@@ -4765,6 +4992,13 @@ async function getTractionFunnel(days: number, options?: {
       latencyMinutes: {
         median: null,
         p90: null
+      },
+      attempts,
+      diagnostics: {
+        likelyCause,
+        hasAttemptedWrites: attempts.totals.writes > 0,
+        hasEligibleAttemptedWrites: attempts.buckets.eligible.writes > 0,
+        queueCoverageFromEligibleQuestionCreates: 0
       },
       daily: [],
       topResponders: []
@@ -4811,6 +5045,7 @@ async function getTractionFunnel(days: number, options?: {
   const inboxOpened = openedRows.filter((row) => !row.webhookUrl).length;
   const pending = deliveries.filter((row) => !row.deliveredAt && row.attemptCount < row.maxAttempts).length;
   const failed = deliveries.filter((row) => !row.deliveredAt && row.attemptCount >= row.maxAttempts).length;
+  const queueCoverageFromEligibleQuestionCreates = ratio(queued, attempts.buckets.eligible.questionCreates);
 
   const earliestByKey = new Map<string, {
     agentName: string;
@@ -4955,6 +5190,18 @@ async function getTractionFunnel(days: number, options?: {
     row.medianMinutes = percentileFromSorted(sorted, 0.5);
   }
 
+  const likelyCause = attempts.totals.writes === 0
+    ? 'no_external_write_attempts'
+    : (attempts.buckets.eligible.writes === 0
+        ? 'all_external_writes_filtered_or_missing_agent_name'
+        : (queued === 0
+            ? 'eligible_writes_without_delivery_queue_activity'
+            : (opened === 0
+                ? 'deliveries_not_opened'
+                : (answered === 0
+                    ? 'opened_not_answered'
+                    : (accepted === 0 ? 'answered_not_accepted' : 'healthy_or_insufficient_data')))));
+
   return {
     days: windowDays,
     since: since.toISOString(),
@@ -4965,7 +5212,8 @@ async function getTractionFunnel(days: number, options?: {
       actorTypes: identity?.actorTypes ?? [],
       boundAgents: identity?.boundAgents.length ?? 0,
       users: identity?.userIds.length ?? 0,
-      filteredOutSyntheticBoundAgents: identity?.filteredOutBoundAgents.length ?? 0
+      filteredOutSyntheticBoundAgents: identity?.filteredOutBoundAgents.length ?? 0,
+      filteredOutExcludedBoundAgents: identity?.filteredOutExcludedBoundAgents.length ?? 0
     },
     totals: {
       queued,
@@ -4987,6 +5235,13 @@ async function getTractionFunnel(days: number, options?: {
     latencyMinutes: {
       median: percentileFromSorted(latencySorted, 0.5),
       p90: percentileFromSorted(latencySorted, 0.9)
+    },
+    attempts,
+    diagnostics: {
+      likelyCause,
+      hasAttemptedWrites: attempts.totals.writes > 0,
+      hasEligibleAttemptedWrites: attempts.buckets.eligible.writes > 0,
+      queueCoverageFromEligibleQuestionCreates
     },
     daily: Array.from(dailyMap.values()).sort((a, b) => a.day.localeCompare(b.day)),
     topResponders: Array.from(responderMap.values())
@@ -8660,6 +8915,8 @@ fastify.get('/api/v1/agent/jobs/next', {
   }
 
   const formatted = formatRecommendedQuestion(recommended, baseUrl);
+  const answerJobPath = formatted.actions.answerJob.path;
+  const answerJobUrl = formatted.actions.answerJob.url ?? `${baseUrl}${answerJobPath}`;
   reply.code(200).send({
     agentName,
     demand: { unansweredTotal, pendingQueue },
@@ -8676,13 +8933,18 @@ fastify.get('/api/v1/agent/jobs/next', {
       question: formatted,
       answerJobRequest: {
         method: 'POST',
-        path: formatted.actions.answerJob.path,
+        path: answerJobPath,
+        url: answerJobUrl,
         headers: {
+          'Content-Type': 'application/json',
           'X-Agent-Name': agentName
         },
         body: {
           bodyMd: '<markdown answer>',
           autoVerify: true
+        },
+        examples: {
+          curl: `curl -sS -X POST "${answerJobUrl}" -H "Content-Type: application/json" -H "X-Agent-Name: ${agentName}" -d '{"bodyMd":"<markdown answer>","autoVerify":true}'`
         }
       }
     }

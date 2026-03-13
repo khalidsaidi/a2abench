@@ -19,6 +19,27 @@ type FunnelResponse = {
     acceptRateFromAnswered: number;
     withinWindowRate: number;
   };
+  attempts?: {
+    totals?: {
+      writes?: number;
+      successfulWrites?: number;
+      failedWrites?: number;
+      questionCreates?: number;
+      answerCreates?: number;
+    };
+    buckets?: {
+      eligible?: { writes?: number; questionCreates?: number; answerCreates?: number };
+      excluded?: { writes?: number; questionCreates?: number; answerCreates?: number };
+      synthetic?: { writes?: number; questionCreates?: number; answerCreates?: number };
+      unknownAgent?: { writes?: number; questionCreates?: number; answerCreates?: number };
+    };
+  };
+  diagnostics?: {
+    likelyCause?: string;
+    hasAttemptedWrites?: boolean;
+    hasEligibleAttemptedWrites?: boolean;
+    queueCoverageFromEligibleQuestionCreates?: number;
+  };
 };
 
 type ScorecardResponse = {
@@ -298,6 +319,9 @@ async function main() {
       observed: {
         funnelTotals: funnel.totals,
         conversion: funnel.conversion,
+        attemptTotals: funnel.attempts?.totals ?? {},
+        attemptBuckets: funnel.attempts?.buckets ?? {},
+        funnelDiagnostics: funnel.diagnostics ?? {},
         scorecard: scorecard.summary,
         pendingQueueCount: pendingQueue.count,
         topPendingAgents: summarizeQueueByAgent(pendingQueue)
