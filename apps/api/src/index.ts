@@ -46,10 +46,10 @@ const KEYLESS_MAX_IDENTITIES_PER_IP_PER_DAY = Number(process.env.KEYLESS_MAX_IDE
 const KEYLESS_AUTO_SUBSCRIBE = (process.env.KEYLESS_AUTO_SUBSCRIBE ?? 'true').toLowerCase() === 'true';
 const AGENT_QUICKSTART_CANDIDATES = Math.max(10, Number(process.env.AGENT_QUICKSTART_CANDIDATES ?? 200));
 const AUTO_CLOSE_ENABLED = (process.env.AUTO_CLOSE_ENABLED ?? 'true').toLowerCase() === 'true';
-const AUTO_CLOSE_AFTER_HOURS = Math.max(1, Number(process.env.AUTO_CLOSE_AFTER_HOURS ?? 72));
-const AUTO_CLOSE_MIN_ANSWER_AGE_HOURS = Math.max(1, Number(process.env.AUTO_CLOSE_MIN_ANSWER_AGE_HOURS ?? 24));
+const AUTO_CLOSE_AFTER_HOURS = Math.max(1, Number(process.env.AUTO_CLOSE_AFTER_HOURS ?? (AGENT_OPEN_MODE ? 6 : 72)));
+const AUTO_CLOSE_MIN_ANSWER_AGE_HOURS = Math.max(1, Number(process.env.AUTO_CLOSE_MIN_ANSWER_AGE_HOURS ?? (AGENT_OPEN_MODE ? 1 : 24)));
 const AUTO_CLOSE_PROCESS_LIMIT = Math.max(1, Number(process.env.AUTO_CLOSE_PROCESS_LIMIT ?? 100));
-const AUTO_CLOSE_LOOP_INTERVAL_MS = Math.max(10_000, Number(process.env.AUTO_CLOSE_LOOP_INTERVAL_MS ?? 300_000));
+const AUTO_CLOSE_LOOP_INTERVAL_MS = Math.max(10_000, Number(process.env.AUTO_CLOSE_LOOP_INTERVAL_MS ?? (AGENT_OPEN_MODE ? 60_000 : 300_000)));
 const AUTO_CLOSE_AGENT_NAME = normalizeAgentOrNull(process.env.AUTO_CLOSE_AGENT_NAME) ?? 'system-autoclose';
 const IMPORT_QUALITY_GATE_ENABLED = (process.env.IMPORT_QUALITY_GATE_ENABLED ?? 'true').toLowerCase() === 'true';
 const CAPTURE_AGENT_PAYLOADS = (process.env.CAPTURE_AGENT_PAYLOADS ?? '').toLowerCase() === 'true';
@@ -92,7 +92,7 @@ const DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION = Math.max(1, Number(proces
 const DELIVERY_REQUEUE_SCAN_LIMIT = Math.max(1, Math.min(2000, Number(process.env.DELIVERY_REQUEUE_SCAN_LIMIT ?? 400)));
 const DELIVERY_REQUEUE_LOOP_INTERVAL_MS = Math.max(15_000, Number(process.env.DELIVERY_REQUEUE_LOOP_INTERVAL_MS ?? 60_000));
 const JOB_DISCOVERY_AUTO_SUBSCRIBE = (process.env.JOB_DISCOVERY_AUTO_SUBSCRIBE ?? (AGENT_OPEN_MODE ? 'true' : 'false')).toLowerCase() === 'true';
-const ACCEPTANCE_REMINDER_STAGES_HOURS = (process.env.ACCEPTANCE_REMINDER_STAGES_HOURS ?? '1,24,72')
+const ACCEPTANCE_REMINDER_STAGES_HOURS = (process.env.ACCEPTANCE_REMINDER_STAGES_HOURS ?? (AGENT_OPEN_MODE ? '1,6,24' : '1,24,72'))
   .split(',')
   .map((value) => Number(value.trim()))
   .filter((value) => Number.isFinite(value) && value > 0)
@@ -4019,32 +4019,92 @@ async function getAgentTagPreferences(agentName: string | null) {
   return new Set(tags.map((tag) => tag.toLowerCase()).filter(Boolean));
 }
 
+async function getPendingQuestionDeliveryIdsForAgent(agentName: string | null, limit = AGENT_QUICKSTART_CANDIDATES) {
+  const normalizedAgent = normalizeAgentOrNull(agentName);
+  if (!normalizedAgent) return [];
+  const rows = await prisma.deliveryQueue.findMany({
+    where: {
+      agentName: normalizedAgent,
+      event: 'question.created',
+      deliveredAt: null,
+      attemptCount: { lt: DELIVERY_MAX_ATTEMPTS },
+      questionId: { not: null }
+    },
+    select: { questionId: true },
+    orderBy: { createdAt: 'asc' },
+    take: Math.max(20, Math.min(2000, limit * 4))
+  });
+  const ids = rows
+    .map((row) => row.questionId?.trim() ?? '')
+    .filter(Boolean);
+  return Array.from(new Set(ids));
+}
+
+async function getPendingQuestionDeliveryCountForAgent(agentName: string | null) {
+  const normalizedAgent = normalizeAgentOrNull(agentName);
+  if (!normalizedAgent) return 0;
+  return prisma.deliveryQueue.count({
+    where: {
+      agentName: normalizedAgent,
+      event: 'question.created',
+      deliveredAt: null,
+      attemptCount: { lt: DELIVERY_MAX_ATTEMPTS },
+      questionId: { not: null }
+    }
+  });
+}
+
 async function getRecommendedQuestionForAgent(agentName?: string | null) {
   const normalizedAgent = normalizeAgentOrNull(agentName);
-  const preferredTags = await getAgentTagPreferences(normalizedAgent);
+  const [preferredTags, pendingQuestionIds] = await Promise.all([
+    getAgentTagPreferences(normalizedAgent),
+    getPendingQuestionDeliveryIdsForAgent(normalizedAgent)
+  ]);
+  const pendingQuestionSet = new Set(pendingQuestionIds);
   const now = new Date();
-  const rows = await prisma.question.findMany({
-    where: {
-      resolution: null,
-      ...(normalizedAgent
-        ? { answers: { none: { agentName: normalizedAgent } } }
-        : {})
-    },
-    include: {
-      tags: { include: { tag: true } },
-      _count: { select: { answers: true } },
-      bounty: true,
-      claims: {
-        where: {
-          state: { in: ['claimed', 'answered'] },
-          expiresAt: { gte: now }
-        },
-        select: { id: true, agentName: true, state: true, expiresAt: true }
-      }
-    },
+  const baseWhere: Prisma.QuestionWhereInput = {
+    resolution: null,
+    ...(normalizedAgent
+      ? { answers: { none: { agentName: normalizedAgent } } }
+      : {})
+  };
+
+  const include = Prisma.validator<Prisma.QuestionInclude>()({
+    tags: { include: { tag: true } },
+    _count: { select: { answers: true } },
+    bounty: true,
+    claims: {
+      where: {
+        state: { in: ['claimed', 'answered'] },
+        expiresAt: { gte: now }
+      },
+      select: { id: true, agentName: true, state: true, expiresAt: true }
+    }
+  });
+
+  const generalRows = await prisma.question.findMany({
+    where: baseWhere,
+    include,
     orderBy: { createdAt: 'desc' },
     take: AGENT_QUICKSTART_CANDIDATES
   });
+  const pendingRows = pendingQuestionIds.length > 0
+    ? await prisma.question.findMany({
+        where: {
+          ...baseWhere,
+          id: { in: pendingQuestionIds }
+        },
+        include
+      })
+    : [] as typeof generalRows;
+
+  const rowsById = new Map<string, (typeof generalRows)[number]>();
+  for (const row of pendingRows) rowsById.set(row.id, row);
+  for (const row of generalRows) {
+    if (!rowsById.has(row.id)) rowsById.set(row.id, row);
+    if (rowsById.size >= AGENT_QUICKSTART_CANDIDATES * 2) break;
+  }
+  const rows = Array.from(rowsById.values());
 
   const ranked = rows
     .map((row): RecommendedQuestion | null => {
@@ -4056,6 +4116,7 @@ async function getRecommendedQuestionForAgent(agentName?: string | null) {
         : null;
       if (claimedByOther && !activeClaim) return null;
 
+      const queuedForAgent = normalizedAgent ? pendingQuestionSet.has(row.id) : false;
       const bountyAmount = getActiveBountyAmount(row.bounty);
       const ageHours = Math.max(0, (Date.now() - row.createdAt.getTime()) / (60 * 60 * 1000));
       const answerCount = row._count.answers;
@@ -4070,11 +4131,12 @@ async function getRecommendedQuestionForAgent(agentName?: string | null) {
         createdAt: row.createdAt,
         preferredTags
       }, NEXT_BEST_JOB_MIN_SOLVABILITY);
-      if (!solvability.pass) return null;
+      if (!solvability.pass && !queuedForAgent) return null;
       const matchedTags = solvability.matchedTags;
       const unansweredBonus = answerCount === 0 ? 450 : 0;
       const sourceWeight = sourcePriorityWeight(row.sourceType);
       const claimBonus = activeClaim ? 100 : 0;
+      const queuedBonus = queuedForAgent ? 2400 : 0;
       const score =
         (bountyAmount * 1000) +
         unansweredBonus +
@@ -4083,8 +4145,10 @@ async function getRecommendedQuestionForAgent(agentName?: string | null) {
         (Math.min(120, ageHours) * 1.5) +
         sourceWeight +
         claimBonus -
-        (answerCount * 35);
+        (answerCount * 35) +
+        queuedBonus;
       const reasons: string[] = [];
+      if (queuedForAgent) reasons.push('queued_for_you');
       if (bountyAmount > 0) reasons.push(`bounty_${bountyAmount}`);
       if (unansweredBonus > 0) reasons.push('unanswered');
       if (matchedTags.length > 0) reasons.push(`tag_match_${matchedTags.length}`);
@@ -8461,7 +8525,10 @@ fastify.get('/api/v1/agent/quickstart', {
   const query = request.query as { agentName?: string };
   const agentName = normalizeAgentOrNull(query.agentName ?? getAgentNameWithBinding(request));
   const autoSubscription = agentName ? await ensureJobDiscoverySubscription(agentName) : null;
-  const recommended = await getRecommendedQuestionForAgent(agentName);
+  const [recommended, pendingQueue] = await Promise.all([
+    getRecommendedQuestionForAgent(agentName),
+    getPendingQuestionDeliveryCountForAgent(agentName)
+  ]);
   const openedDelivery = (agentName && recommended)
     ? await markAgentPullDeliveryOpened(agentName, recommended.id, { fallbackToAny: false })
     : null;
@@ -8476,7 +8543,8 @@ fastify.get('/api/v1/agent/quickstart', {
   return {
     agentName: agentName ?? null,
     demand: {
-      unansweredTotal
+      unansweredTotal,
+      pendingQueue
     },
     actions: {
       nextJob: '/api/v1/agent/jobs/next',
@@ -8524,7 +8592,10 @@ fastify.get('/api/v1/agent/jobs/next', {
 
   const autoSubscription = await ensureJobDiscoverySubscription(agentName);
   const baseUrl = getBaseUrl(request);
-  const recommended = await getRecommendedQuestionForAgent(agentName);
+  const [recommended, pendingQueue] = await Promise.all([
+    getRecommendedQuestionForAgent(agentName),
+    getPendingQuestionDeliveryCountForAgent(agentName)
+  ]);
   const openedDelivery = recommended
     ? await markAgentPullDeliveryOpened(agentName, recommended.id, { fallbackToAny: false })
     : null;
@@ -8538,7 +8609,7 @@ fastify.get('/api/v1/agent/jobs/next', {
   if (!recommended) {
     reply.code(200).send({
       agentName,
-      demand: { unansweredTotal },
+      demand: { unansweredTotal, pendingQueue },
       onboarding: {
         autoSubscription: {
           enabled: autoSubscription.enabled,
@@ -8556,7 +8627,7 @@ fastify.get('/api/v1/agent/jobs/next', {
   const formatted = formatRecommendedQuestion(recommended, baseUrl);
   reply.code(200).send({
     agentName,
-    demand: { unansweredTotal },
+    demand: { unansweredTotal, pendingQueue },
     onboarding: {
       autoSubscription: {
         enabled: autoSubscription.enabled,
@@ -8598,7 +8669,10 @@ fastify.get('/api/v1/agent/next-best-job', {
   const agentName = normalizeAgentOrNull(query.agentName ?? getAgentNameWithBinding(request));
   const autoSubscription = agentName ? await ensureJobDiscoverySubscription(agentName) : null;
   const baseUrl = getBaseUrl(request);
-  const recommended = await getRecommendedQuestionForAgent(agentName);
+  const [recommended, pendingQueue] = await Promise.all([
+    getRecommendedQuestionForAgent(agentName),
+    getPendingQuestionDeliveryCountForAgent(agentName)
+  ]);
   const openedDelivery = (agentName && recommended)
     ? await markAgentPullDeliveryOpened(agentName, recommended.id, { fallbackToAny: false })
     : null;
@@ -8611,7 +8685,8 @@ fastify.get('/api/v1/agent/next-best-job', {
   return {
     agentName: agentName ?? null,
     demand: {
-      unansweredTotal
+      unansweredTotal,
+      pendingQueue
     },
     onboarding: {
       autoSubscription: autoSubscription
