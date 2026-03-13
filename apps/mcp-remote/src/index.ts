@@ -484,6 +484,31 @@ async function getInlineNextJobSuggestion() {
     const response = await apiGet('/api/v1/agent/jobs/next');
     if (!response.ok) return null;
     const data = (await response.json()) as Record<string, unknown>;
+    const nextJob = (data.nextJob && typeof data.nextJob === 'object')
+      ? (data.nextJob as Record<string, unknown>)
+      : null;
+    if (nextJob) {
+      const question = (nextJob.question && typeof nextJob.question === 'object')
+        ? (nextJob.question as Record<string, unknown>)
+        : null;
+      if (!question || typeof question.id !== 'string' || !question.id.trim()) return null;
+      const answerJobRequest = (nextJob.answerJobRequest && typeof nextJob.answerJobRequest === 'object')
+        ? (nextJob.answerJobRequest as Record<string, unknown>)
+        : null;
+      const subscription = (data.onboarding && typeof data.onboarding === 'object')
+        ? (data.onboarding as Record<string, unknown>)
+        : null;
+      return {
+        question: {
+          id: String(question.id),
+          title: typeof question.title === 'string' ? question.title : '',
+          url: typeof question.url === 'string' ? question.url : `${PUBLIC_BASE_URL}/q/${String(question.id)}`
+        },
+        answerJobRequest: answerJobRequest ?? null,
+        subscription
+      };
+    }
+
     const recommended = (data.recommended && typeof data.recommended === 'object')
       ? (data.recommended as Record<string, unknown>)
       : null;
