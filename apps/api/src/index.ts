@@ -91,6 +91,7 @@ const DELIVERY_REQUEUE_AFTER_MINUTES = Math.max(1, Number(process.env.DELIVERY_R
 const DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION = Math.max(1, Number(process.env.DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION ?? 5));
 const DELIVERY_REQUEUE_SCAN_LIMIT = Math.max(1, Math.min(2000, Number(process.env.DELIVERY_REQUEUE_SCAN_LIMIT ?? 400)));
 const DELIVERY_REQUEUE_LOOP_INTERVAL_MS = Math.max(15_000, Number(process.env.DELIVERY_REQUEUE_LOOP_INTERVAL_MS ?? 60_000));
+const JOB_DISCOVERY_AUTO_SUBSCRIBE = (process.env.JOB_DISCOVERY_AUTO_SUBSCRIBE ?? (AGENT_OPEN_MODE ? 'true' : 'false')).toLowerCase() === 'true';
 const ACCEPTANCE_REMINDER_STAGES_HOURS = (process.env.ACCEPTANCE_REMINDER_STAGES_HOURS ?? '1,24,72')
   .split(',')
   .map((value) => Number(value.trim()))
@@ -2456,6 +2457,61 @@ async function processDeliveryQueue(limit = DELIVERY_PROCESS_LIMIT) {
   return { processed: due.length, delivered, failed, pending };
 }
 
+async function markAgentPullDeliveryOpened(
+  agentName: string,
+  preferredQuestionId?: string | null,
+  options?: { fallbackToAny?: boolean }
+) {
+  const normalizedAgent = normalizeAgentOrNull(agentName);
+  if (!normalizedAgent) return null;
+  const now = new Date();
+  const fallbackToAny = options?.fallbackToAny !== false;
+  const baseWhere: Prisma.DeliveryQueueWhereInput = {
+    agentName: normalizedAgent,
+    event: 'question.created',
+    deliveredAt: null,
+    attemptCount: { lt: DELIVERY_MAX_ATTEMPTS },
+    nextAttemptAt: { lte: now }
+  };
+
+  const preferredQuestion = preferredQuestionId?.trim() ?? null;
+  const target = preferredQuestion
+    ? await prisma.deliveryQueue.findFirst({
+        where: {
+          ...baseWhere,
+          questionId: preferredQuestion
+        },
+        orderBy: { createdAt: 'asc' }
+      })
+    : null;
+
+  const fallback = target ?? (fallbackToAny
+    ? await prisma.deliveryQueue.findFirst({
+        where: baseWhere,
+        orderBy: { createdAt: 'asc' }
+      })
+    : null);
+  if (!fallback) return null;
+
+  await prisma.deliveryQueue.update({
+    where: { id: fallback.id },
+    data: {
+      deliveredAt: now,
+      lastAttemptAt: now,
+      lastStatus: 200,
+      lastError: 'opened_via_pull_discovery',
+      attemptCount: { increment: 1 }
+    }
+  });
+
+  return {
+    id: fallback.id,
+    questionId: fallback.questionId ?? null,
+    openedAt: now.toISOString(),
+    via: 'pull_discovery'
+  };
+}
+
 async function processOpenedUnansweredRequeue(options?: { limit?: number; dryRun?: boolean }) {
   const enabled = DELIVERY_REQUEUE_OPENED_ENABLED;
   if (!enabled) {
@@ -4185,6 +4241,80 @@ async function ensureTrialAutoSubscription(agentName: string, input?: {
   };
 }
 
+async function ensureJobDiscoverySubscription(agentName: string) {
+  if (!JOB_DISCOVERY_AUTO_SUBSCRIBE) {
+    return {
+      enabled: false,
+      created: false,
+      id: null as string | null,
+      events: [] as string[],
+      tags: [] as string[],
+      webhookUrl: null as string | null,
+      mode: 'disabled' as 'disabled'
+    };
+  }
+
+  const activeSubs = await prisma.questionSubscription.findMany({
+    where: {
+      agentName,
+      active: true
+    },
+    select: {
+      id: true,
+      tags: true,
+      events: true,
+      webhookUrl: true
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 25
+  });
+
+  const existingInbox = activeSubs.find((row) => {
+    if (row.webhookUrl) return false;
+    return subscriptionWantsEvent(row.events, 'question.created');
+  });
+  if (existingInbox) {
+    return {
+      enabled: true,
+      created: false,
+      id: existingInbox.id,
+      events: existingInbox.events,
+      tags: existingInbox.tags,
+      webhookUrl: existingInbox.webhookUrl,
+      mode: 'inbox' as 'inbox'
+    };
+  }
+
+  const rawEvents = normalizeSubscriptionEvents(TRIAL_AUTO_SUBSCRIBE_EVENTS_RAW);
+  const events = rawEvents.length > 0
+    ? [...rawEvents]
+    : [...SUBSCRIPTION_DEFAULT_EVENTS];
+  if (!subscriptionWantsEvent(events, 'question.created')) {
+    events.unshift('question.created');
+  }
+
+  const created = await prisma.questionSubscription.create({
+    data: {
+      agentName,
+      tags: normalizeTags(TRIAL_AUTO_SUBSCRIBE_TAGS_RAW),
+      events: Array.from(new Set(events)),
+      webhookUrl: null,
+      webhookSecret: null,
+      active: true
+    }
+  });
+
+  return {
+    enabled: true,
+    created: true,
+    id: created.id,
+    events: created.events,
+    tags: created.tags,
+    webhookUrl: created.webhookUrl,
+    mode: 'inbox' as 'inbox'
+  };
+}
+
 function percentileFromSorted(values: number[], percentile: number) {
   if (values.length === 0) return null;
   const rank = clamp(percentile, 0, 1) * (values.length - 1);
@@ -5616,6 +5746,7 @@ function startBackgroundWorkers() {
     deliveryRequeueAfterMinutes: DELIVERY_REQUEUE_AFTER_MINUTES,
     deliveryRequeueMaxPerQuestionSubscription: DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION,
     deliveryRequeueLoopMs: DELIVERY_REQUEUE_LOOP_INTERVAL_MS,
+    jobDiscoveryAutoSubscribe: JOB_DISCOVERY_AUTO_SUBSCRIBE,
     reminderLoopEnabled: REMINDER_LOOP_ENABLED,
     reminderLoopMs: REMINDER_LOOP_INTERVAL_MS,
     autoCloseEnabled: AUTO_CLOSE_ENABLED,
@@ -8260,7 +8391,11 @@ fastify.get('/api/v1/agent/quickstart', {
 }, async (request) => {
   const query = request.query as { agentName?: string };
   const agentName = normalizeAgentOrNull(query.agentName ?? getAgentNameWithBinding(request));
+  const autoSubscription = agentName ? await ensureJobDiscoverySubscription(agentName) : null;
   const recommended = await getRecommendedQuestionForAgent(agentName);
+  const openedDelivery = (agentName && recommended)
+    ? await markAgentPullDeliveryOpened(agentName, recommended.id)
+    : null;
   const unansweredTotal = await prisma.question.count({
     where: {
       resolution: null,
@@ -8278,6 +8413,17 @@ fastify.get('/api/v1/agent/quickstart', {
       nextJob: '/api/v1/agent/jobs/next',
       nextBestJob: '/api/v1/agent/next-best-job'
     },
+    onboarding: {
+      autoSubscription: autoSubscription
+        ? {
+            enabled: autoSubscription.enabled,
+            created: autoSubscription.created,
+            subscriptionId: autoSubscription.id,
+            mode: autoSubscription.mode
+          }
+        : null
+    },
+    deliverySignal: openedDelivery,
     auth: {
       mode: 'keyless_managed_default',
       hint: 'Writes work with X-Agent-Name and no bearer key on supported routes. Bearer keys still work.',
@@ -8307,8 +8453,12 @@ fastify.get('/api/v1/agent/jobs/next', {
     return;
   }
 
+  const autoSubscription = await ensureJobDiscoverySubscription(agentName);
   const baseUrl = getBaseUrl(request);
   const recommended = await getRecommendedQuestionForAgent(agentName);
+  const openedDelivery = recommended
+    ? await markAgentPullDeliveryOpened(agentName, recommended.id)
+    : null;
   const unansweredTotal = await prisma.question.count({
     where: {
       resolution: null,
@@ -8320,6 +8470,15 @@ fastify.get('/api/v1/agent/jobs/next', {
     reply.code(200).send({
       agentName,
       demand: { unansweredTotal },
+      onboarding: {
+        autoSubscription: {
+          enabled: autoSubscription.enabled,
+          created: autoSubscription.created,
+          subscriptionId: autoSubscription.id,
+          mode: autoSubscription.mode
+        }
+      },
+      deliverySignal: openedDelivery,
       nextJob: null
     });
     return;
@@ -8329,6 +8488,15 @@ fastify.get('/api/v1/agent/jobs/next', {
   reply.code(200).send({
     agentName,
     demand: { unansweredTotal },
+    onboarding: {
+      autoSubscription: {
+        enabled: autoSubscription.enabled,
+        created: autoSubscription.created,
+        subscriptionId: autoSubscription.id,
+        mode: autoSubscription.mode
+      }
+    },
+    deliverySignal: openedDelivery,
     nextJob: {
       question: formatted,
       answerJobRequest: {
@@ -8359,8 +8527,12 @@ fastify.get('/api/v1/agent/next-best-job', {
 }, async (request) => {
   const query = request.query as { agentName?: string };
   const agentName = normalizeAgentOrNull(query.agentName ?? getAgentNameWithBinding(request));
+  const autoSubscription = agentName ? await ensureJobDiscoverySubscription(agentName) : null;
   const baseUrl = getBaseUrl(request);
   const recommended = await getRecommendedQuestionForAgent(agentName);
+  const openedDelivery = (agentName && recommended)
+    ? await markAgentPullDeliveryOpened(agentName, recommended.id)
+    : null;
   const unansweredTotal = await prisma.question.count({
     where: {
       resolution: null,
@@ -8372,6 +8544,17 @@ fastify.get('/api/v1/agent/next-best-job', {
     demand: {
       unansweredTotal
     },
+    onboarding: {
+      autoSubscription: autoSubscription
+        ? {
+            enabled: autoSubscription.enabled,
+            created: autoSubscription.created,
+            subscriptionId: autoSubscription.id,
+            mode: autoSubscription.mode
+          }
+        : null
+    },
+    deliverySignal: openedDelivery,
     nextBestJob: recommended ? formatRecommendedQuestion(recommended, baseUrl) : null
   };
 });
@@ -9397,6 +9580,9 @@ fastify.post('/api/v1/questions/:id/answers', {
       });
     }
   }
+  const openedDelivery = agentName
+    ? await markAgentPullDeliveryOpened(agentName, id, { fallbackToAny: false })
+    : null;
 
   if (!question.resolution) {
     const baseUrl = getBaseUrl(request);
@@ -9423,6 +9609,7 @@ fastify.post('/api/v1/questions/:id/answers', {
     agentName: answer.agentName ?? null,
     bodyMd: answer.bodyMd,
     bodyText: answer.bodyText,
+    deliverySignal: openedDelivery,
     createdAt: answer.createdAt,
     updatedAt: answer.updatedAt
   });
@@ -9583,6 +9770,7 @@ fastify.post('/api/v1/questions/:id/answer-job', {
       }
     });
   }
+  const openedDelivery = await markAgentPullDeliveryOpened(agentName, id, { fallbackToAny: false });
 
   const baseUrl = getBaseUrl(request);
   const acceptLink = buildAcceptLink(baseUrl, question.id, answer.id, question.userId);
@@ -9671,6 +9859,7 @@ fastify.post('/api/v1/questions/:id/answer-job', {
       acceptLink: acceptLink?.url ?? null,
       autoAcceptError
     },
+    deliverySignal: openedDelivery,
     acceptance
   });
 });
