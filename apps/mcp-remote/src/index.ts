@@ -533,6 +533,26 @@ async function getInlineNextJobSuggestion() {
   }
 }
 
+function extractNextJobQuestionFromResponse(data: Record<string, unknown>) {
+  const nextJob = (data.nextJob && typeof data.nextJob === 'object')
+    ? (data.nextJob as Record<string, unknown>)
+    : null;
+  const question = (nextJob?.question && typeof nextJob.question === 'object')
+    ? (nextJob.question as Record<string, unknown>)
+    : null;
+  if (!question || typeof question.id !== 'string') return null;
+  const questionId = question.id.trim();
+  if (!questionId) return null;
+  return {
+    questionId,
+    question,
+    answerJobRequest: (nextJob?.answerJobRequest && typeof nextJob.answerJobRequest === 'object')
+      ? (nextJob.answerJobRequest as Record<string, unknown>)
+      : null,
+    nextJob
+  };
+}
+
 function createMcpServer() {
   return new McpServer({
     name: 'A2ABench',
@@ -1089,6 +1109,173 @@ function registerTools(server: McpServer) {
                 ? 'trial_key'
                 : ((requestContext.getStore()?.authHeader || (MCP_USE_API_KEY_BY_DEFAULT && API_KEY)) ? 'provided_key' : 'keyless_managed'),
               url: `${PUBLIC_BASE_URL}/q/${questionId}`,
+              nextJob: inlineNextJob
+            })
+          }
+        ]
+      };
+    }
+  );
+
+  server.registerTool(
+    'answer_next_job',
+    {
+      title: 'Answer next job',
+      description: 'One-call answer flow: fetch next job for this agent, then claim+answer+verify in one command.',
+      inputSchema: {
+        bodyMd: z.string().min(3),
+        ttlMinutes: z.number().int().min(5).max(240).optional(),
+        forceTakeover: z.boolean().optional(),
+        acceptToken: z.string().max(4000).optional(),
+        acceptIfOwner: z.boolean().optional(),
+        autoVerify: z.boolean().optional()
+      }
+    },
+    async ({ bodyMd, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify }) => {
+      const toolStart = Date.now();
+      const requestId = requestContext.getStore()?.requestId ?? null;
+      const nextJobResponse = await getProtectedWithAutoTrial('/api/v1/agent/jobs/next');
+      if (!nextJobResponse.response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'answer_next_job');
+        bumpMap(metrics.toolErrors, 'answer_next_job');
+        const text = await nextJobResponse.response.text();
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'answer_next_job',
+          status: nextJobResponse.response.status,
+          durationMs: Date.now() - toolStart,
+          requestId
+        });
+        captureToolEvent(
+          'answer_next_job',
+          { bodyMd, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+          { error: text || 'Failed to fetch next job', status: nextJobResponse.response.status },
+          nextJobResponse.response.status,
+          Date.now() - toolStart
+        );
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ error: text || 'Failed to fetch next job', status: nextJobResponse.response.status })
+            }
+          ]
+        };
+      }
+
+      const nextJobData = (await nextJobResponse.response.json()) as Record<string, unknown>;
+      const nextJob = extractNextJobQuestionFromResponse(nextJobData);
+      if (!nextJob) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'answer_next_job');
+        bumpMap(metrics.toolErrors, 'answer_next_job');
+        logEvent('info', {
+          kind: 'mcp_tool',
+          tool: 'answer_next_job',
+          status: 409,
+          durationMs: Date.now() - toolStart,
+          requestId,
+          reason: 'no_next_job'
+        });
+        captureToolEvent(
+          'answer_next_job',
+          { bodyMd, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+          { error: 'No next job available for this agent.', status: 409, nextJob: null, demand: nextJobData.demand ?? null },
+          409,
+          Date.now() - toolStart
+        );
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                error: 'No next job available for this agent.',
+                status: 409,
+                demand: nextJobData.demand ?? null,
+                onboarding: nextJobData.onboarding ?? null
+              })
+            }
+          ]
+        };
+      }
+
+      const payload: Record<string, unknown> = { bodyMd };
+      if (ttlMinutes !== undefined) payload.ttlMinutes = ttlMinutes;
+      if (forceTakeover !== undefined) payload.forceTakeover = forceTakeover;
+      if (acceptToken !== undefined) payload.acceptToken = acceptToken;
+      if (acceptIfOwner !== undefined) payload.acceptIfOwner = acceptIfOwner;
+      if (autoVerify !== undefined) payload.autoVerify = autoVerify;
+      const writeResult = await postWriteWithAutoTrial(`/api/v1/questions/${nextJob.questionId}/answer-job`, payload);
+      const response = writeResult.response;
+      if (!response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'answer_next_job');
+        bumpMap(metrics.toolErrors, 'answer_next_job');
+        const text = await response.text();
+        const hint = response.status === 401 ? TRIAL_KEY_HINT : undefined;
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'answer_next_job',
+          status: response.status,
+          durationMs: Date.now() - toolStart,
+          requestId
+        });
+        captureToolEvent(
+          'answer_next_job',
+          { questionId: nextJob.questionId, bodyMd, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+          { error: text || 'Failed to complete answer job', status: response.status, hint },
+          response.status,
+          Date.now() - toolStart
+        );
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ error: text || 'Failed to complete answer job', status: response.status, hint })
+            }
+          ]
+        };
+      }
+
+      const data = (await response.json()) as Record<string, unknown>;
+      const inlineNextJob = await getInlineNextJobSuggestion();
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, 'answer_next_job');
+      logEvent('info', {
+        kind: 'mcp_tool',
+        tool: 'answer_next_job',
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
+      captureToolEvent(
+        'answer_next_job',
+        { questionId: nextJob.questionId, bodyMd, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+        data,
+        response.status,
+        Date.now() - toolStart
+      );
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              ...data,
+              questionId: nextJob.questionId,
+              question: {
+                id: nextJob.questionId,
+                title: typeof nextJob.question.title === 'string' ? nextJob.question.title : '',
+                url: typeof nextJob.question.url === 'string' ? nextJob.question.url : `${PUBLIC_BASE_URL}/q/${nextJob.questionId}`
+              },
+              answerJobRequest: nextJob.answerJobRequest,
+              auth: writeResult.usedTrialKey
+                ? 'trial_key'
+                : ((requestContext.getStore()?.authHeader || (MCP_USE_API_KEY_BY_DEFAULT && API_KEY)) ? 'provided_key' : 'keyless_managed'),
+              url: `${PUBLIC_BASE_URL}/q/${nextJob.questionId}`,
               nextJob: inlineNextJob
             })
           }
@@ -1990,6 +2177,7 @@ async function main() {
             'create_question',
             'create_answer',
             'answer_job',
+            'answer_next_job',
             'claim_question',
             'release_claim',
             'pending_acceptance',

@@ -3200,6 +3200,7 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
   let matchedSubscriptions = 0;
   let filteredBySolvability = 0;
   let filteredByPendingCap = 0;
+  const deliveryBaseUrl = (PUBLIC_BASE_URL || SYSTEM_BASE_URL || `http://127.0.0.1:${PORT}`).replace(/\/+$/, '');
   const queued = subscriptions.flatMap((sub) => {
     const subscriptionTags = normalizeTags(sub.tags ?? []);
     if (!subscriptionMatches(subscriptionTags, input.question.tags)) return [];
@@ -3234,14 +3235,25 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
       }
     }
 
+    const answerJobRequest = input.event === 'question.created'
+      ? buildAnswerJobRequest(input.question.id, sub.agentName, deliveryBaseUrl)
+      : null;
+
     const payload = {
       ...payloadBase,
+      answerJobRequest: answerJobRequest ?? undefined,
       delivery: {
         mode: sub.webhookUrl ? 'webhook' : 'inbox',
         subscriptionId: sub.id,
         matchedTags: subscriptionTags.length > 0
           ? input.question.tags.filter((tag) => subscriptionTags.includes(tag.toLowerCase()))
           : [],
+        nextAction: answerJobRequest
+          ? {
+              id: 'answer_job',
+              request: answerJobRequest
+            }
+          : undefined,
         solvability: solvability
           ? {
               score: solvability.score,
@@ -4289,6 +4301,33 @@ function getQuestionActionHints(questionId: string, baseUrl?: string) {
   };
 }
 
+function buildAnswerJobRequest(questionId: string, agentName: string, baseUrl: string) {
+  const normalizedId = String(questionId).trim();
+  const normalizedAgent = normalizeAgentOrNull(agentName);
+  const normalizedBase = baseUrl.replace(/\/+$/, '');
+  const path = `/api/v1/questions/${normalizedId}/answer-job`;
+  const url = `${normalizedBase}${path}`;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json'
+  };
+  if (normalizedAgent) {
+    headers['X-Agent-Name'] = normalizedAgent;
+  }
+  return {
+    method: 'POST',
+    path,
+    url,
+    headers,
+    body: {
+      bodyMd: '<markdown answer>',
+      autoVerify: true
+    },
+    examples: {
+      curl: `curl -sS -X POST "${url}" -H "Content-Type: application/json"${normalizedAgent ? ` -H "X-Agent-Name: ${normalizedAgent}"` : ''} -d '{"bodyMd":"<markdown answer>","autoVerify":true}'`
+    }
+  };
+}
+
 async function getWeeklySolvedLeaderboard(weeks: number, take: number, includeSynthetic: boolean) {
   const startWeek = startOfUtcWeek(new Date());
   startWeek.setUTCDate(startWeek.getUTCDate() - ((weeks - 1) * 7));
@@ -4936,10 +4975,9 @@ async function getTractionFunnel(days: number, options?: {
       continue;
     }
     if (isProxiedExternalAgentName(normalizedAgent)) {
+      applyAttemptRow(attemptsProxied, row, normalizedAgent);
       if (includeProxied) {
         applyAttemptRow(attemptsEligible, row, normalizedAgent);
-      } else {
-        applyAttemptRow(attemptsProxied, row, normalizedAgent);
       }
       continue;
     }
@@ -11189,6 +11227,7 @@ fastify.get('/api/v1/agent/inbox', {
   const take = Math.min(200, Math.max(1, Number(query.limit ?? 50)));
   const markDelivered = query.markDelivered !== false;
   const now = new Date();
+  const baseUrl = getBaseUrl(request);
 
   const jobs = await prisma.deliveryQueue.findMany({
     where: {
@@ -11222,14 +11261,28 @@ fastify.get('/api/v1/agent/inbox', {
     count: jobs.length,
     agentName,
     markDelivered,
-    events: jobs.map((row) => ({
-      id: row.id,
-      event: row.event,
-      questionId: row.questionId ?? null,
-      answerId: row.answerId ?? null,
-      payload: row.payload,
-      createdAt: row.createdAt
-    }))
+    events: jobs.map((row) => {
+      const answerJobRequest = row.event === 'question.created' && row.questionId
+        ? buildAnswerJobRequest(row.questionId, agentName, baseUrl)
+        : null;
+      const payload = isJsonObject(row.payload)
+        ? {
+            ...row.payload,
+            ...(answerJobRequest && !('answerJobRequest' in row.payload)
+              ? { answerJobRequest }
+              : {})
+          }
+        : row.payload;
+      return {
+        id: row.id,
+        event: row.event,
+        questionId: row.questionId ?? null,
+        answerId: row.answerId ?? null,
+        payload,
+        answerJobRequest,
+        createdAt: row.createdAt
+      };
+    })
   });
 });
 
