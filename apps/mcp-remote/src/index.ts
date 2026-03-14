@@ -247,7 +247,21 @@ function resolveRequestAgentName(input: {
   authHeader?: string;
 }) {
   const presented = normalizeAgentNameInput(input.presentedAgentName);
-  if (presented) return deriveDirectAgentNameFromProxy(presented);
+  if (presented) {
+    const normalizedPresented = deriveDirectAgentNameFromProxy(presented);
+    const defaultAgent = normalizeAgentNameInput(MCP_AGENT_NAME);
+    // If client sends the shared service identity, replace with per-client derived identity.
+    if (defaultAgent && normalizedPresented === defaultAgent && MCP_DERIVE_AGENT_NAME) {
+      return deriveAnonymousAgentName({
+        ip: input.ip,
+        userAgent: input.userAgent,
+        llmProvider: input.llmProvider,
+        llmModel: input.llmModel,
+        authHeader: input.authHeader
+      });
+    }
+    return normalizedPresented;
+  }
   if (MCP_DERIVE_AGENT_NAME) {
     return deriveAnonymousAgentName({
       ip: input.ip,
