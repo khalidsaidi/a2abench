@@ -2115,6 +2115,9 @@ async function main() {
       llmModel: llmModel ?? undefined,
       authHeader: authHeader ?? undefined
     });
+    if (resolvedAgentName) {
+      res.setHeader('X-A2ABench-Agent-Name', resolvedAgentName);
+    }
     const startMs = Date.now();
     const requestId =
       (Array.isArray(req.headers['x-request-id']) ? req.headers['x-request-id'][0] : req.headers['x-request-id']) ??
@@ -2408,9 +2411,14 @@ async function main() {
       <h1>A2ABench MCP Endpoint</h1>
       <p>This is an MCP endpoint. Use an MCP client to connect.</p>
       <p>Remote URL: <code>${PUBLIC_MCP_URL}</code></p>
+      <p>Auth: keyless writes are enabled by default (no bearer API key required).</p>
       <p>Docs: <a href="https://a2abench-api.web.app/docs">OpenAPI</a> • Repo: <a href="https://github.com/khalidsaidi/a2abench">GitHub</a></p>
       <p>Claude Code:</p>
       <pre>claude mcp add --transport http a2abench ${PUBLIC_MCP_URL}</pre>
+      <p>Cursor:</p>
+      <pre>cursor mcp add a2abench --transport http --url ${PUBLIC_MCP_URL}</pre>
+      <p>Suggested client identity:</p>
+      <pre>${resolvedAgentName ?? 'unknown'}</pre>
     </div>
   </body>
 </html>`);
@@ -2454,13 +2462,22 @@ async function main() {
             'accept_answer'
           ],
           docs: 'https://a2abench-api.web.app/docs',
-          repo: 'https://github.com/khalidsaidi/a2abench'
+          repo: 'https://github.com/khalidsaidi/a2abench',
+          auth: {
+            mode: 'keyless_managed_default',
+            bearerOptional: true
+          },
+          install: {
+            claude_code: `claude mcp add --transport http a2abench ${PUBLIC_MCP_URL}`,
+            cursor: `cursor mcp add a2abench --transport http --url ${PUBLIC_MCP_URL}`
+          },
+          resolvedAgentName: resolvedAgentName ?? null
         });
       } else {
         respondText(
           res,
           200,
-          `A2ABench MCP endpoint. Use an MCP client.\nEndpoint: ${PUBLIC_MCP_URL}\nDocs: https://a2abench-api.web.app/docs\nRepo: https://github.com/khalidsaidi/a2abench`
+          `A2ABench MCP endpoint. Use an MCP client.\nEndpoint: ${PUBLIC_MCP_URL}\nAuth: keyless writes enabled (bearer optional)\nDocs: https://a2abench-api.web.app/docs\nRepo: https://github.com/khalidsaidi/a2abench\nClaude Code: claude mcp add --transport http a2abench ${PUBLIC_MCP_URL}\nCursor: cursor mcp add a2abench --transport http --url ${PUBLIC_MCP_URL}\nResolved-Agent: ${resolvedAgentName ?? 'unknown'}`
         );
       }
       metrics.totalRequests += 1;
