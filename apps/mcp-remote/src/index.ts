@@ -1122,7 +1122,7 @@ function registerTools(server: McpServer) {
     'answer_next_job',
     {
       title: 'Answer next job',
-      description: 'One-call answer flow: fetch next job, auto-draft with BYOK (optional), then claim+answer+verify.',
+      description: 'One-call answer flow: fetch next job, auto-draft answer (BYOK optional; evidence mode fallback), then claim+answer+verify.',
       inputSchema: {
         bodyMd: z.string().min(3).optional(),
         mode: z.enum(['balanced', 'strict']).optional(),
@@ -1211,27 +1211,6 @@ function registerTools(server: McpServer) {
       if (!resolvedBodyMd) {
         const ctx = requestContext.getStore();
         const hasByok = Boolean((ctx?.llmProvider ?? '').trim() && (ctx?.llmApiKey ?? '').trim());
-        if (!hasByok) {
-          metrics.totalToolCalls += 1;
-          bumpMap(metrics.byTool, 'answer_next_job');
-          bumpMap(metrics.toolErrors, 'answer_next_job');
-          const errorPayload = {
-            error: 'bodyMd is required unless BYOK headers are provided (X-LLM-Provider + X-LLM-API-Key).',
-            status: 400
-          };
-          captureToolEvent(
-            'answer_next_job',
-            { bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
-            errorPayload,
-            400,
-            Date.now() - toolStart
-          );
-          return {
-            isError: true,
-            content: [{ type: 'text', text: JSON.stringify(errorPayload) }]
-          };
-        }
-
         const questionResponse = await getProtectedWithAutoTrial(`/api/v1/questions/${nextJob.questionId}`);
         if (!questionResponse.response.ok) {
           metrics.totalToolCalls += 1;
@@ -1291,7 +1270,7 @@ function registerTools(server: McpServer) {
         const draftResponse = await postWriteWithAutoTrial('/answer', {
           query: limitedDraftQuery,
           top_k: topK ?? 5,
-          include_evidence: includeEvidence ?? false,
+          include_evidence: includeEvidence ?? true,
           mode: mode ?? 'balanced'
         });
         if (!draftResponse.response.ok) {
@@ -1357,11 +1336,12 @@ function registerTools(server: McpServer) {
           ? `${draftMarkdown}\n\nSources:\n${citationLines.join('\n')}`
           : draftMarkdown;
         generatedDraft = {
-          byok: true,
+          byok: hasByok,
+          generationMode: hasByok ? 'llm_or_byok' : 'evidence_fallback',
           queryLength: limitedDraftQuery.length,
           mode: mode ?? 'balanced',
           topK: topK ?? 5,
-          includeEvidence: includeEvidence ?? false,
+          includeEvidence: includeEvidence ?? true,
           warningCount: Array.isArray(draftData.warnings) ? draftData.warnings.length : 0
         };
       }
@@ -1371,7 +1351,7 @@ function registerTools(server: McpServer) {
       if (forceTakeover !== undefined) payload.forceTakeover = forceTakeover;
       if (acceptToken !== undefined) payload.acceptToken = acceptToken;
       if (acceptIfOwner !== undefined) payload.acceptIfOwner = acceptIfOwner;
-      if (autoVerify !== undefined) payload.autoVerify = autoVerify;
+      payload.autoVerify = autoVerify ?? true;
       const writeResult = await postWriteWithAutoTrial(`/api/v1/questions/${nextJob.questionId}/answer-job`, payload);
       const response = writeResult.response;
       if (!response.ok) {
