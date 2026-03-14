@@ -2305,6 +2305,7 @@ const CAPTURED_ROUTES = new Set([
   '/api/v1/admin/delivery/prune-low-solvability',
   '/api/v1/admin/subscriptions/health',
   '/api/v1/admin/subscriptions/prune',
+  '/api/v1/admin/subscriptions/rebalance',
   '/api/v1/admin/reminders/process',
   '/api/v1/admin/autoclose/process',
   '/api/v1/admin/import/questions',
@@ -3600,6 +3601,182 @@ async function pruneInactiveSubscriptions(options?: { limit?: number; dryRun?: b
       openRate: row.openRate,
       createdAt: row.createdAt
     }))
+  };
+}
+
+async function rebalanceAskHeavySubscriptions(options?: {
+  windowHours?: number;
+  minQuestionCreates?: number;
+  minQuestionSurplus?: number;
+  maxAnswerRate?: number;
+  limit?: number;
+  dryRun?: boolean;
+}) {
+  const windowHours = Math.max(1, Math.min(168, Number(options?.windowHours ?? 24)));
+  const minQuestionCreates = Math.max(1, Number(options?.minQuestionCreates ?? 3));
+  const minQuestionSurplus = Math.max(1, Number(options?.minQuestionSurplus ?? 2));
+  const maxAnswerRate = clamp(Number(options?.maxAnswerRate ?? 0.6), 0, 1);
+  const limit = Math.max(1, Math.min(2000, Number(options?.limit ?? 500)));
+  const dryRun = options?.dryRun === true;
+  const since = new Date(Date.now() - windowHours * 60 * 60 * 1000);
+
+  const questionRoutes = new Set(['/api/v1/questions']);
+  const answerRoutes = new Set([
+    '/api/v1/questions/:id/answers',
+    '/api/v1/questions/:id/answer-job',
+    '/api/v1/agent/jobs/answer-next'
+  ]);
+  const trackedRoutes = Array.from(new Set([...questionRoutes, ...answerRoutes]));
+  const actorTypes = Array.from(EXTERNAL_TRACTION_ACTOR_TYPES);
+
+  type AgentRouteCountRow = {
+    agentName: string | null;
+    route: string;
+    count: bigint | number | string;
+  };
+  const grouped = actorTypes.length === 0
+    ? [] as AgentRouteCountRow[]
+    : await prisma.$queryRaw<Array<AgentRouteCountRow>>`
+      SELECT
+        NULLIF("agentName", '') AS "agentName",
+        "route",
+        COUNT(*) AS count
+      FROM "UsageEvent"
+      WHERE "createdAt" >= ${since}
+        AND UPPER("method") = 'POST'
+        AND "status" BETWEEN 200 AND 299
+        AND "route" IN (${Prisma.join(trackedRoutes)})
+        AND "apiKeyPrefix" IS NOT NULL
+        AND POSITION('|actor=' IN "apiKeyPrefix") > 0
+        AND split_part(split_part("apiKeyPrefix", '|actor=', 2), '|', 1) IN (${Prisma.join(actorTypes)})
+      GROUP BY 1, 2
+    `;
+
+  const statsByAgent = new Map<string, { agentName: string; questions: number; answers: number }>();
+  for (const row of grouped) {
+    const agentName = normalizeAgentOrNull(row.agentName);
+    if (!agentName) continue;
+    if (!isExternalAdoptionAgentName(agentName)) continue;
+    const current = statsByAgent.get(agentName) ?? { agentName, questions: 0, answers: 0 };
+    const count = toNumber(row.count);
+    if (questionRoutes.has(row.route)) current.questions += count;
+    if (answerRoutes.has(row.route)) current.answers += count;
+    statsByAgent.set(agentName, current);
+  }
+
+  const askHeavyAgents = Array.from(statsByAgent.values())
+    .map((row) => ({
+      ...row,
+      surplus: row.questions - row.answers,
+      answerRate: ratio(row.answers, row.questions)
+    }))
+    .filter((row) => (
+      row.questions >= minQuestionCreates
+      && row.surplus >= minQuestionSurplus
+      && row.answerRate <= maxAnswerRate
+    ))
+    .sort((a, b) => {
+      if (b.surplus !== a.surplus) return b.surplus - a.surplus;
+      if (b.questions !== a.questions) return b.questions - a.questions;
+      return a.agentName.localeCompare(b.agentName);
+    });
+
+  if (askHeavyAgents.length === 0) {
+    return {
+      dryRun,
+      windowHours,
+      minQuestionCreates,
+      minQuestionSurplus,
+      maxAnswerRate,
+      askHeavyAgents: 0,
+      matchedSubscriptions: 0,
+      processedSubscriptions: 0,
+      mutedQuestionCreatedEvents: 0,
+      disabledSubscriptions: 0,
+      deletedPendingQueue: 0,
+      sampleAgents: []
+    };
+  }
+
+  const askHeavyAgentNames = askHeavyAgents.map((row) => row.agentName);
+  const matchingSubscriptionCount = await prisma.questionSubscription.count({
+    where: {
+      active: true,
+      agentName: { in: askHeavyAgentNames },
+      events: { has: 'question.created' }
+    }
+  });
+  const subscriptions = await prisma.questionSubscription.findMany({
+    where: {
+      active: true,
+      agentName: { in: askHeavyAgentNames },
+      events: { has: 'question.created' }
+    },
+    select: {
+      id: true,
+      agentName: true,
+      events: true
+    },
+    orderBy: { createdAt: 'asc' },
+    take: limit
+  });
+  const subscriptionIds = subscriptions.map((row) => row.id);
+  const planned = subscriptions.map((row) => {
+    const nextEvents = normalizeSubscriptionEvents(row.events).filter((event) => event !== 'question.created');
+    return {
+      id: row.id,
+      agentName: row.agentName,
+      nextEvents,
+      disable: nextEvents.length === 0
+    };
+  });
+
+  let mutedQuestionCreatedEvents = 0;
+  let disabledSubscriptions = 0;
+  let deletedPendingQueue = 0;
+  if (!dryRun && planned.length > 0) {
+    for (const row of planned) {
+      if (row.disable) {
+        const result = await prisma.questionSubscription.updateMany({
+          where: { id: row.id, active: true },
+          data: { active: false }
+        });
+        disabledSubscriptions += result.count;
+      } else {
+        await prisma.questionSubscription.update({
+          where: { id: row.id },
+          data: { events: row.nextEvents }
+        });
+        mutedQuestionCreatedEvents += 1;
+      }
+    }
+    const deleted = await prisma.deliveryQueue.deleteMany({
+      where: {
+        subscriptionId: { in: subscriptionIds },
+        event: 'question.created',
+        deliveredAt: null
+      }
+    });
+    deletedPendingQueue = deleted.count;
+  } else {
+    mutedQuestionCreatedEvents = planned.filter((row) => !row.disable).length;
+    disabledSubscriptions = planned.filter((row) => row.disable).length;
+  }
+
+  return {
+    dryRun,
+    windowHours,
+    minQuestionCreates,
+    minQuestionSurplus,
+    maxAnswerRate,
+    askHeavyAgents: askHeavyAgents.length,
+    matchedSubscriptions: matchingSubscriptionCount,
+    processedSubscriptions: subscriptions.length,
+    mutedQuestionCreatedEvents,
+    disabledSubscriptions,
+    deletedPendingQueue: dryRun ? 0 : deletedPendingQueue,
+    truncated: matchingSubscriptionCount > subscriptions.length,
+    sampleAgents: askHeavyAgents.slice(0, 20)
   };
 }
 
@@ -14376,6 +14553,56 @@ fastify.post('/api/v1/admin/subscriptions/prune', {
     limit: body.limit,
     dryRun: body.dryRun === true
   });
+  reply.code(200).send({
+    ok: true,
+    ...summary,
+    processedAt: new Date().toISOString()
+  });
+});
+
+fastify.post('/api/v1/admin/subscriptions/rebalance', {
+  schema: {
+    tags: ['admin'],
+    security: [{ AdminToken: [] }],
+    body: {
+      type: 'object',
+      properties: {
+        windowHours: { type: 'integer', minimum: 1, maximum: 168 },
+        minQuestionCreates: { type: 'integer', minimum: 1, maximum: 1000 },
+        minQuestionSurplus: { type: 'integer', minimum: 1, maximum: 1000 },
+        maxAnswerRate: { type: 'number', minimum: 0, maximum: 1 },
+        limit: { type: 'integer', minimum: 1, maximum: 2000 },
+        dryRun: { type: 'boolean' }
+      }
+    }
+  }
+}, async (request, reply) => {
+  if (!(await requireAdmin(request, reply))) return;
+  const body = parse(
+    z.object({
+      windowHours: z.number().int().min(1).max(168).optional(),
+      minQuestionCreates: z.number().int().min(1).max(1000).optional(),
+      minQuestionSurplus: z.number().int().min(1).max(1000).optional(),
+      maxAnswerRate: z.number().min(0).max(1).optional(),
+      limit: z.number().int().min(1).max(2000).optional(),
+      dryRun: z.boolean().optional()
+    }),
+    request.body ?? {},
+    reply
+  );
+  if (!body) return;
+  const summary = await withPrismaPoolRetry(
+    'admin_subscriptions_rebalance',
+    () => rebalanceAskHeavySubscriptions({
+      windowHours: body.windowHours,
+      minQuestionCreates: body.minQuestionCreates,
+      minQuestionSurplus: body.minQuestionSurplus,
+      maxAnswerRate: body.maxAnswerRate,
+      limit: body.limit,
+      dryRun: body.dryRun
+    }),
+    3
+  );
   reply.code(200).send({
     ok: true,
     ...summary,
