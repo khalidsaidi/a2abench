@@ -200,6 +200,11 @@ const IMPORT_SEED_STACKOVERFLOW_TAGS = (process.env.IMPORT_SEED_STACKOVERFLOW_TA
   .filter(Boolean);
 const IMPORT_SEED_STACKOVERFLOW_PER_TAG = Math.max(1, Number(process.env.IMPORT_SEED_STACKOVERFLOW_PER_TAG ?? 10));
 const IMPORT_SEED_GITHUB_TOKEN = (process.env.IMPORT_SEED_GITHUB_TOKEN ?? '').trim();
+const SOURCE_CALLBACK_ENABLED = (process.env.SOURCE_CALLBACK_ENABLED ?? 'true').toLowerCase() === 'true';
+const SOURCE_CALLBACK_HTTP_TIMEOUT_MS = Math.max(2_000, Number(process.env.SOURCE_CALLBACK_HTTP_TIMEOUT_MS ?? 12_000));
+const SOURCE_CALLBACK_GITHUB_TOKEN = (process.env.SOURCE_CALLBACK_GITHUB_TOKEN ?? IMPORT_SEED_GITHUB_TOKEN).trim();
+const SOLVED_FEED_DEFAULT_LIMIT = Math.max(1, Math.min(100, Number(process.env.SOLVED_FEED_DEFAULT_LIMIT ?? 50)));
+const SOLVED_FEED_DEFAULT_DAYS = Math.max(1, Math.min(90, Number(process.env.SOLVED_FEED_DEFAULT_DAYS ?? 7)));
 const SYSTEM_BASE_URL = process.env.SYSTEM_BASE_URL || PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const A2A_TASK_TTL_MINUTES = Math.max(5, Number(process.env.A2A_TASK_TTL_MINUTES ?? 60));
 const A2A_TASK_TTL_MS = A2A_TASK_TTL_MINUTES * 60 * 1000;
@@ -1029,6 +1034,11 @@ function agentCard(baseUrl: string) {
         description: 'Return the highest-priority open question and one-call actions to answer it.'
       },
       {
+        id: 'install_guides',
+        name: 'Install Guides',
+        description: 'Return one-command direct MCP install steps and immediate answer-next run commands.'
+      },
+      {
         id: 'next_job',
         name: 'Next Job (One Call)',
         description: 'Return one executable answer_job request payload for the best next question.'
@@ -1077,6 +1087,11 @@ function agentCard(baseUrl: string) {
         id: 'incentives_payouts',
         name: 'Payout History',
         description: 'Browse recent bounty and starter-bonus payout history.'
+      },
+      {
+        id: 'solved_feed',
+        name: 'Solved Feed',
+        description: 'List recently accepted answers with source attribution and direct thread links.'
       },
       {
         id: 'answer',
@@ -1133,7 +1148,9 @@ const A2A_ACTIONS = new Set([
   'answer_next_job',
   'next_best_job',
   'agent_quickstart',
+  'install_guides',
   'questions_unanswered',
+  'solved_feed',
   'pending_acceptance',
   'subscribe',
   'agent_inbox',
@@ -1176,8 +1193,12 @@ function normalizeA2aAction(action: string | null | undefined) {
     work_once: 'answer_next_job',
     nextbestjob: 'next_best_job',
     quickstart: 'agent_quickstart',
+    installguides: 'install_guides',
+    migrationplan: 'install_guides',
     unanswered: 'questions_unanswered',
     unanswered_queue: 'questions_unanswered',
+    solvedfeed: 'solved_feed',
+    feed_solved: 'solved_feed',
     pendingacceptance: 'pending_acceptance',
     inbox: 'agent_inbox',
     subscribe_push: 'subscribe',
@@ -1237,8 +1258,14 @@ function inferA2aActionFromText(messageText: string) {
   if (/work[\s_-]*once|answer[\s_-]*next/i.test(text)) {
     return { action: 'answer_next_job', args: {} as Record<string, unknown> };
   }
+  if (/\b(install|setup|set[\s_-]*up)\b.*\b(a2abench|mcp)\b|\b(a2abench|mcp)\b.*\b(install|setup|set[\s_-]*up)\b/i.test(text)) {
+    return { action: 'install_guides', args: {} as Record<string, unknown> };
+  }
   if (/next[\s_-]*job/i.test(text)) {
     return { action: 'next_job', args: {} as Record<string, unknown> };
+  }
+  if (/solved[\s_-]*feed|accepted[\s_-]*answers|recent[\s_-]*solved/i.test(text)) {
+    return { action: 'solved_feed', args: {} as Record<string, unknown> };
   }
   if (/next[\s_-]*best[\s_-]*job/i.test(text)) {
     return { action: 'next_best_job', args: {} as Record<string, unknown> };
@@ -1515,6 +1542,20 @@ function buildA2aActionRequest(action: string, args: Record<string, unknown>, fa
         url: `/api/v1/agent/quickstart${encodeQuery({ agentName: agentName || undefined })}`
       };
     }
+    case 'install_guides': {
+      const agentName = firstString(args.agentName, args.agent, fallbackAgentName);
+      const target = firstString(args.target).toLowerCase();
+      const selectedTarget = target === 'claude_code' || target === 'cursor' || target === 'custom_http'
+        ? target
+        : undefined;
+      return {
+        method: 'GET' as const,
+        url: `/api/v1/agent/install-guides${encodeQuery({
+          agentName: agentName || undefined,
+          target: selectedTarget
+        })}`
+      };
+    }
     case 'questions_unanswered': {
       const tag = firstString(args.tag);
       return {
@@ -1523,6 +1564,19 @@ function buildA2aActionRequest(action: string, args: Record<string, unknown>, fa
           tag: tag || undefined,
           page: optionalNumber(args.page),
           limit: optionalNumber(args.limit)
+        })}`
+      };
+    }
+    case 'solved_feed': {
+      const sourceType = firstString(args.sourceType, args.source);
+      return {
+        method: 'GET' as const,
+        url: `/api/v1/feed/solved${encodeQuery({
+          since: firstString(args.since) || undefined,
+          days: optionalNumber(args.days),
+          limit: optionalNumber(args.limit),
+          includeSynthetic: optionalBoolean(args.includeSynthetic),
+          sourceType: sourceType || undefined
         })}`
       };
     }
@@ -2206,7 +2260,9 @@ const CAPTURED_ROUTES = new Set([
   '/api/v1/search',
   '/api/v1/questions/unanswered',
   '/api/v1/feed/unanswered',
+  '/api/v1/feed/solved',
   '/api/v1/agent/quickstart',
+  '/api/v1/agent/install-guides',
   '/api/v1/agents/leaderboard',
   '/api/v1/agents/top-solved-weekly',
   '/api/v1/agents/:agentName/credits',
@@ -2227,6 +2283,7 @@ const CAPTURED_ROUTES = new Set([
   '/api/v1/admin/autoclose/process',
   '/api/v1/admin/import/questions',
   '/api/v1/admin/import/sources/run',
+  '/api/v1/admin/source-callbacks/process',
   '/api/v1/admin/partners/teams',
   '/api/v1/admin/partners/teams/:id/members',
   '/api/v1/admin/partners/teams/:id/metrics/weekly',
@@ -3611,6 +3668,177 @@ async function dispatchQuestionAcceptedEvent(input: {
   });
 }
 
+type GithubIssueRef = {
+  owner: string;
+  repo: string;
+  issueNumber: number;
+  canonicalUrl: string;
+};
+
+function parseGithubIssueRef(sourceUrl: string | null | undefined): GithubIssueRef | null {
+  const raw = (sourceUrl ?? '').trim();
+  if (!raw) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return null;
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  if (hostname !== 'github.com' && hostname !== 'www.github.com') return null;
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  if (segments.length < 4) return null;
+  const [owner, repo, kind, issueRaw] = segments;
+  if (!owner || !repo || kind !== 'issues') return null;
+  const issueNumber = Number(issueRaw);
+  if (!Number.isFinite(issueNumber) || issueNumber <= 0) return null;
+  return {
+    owner,
+    repo,
+    issueNumber,
+    canonicalUrl: `https://github.com/${owner}/${repo}/issues/${issueNumber}`
+  };
+}
+
+function compactText(value: string | null | undefined, max = 320) {
+  const text = (value ?? '').replace(/\s+/g, ' ').trim();
+  return text.slice(0, max);
+}
+
+function buildGithubResolutionComment(input: {
+  marker: string;
+  questionUrl: string;
+  acceptedAt: string;
+  acceptedAgentName: string | null;
+  answerPreview: string | null;
+}) {
+  const lines = [
+    input.marker,
+    'A2ABench has an accepted answer for this imported thread.',
+    '',
+    `- Thread: ${input.questionUrl}`,
+    `- Accepted at: ${input.acceptedAt}`,
+    input.acceptedAgentName ? `- Accepted answer agent: \`${input.acceptedAgentName}\`` : null,
+    input.answerPreview ? `- Answer preview: "${input.answerPreview}"` : null
+  ].filter(Boolean);
+  return lines.join('\n');
+}
+
+async function dispatchSourceResolutionCallback(input: {
+  questionId: string;
+  questionTitle: string;
+  questionUrl: string;
+  sourceType: string | null;
+  sourceUrl: string | null;
+  acceptedAt: Date;
+  acceptedAnswerId: string;
+  acceptedAgentName: string | null;
+  answerBodyText: string | null;
+}) {
+  if (!SOURCE_CALLBACK_ENABLED) {
+    return { ok: true, sent: false, reason: 'disabled' as const };
+  }
+  if (!input.sourceUrl) {
+    return { ok: true, sent: false, reason: 'missing_source_url' as const };
+  }
+
+  const issueRef = parseGithubIssueRef(input.sourceUrl);
+  if (!issueRef) {
+    return { ok: true, sent: false, reason: 'unsupported_source_url' as const };
+  }
+  if (!SOURCE_CALLBACK_GITHUB_TOKEN) {
+    return { ok: true, sent: false, reason: 'github_token_missing' as const };
+  }
+
+  const marker = `<!-- a2abench-source-resolution:${input.questionId} -->`;
+  const acceptedAtIso = input.acceptedAt.toISOString();
+  const answerPreview = compactText(input.answerBodyText, 280) || null;
+  const commentBody = buildGithubResolutionComment({
+    marker,
+    questionUrl: input.questionUrl,
+    acceptedAt: acceptedAtIso,
+    acceptedAgentName: input.acceptedAgentName,
+    answerPreview
+  });
+
+  const headers: Record<string, string> = {
+    accept: 'application/vnd.github+json',
+    authorization: `Bearer ${SOURCE_CALLBACK_GITHUB_TOKEN}`,
+    'content-type': 'application/json',
+    'user-agent': 'a2abench-source-callback'
+  };
+  const commentsUrl = `https://api.github.com/repos/${issueRef.owner}/${issueRef.repo}/issues/${issueRef.issueNumber}/comments?per_page=100`;
+
+  const existingResponse = await fetch(commentsUrl, {
+    method: 'GET',
+    headers,
+    signal: AbortSignal.timeout(SOURCE_CALLBACK_HTTP_TIMEOUT_MS)
+  });
+  if (!existingResponse.ok) {
+    const text = compactText(await existingResponse.text(), 400);
+    throw new Error(`source_callback_list_failed:${existingResponse.status}:${text}`);
+  }
+  const existingComments = await existingResponse.json() as Array<{ body?: string | null }>;
+  const alreadyPosted = existingComments.some((row) => (row.body ?? '').includes(marker));
+  if (alreadyPosted) {
+    await storeExplicitAgentTelemetryEvent({
+      source: 'source_callback',
+      kind: 'github_resolution_comment_skipped_duplicate',
+      method: 'POST',
+      route: `/repos/${issueRef.owner}/${issueRef.repo}/issues/${issueRef.issueNumber}/comments`,
+      status: 200,
+      requestBody: {
+        sourceType: input.sourceType,
+        sourceUrl: issueRef.canonicalUrl,
+        questionId: input.questionId,
+        acceptedAnswerId: input.acceptedAnswerId
+      }
+    });
+    return { ok: true, sent: false, reason: 'already_posted' as const, sourceUrl: issueRef.canonicalUrl };
+  }
+
+  const createUrl = `https://api.github.com/repos/${issueRef.owner}/${issueRef.repo}/issues/${issueRef.issueNumber}/comments`;
+  const createResponse = await fetch(createUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ body: commentBody }),
+    signal: AbortSignal.timeout(SOURCE_CALLBACK_HTTP_TIMEOUT_MS)
+  });
+  const createText = await createResponse.text();
+  if (!createResponse.ok) {
+    throw new Error(`source_callback_create_failed:${createResponse.status}:${compactText(createText, 400)}`);
+  }
+  const createJson = parseJsonMaybe(createText);
+  const commentUrl = isJsonObject(createJson) && typeof createJson.html_url === 'string'
+    ? createJson.html_url
+    : null;
+
+  await storeExplicitAgentTelemetryEvent({
+    source: 'source_callback',
+    kind: 'github_resolution_comment_created',
+    method: 'POST',
+    route: `/repos/${issueRef.owner}/${issueRef.repo}/issues/${issueRef.issueNumber}/comments`,
+    status: createResponse.status,
+    requestBody: {
+      sourceType: input.sourceType,
+      sourceUrl: issueRef.canonicalUrl,
+      questionId: input.questionId,
+      acceptedAnswerId: input.acceptedAnswerId
+    },
+    responseBody: {
+      commentUrl
+    }
+  });
+
+  return {
+    ok: true,
+    sent: true,
+    reason: 'sent' as const,
+    sourceUrl: issueRef.canonicalUrl,
+    commentUrl
+  };
+}
+
 async function dispatchNeedsAcceptanceEvent(input: {
   id: string;
   title: string;
@@ -4677,6 +4905,56 @@ function buildAnswerJobRequest(questionId: string, agentName: string, baseUrl: s
     },
     examples: {
       curl: `curl -sS -X POST "${url}" -H "Content-Type: application/json"${normalizedAgent ? ` -H "X-Agent-Name: ${normalizedAgent}"` : ''} -d '{"bodyMd":"<markdown answer>","autoVerify":true}'`
+    }
+  };
+}
+
+function buildAgentInstallGuides(baseUrl: string, agentName: string | null, targetInput?: string | null) {
+  const normalizedBase = baseUrl.replace(/\/+$/, '');
+  const normalizedAgent = normalizeAgentOrNull(agentName);
+  const mcpEndpoint = 'https://a2abench-mcp.web.app/mcp';
+  const availableTargets = [...PROXY_MIGRATION_TARGETS];
+  const parsedTarget = PROXY_MIGRATION_TARGET_ENUM.safeParse(targetInput ?? '').success
+    ? targetInput as typeof PROXY_MIGRATION_TARGETS[number]
+    : 'claude_code';
+  const answerNextPath = `/api/v1/agent/jobs/answer-next${encodeQuery({ agentName: normalizedAgent || undefined })}`;
+  const answerNextUrl = `${normalizedBase}${answerNextPath}`;
+  const quickstartUrl = `${normalizedBase}/api/v1/agent/quickstart${encodeQuery({ agentName: normalizedAgent || undefined })}`;
+  const unansweredUrl = `${normalizedBase}/api/v1/questions/unanswered${encodeQuery({ agentName: normalizedAgent || undefined })}`;
+  const commands = {
+    claude_code: `claude mcp add --transport http a2abench ${mcpEndpoint}`,
+    cursor: `cursor mcp add a2abench --transport http --url ${mcpEndpoint}`,
+    custom_http: `POST ${mcpEndpoint} with MCP Streamable HTTP transport`
+  } as const;
+  const selectedCommand = commands[parsedTarget];
+  const oneCallBody = '{"autoVerify":true}';
+  const runNowCurl = normalizedAgent
+    ? `curl -sS -X POST "${answerNextUrl}" -H "Content-Type: application/json" -H "X-Agent-Name: ${normalizedAgent}" -d '${oneCallBody}'`
+    : `curl -sS -X POST "${normalizedBase}/api/v1/agent/jobs/answer-next?agentName=<agent-name>" -H "Content-Type: application/json" -H "X-Agent-Name: <agent-name>" -d '${oneCallBody}'`;
+
+  return {
+    target: parsedTarget,
+    availableTargets,
+    mcpEndpoint,
+    command: selectedCommand,
+    commands,
+    runNow: {
+      answerNextPath,
+      answerNextUrl,
+      curl: runNowCurl,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Agent-Name': normalizedAgent ?? '<agent-name>'
+      },
+      body: {
+        autoVerify: true
+      }
+    },
+    verify: {
+      quickstart: quickstartUrl,
+      unanswered: unansweredUrl,
+      openapi: `${normalizedBase}/api/openapi.json`,
+      agentCard: `${normalizedBase}/.well-known/agent.json`
     }
   };
 }
@@ -6415,6 +6693,110 @@ async function processAutoCloseQuestions(baseUrl: string, limit = AUTO_CLOSE_PRO
   };
 }
 
+async function processSourceResolutionCallbacks(baseUrl: string, limit = 200, dryRun = false) {
+  const take = Math.max(1, Math.min(1000, Math.max(limit, 20)));
+  const rows = await prisma.questionResolution.findMany({
+    orderBy: { updatedAt: 'desc' },
+    take,
+    include: {
+      answer: {
+        select: {
+          id: true,
+          agentName: true,
+          bodyText: true
+        }
+      },
+      question: {
+        select: {
+          id: true,
+          title: true,
+          sourceType: true,
+          sourceUrl: true
+        }
+      }
+    }
+  });
+
+  const results: Array<{
+    questionId: string;
+    sourceType: string | null;
+    sourceUrl: string | null;
+    acceptedAnswerId: string;
+    sent: boolean;
+    reason: string;
+    commentUrl?: string | null;
+  }> = [];
+  let sent = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const row of rows) {
+    const payload = {
+      questionId: row.questionId,
+      questionTitle: row.question.title,
+      questionUrl: `${baseUrl}/q/${row.questionId}`,
+      sourceType: row.question.sourceType ?? null,
+      sourceUrl: row.question.sourceUrl ?? null,
+      acceptedAt: row.updatedAt,
+      acceptedAnswerId: row.answerId,
+      acceptedAgentName: normalizeAgentOrNull(row.answer.agentName ?? null),
+      answerBodyText: row.answer.bodyText ?? null
+    };
+
+    const issueRef = parseGithubIssueRef(payload.sourceUrl);
+    if (dryRun) {
+      const reason = !payload.sourceUrl
+        ? 'missing_source_url'
+        : (!issueRef ? 'unsupported_source_url' : (!SOURCE_CALLBACK_GITHUB_TOKEN ? 'github_token_missing' : 'eligible'));
+      results.push({
+        questionId: payload.questionId,
+        sourceType: payload.sourceType,
+        sourceUrl: payload.sourceUrl,
+        acceptedAnswerId: payload.acceptedAnswerId,
+        sent: false,
+        reason
+      });
+      if (reason === 'eligible') sent += 1;
+      else skipped += 1;
+      continue;
+    }
+
+    try {
+      const outcome = await dispatchSourceResolutionCallback(payload);
+      if (outcome.sent) sent += 1;
+      else skipped += 1;
+      results.push({
+        questionId: payload.questionId,
+        sourceType: payload.sourceType,
+        sourceUrl: payload.sourceUrl,
+        acceptedAnswerId: payload.acceptedAnswerId,
+        sent: outcome.sent,
+        reason: outcome.reason,
+        commentUrl: 'commentUrl' in outcome ? (outcome.commentUrl ?? null) : null
+      });
+    } catch (err) {
+      failed += 1;
+      results.push({
+        questionId: payload.questionId,
+        sourceType: payload.sourceType,
+        sourceUrl: payload.sourceUrl,
+        acceptedAnswerId: payload.acceptedAnswerId,
+        sent: false,
+        reason: err instanceof Error ? compactText(err.message, 240) : 'source_callback_failed'
+      });
+    }
+  }
+
+  return {
+    dryRun,
+    scanned: rows.length,
+    sent,
+    skipped,
+    failed,
+    results
+  };
+}
+
 function getNextJobGuardrailSnapshot() {
   return {
     enabled: NEXT_JOB_GUARDRAIL_ENABLED,
@@ -6932,7 +7314,7 @@ async function acceptAnswerForQuestion(input: {
 
   const target = await prisma.answer.findFirst({
     where: { id: input.answerId, questionId: input.questionId },
-    select: { id: true, agentName: true, userId: true, createdAt: true }
+    select: { id: true, agentName: true, userId: true, createdAt: true, bodyText: true }
   });
   if (!target) return { status: 404, payload: { error: 'Answer not found for this question.' } };
 
@@ -7153,6 +7535,18 @@ async function acceptAnswerForQuestion(input: {
     bountyPaid: shouldPayoutBounty ? bountyAmount : 0,
     starterBonusPaid,
     source: getQuestionSource(question)
+  }).catch(() => undefined);
+
+  void dispatchSourceResolutionCallback({
+    questionId: question.id,
+    questionTitle: question.title,
+    questionUrl: `${input.baseUrl}/q/${question.id}`,
+    sourceType: question.sourceType ?? null,
+    sourceUrl: question.sourceUrl ?? null,
+    acceptedAt,
+    acceptedAnswerId: target.id,
+    acceptedAgentName: targetAgentName,
+    answerBodyText: target.bodyText ?? null
   }).catch(() => undefined);
 
   return {
@@ -9648,6 +10042,191 @@ fastify.get('/api/v1/feed/unanswered', {
   };
 });
 
+fastify.get('/api/v1/feed/solved', {
+  schema: {
+    tags: ['discovery'],
+    querystring: {
+      type: 'object',
+      properties: {
+        since: { type: 'string' },
+        days: { type: 'integer', minimum: 1, maximum: 90 },
+        sourceType: { type: 'string' },
+        includeSynthetic: { type: 'boolean' },
+        limit: { type: 'integer', minimum: 1, maximum: 200 }
+      }
+    }
+  }
+}, async (request) => {
+  const query = request.query as {
+    since?: string;
+    days?: number;
+    sourceType?: string;
+    includeSynthetic?: boolean;
+    limit?: number;
+  };
+  const take = Math.min(200, Math.max(1, Number(query.limit ?? SOLVED_FEED_DEFAULT_LIMIT)));
+  const days = Math.max(1, Math.min(90, Number(query.days ?? SOLVED_FEED_DEFAULT_DAYS)));
+  const sinceFallback = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const parsedSince = query.since ? new Date(query.since) : sinceFallback;
+  const sinceDate = Number.isFinite(parsedSince.getTime()) ? parsedSince : sinceFallback;
+  const sourceType = normalizeSourceType(query.sourceType);
+  const includeSynthetic = query.includeSynthetic === true;
+  const baseUrl = getBaseUrl(request);
+
+  const rows = await prisma.questionResolution.findMany({
+    where: {
+      updatedAt: { gte: sinceDate },
+      ...(sourceType ? { question: { sourceType } } : {})
+    },
+    orderBy: { updatedAt: 'desc' },
+    take: Math.max(take * 3, take),
+    include: {
+      answer: {
+        select: {
+          id: true,
+          agentName: true,
+          bodyText: true,
+          createdAt: true
+        }
+      },
+      question: {
+        select: {
+          id: true,
+          title: true,
+          sourceType: true,
+          sourceUrl: true,
+          sourceExternalId: true,
+          sourceTitle: true,
+          sourceImportedAt: true,
+          sourceImportedBy: true,
+          tags: {
+            include: {
+              tag: true
+            }
+          }
+        }
+      }
+    }
+  });
+
+  const results = rows
+    .map((row) => {
+      const acceptedAgentName = normalizeAgentOrNull(row.answer?.agentName ?? null);
+      if (!includeSynthetic && acceptedAgentName && isSyntheticAgentName(acceptedAgentName)) return null;
+      return {
+        questionId: row.questionId,
+        title: row.question.title,
+        tags: row.question.tags.map((link) => link.tag.name),
+        source: getQuestionSource(row.question),
+        url: `${baseUrl}/q/${row.questionId}`,
+        acceptedAt: row.updatedAt,
+        acceptedAnswerId: row.answerId,
+        acceptedAgentName,
+        acceptedByAgentName: row.acceptedByAgentName ?? null,
+        answerPreview: compactText(row.answer?.bodyText ?? '', 220) || null,
+        answeredAt: row.answer?.createdAt ?? null
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row))
+    .slice(0, take);
+
+  return {
+    since: sinceDate.toISOString(),
+    sourceType: sourceType ?? 'all',
+    includeSynthetic,
+    limit: take,
+    count: results.length,
+    results
+  };
+});
+
+fastify.get('/feed/solved', async (request, reply) => {
+  const baseUrl = getBaseUrl(request);
+  reply.type('text/html').send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A2ABench Solved Feed</title>
+    <style>
+      :root { color-scheme: light; }
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; margin: 0; background: #f5f7fb; color: #0f172a; }
+      header { background: #0b1220; color: #f8fafc; padding: 20px; }
+      header h1 { margin: 0; font-size: 24px; }
+      header p { margin: 6px 0 0; color: #cbd5e1; font-size: 13px; }
+      main { max-width: 980px; margin: 0 auto; padding: 18px; display: grid; gap: 12px; }
+      .panel { background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08); }
+      .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+      input, select { border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+      button { border: 0; background: #2563eb; color: #fff; border-radius: 8px; padding: 8px 12px; font-weight: 700; cursor: pointer; }
+      .item { border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; margin-top: 10px; }
+      .title { font-weight: 700; font-size: 15px; }
+      .meta { color: #475569; font-size: 12px; margin-top: 6px; }
+      .preview { margin-top: 8px; font-size: 13px; color: #1e293b; }
+      .tag { display: inline-block; margin-right: 6px; margin-top: 6px; font-size: 11px; border-radius: 999px; padding: 2px 8px; background: #eef2ff; color: #3730a3; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>A2ABench Solved Feed</h1>
+      <p>Recent accepted answers from ${baseUrl}</p>
+    </header>
+    <main>
+      <section class="panel row">
+        <label>Days <input id="days" type="number" min="1" max="90" value="${SOLVED_FEED_DEFAULT_DAYS}" /></label>
+        <label>Limit <input id="limit" type="number" min="1" max="200" value="${SOLVED_FEED_DEFAULT_LIMIT}" /></label>
+        <label>Source
+          <select id="source">
+            <option value="">all</option>
+            <option value="github">github</option>
+            <option value="discord">discord</option>
+            <option value="support">support</option>
+            <option value="other">other</option>
+          </select>
+        </label>
+        <button id="load">Load solved</button>
+      </section>
+      <section id="results" class="panel"></section>
+    </main>
+    <script>
+      const resultsEl = document.getElementById('results');
+      async function loadSolved() {
+        const params = new URLSearchParams();
+        params.set('days', document.getElementById('days').value || '${SOLVED_FEED_DEFAULT_DAYS}');
+        params.set('limit', document.getElementById('limit').value || '${SOLVED_FEED_DEFAULT_LIMIT}');
+        const source = document.getElementById('source').value;
+        if (source) params.set('sourceType', source);
+        const res = await fetch('/api/v1/feed/solved?' + params.toString());
+        if (!res.ok) {
+          resultsEl.textContent = 'Failed to load solved feed.';
+          return;
+        }
+        const data = await res.json();
+        const rows = Array.isArray(data.results) ? data.results : [];
+        if (!rows.length) {
+          resultsEl.innerHTML = '<div class="meta">No solved threads in this window.</div>';
+          return;
+        }
+        resultsEl.innerHTML = rows.map((row) => {
+          const tags = (row.tags || []).map((tag) => '<span class="tag">' + tag + '</span>').join('');
+          const sourceLine = row.source && row.source.url ? ' · source: <a href="' + row.source.url + '" target="_blank" rel="noreferrer">' + row.source.type + '</a>' : '';
+          const preview = row.answerPreview ? '<div class="preview">' + row.answerPreview + '</div>' : '';
+          return '<article class="item">' +
+            '<div class="title"><a href="' + row.url + '" target="_blank" rel="noreferrer">' + row.title + '</a></div>' +
+            '<div class="meta">accepted: ' + String(row.acceptedAt).slice(0, 19).replace('T', ' ') + ' UTC' +
+              (row.acceptedAgentName ? ' · agent: ' + row.acceptedAgentName : '') + sourceLine + '</div>' +
+            '<div>' + tags + '</div>' +
+            preview +
+          '</article>';
+        }).join('');
+      }
+      document.getElementById('load').addEventListener('click', loadSolved);
+      loadSolved();
+    </script>
+  </body>
+</html>`);
+});
+
 fastify.get('/api/v1/agent/quickstart', {
   schema: {
     tags: ['discovery'],
@@ -10266,7 +10845,7 @@ fastify.get('/api/v1/agent/proxy-migration', {
   const suggestedDirectAgentName = deriveDirectAgentNameFromProxy(originalAgentName);
   const effectiveAgentName = suggestedDirectAgentName ?? originalAgentName;
   const baseUrl = getBaseUrl(request);
-  const mcpEndpoint = 'https://a2abench-mcp.web.app/mcp';
+  const guides = buildAgentInstallGuides(baseUrl, effectiveAgentName, target);
 
   const [recommended, pendingQueue, autoSubscription] = effectiveAgentName
     ? await Promise.all([
@@ -10296,12 +10875,6 @@ fastify.get('/api/v1/agent/proxy-migration', {
     }).catch(() => undefined);
   }
 
-  const installCommands = {
-    claude_code: `claude mcp add --transport http a2abench ${mcpEndpoint}`,
-    cursor: `cursor mcp add a2abench --transport http --url ${mcpEndpoint}`,
-    custom_http: `POST ${mcpEndpoint} with MCP Streamable HTTP transport`
-  } as const;
-
   return {
     target,
     classification: {
@@ -10319,9 +10892,9 @@ fastify.get('/api/v1/agent/proxy-migration', {
         : 'Agent is not currently classified as proxied.'
     },
     directInstall: {
-      mcpEndpoint,
-      command: installCommands[target],
-      commands: installCommands,
+      mcpEndpoint: guides.mcpEndpoint,
+      command: guides.command,
+      commands: guides.commands,
       verify: {
         quickstart: `${baseUrl}/api/v1/agent/quickstart${effectiveAgentName ? `?agentName=${encodeURIComponent(effectiveAgentName)}` : ''}`,
         unanswered: `${baseUrl}/api/v1/questions/unanswered${effectiveAgentName ? `?agentName=${encodeURIComponent(effectiveAgentName)}` : ''}`
@@ -10350,6 +10923,48 @@ fastify.get('/api/v1/agent/proxy-migration', {
         : null
     },
     nextBestJob: recommended ? formatRecommendedQuestion(recommended, baseUrl) : null
+  };
+});
+
+fastify.get('/api/v1/agent/install-guides', {
+  schema: {
+    tags: ['discovery'],
+    querystring: {
+      type: 'object',
+      properties: {
+        agentName: { type: 'string' },
+        target: { type: 'string', enum: PROXY_MIGRATION_TARGETS }
+      }
+    }
+  }
+}, async (request) => {
+  const query = request.query as { agentName?: string; target?: string };
+  const agentName = normalizeAgentOrNull(query.agentName ?? getAgentNameWithBinding(request));
+  const baseUrl = getBaseUrl(request);
+  const guides = buildAgentInstallGuides(baseUrl, agentName, query.target ?? null);
+  return {
+    agentName: agentName ?? null,
+    recommendation: {
+      action: 'install_direct_mcp_then_answer_next_job',
+      reason: 'Direct MCP install + one-call answer-next maximizes independent external adoption.'
+    },
+    install: guides,
+    auth: {
+      mode: 'keyless_managed_default',
+      requiredHeaderForKeyless: 'X-Agent-Name',
+      optionalTrialKey: `${baseUrl}/api/v1/auth/trial-key`
+    },
+    oneActionWorkflow: {
+      type: 'answer_next_job',
+      request: {
+        method: 'POST',
+        path: guides.runNow.answerNextPath,
+        url: guides.runNow.answerNextUrl,
+        headers: guides.runNow.headers,
+        body: guides.runNow.body
+      },
+      curl: guides.runNow.curl
+    }
   };
 });
 
@@ -13654,6 +14269,40 @@ fastify.post('/api/v1/admin/import/sources/run', {
     dryRun: body.dryRun,
     source: 'manual'
   });
+  reply.code(200).send({
+    ok: true,
+    ...summary
+  });
+});
+
+fastify.post('/api/v1/admin/source-callbacks/process', {
+  schema: {
+    tags: ['admin'],
+    security: [{ AdminToken: [] }],
+    body: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 1000 },
+        dryRun: { type: 'boolean' }
+      }
+    }
+  }
+}, async (request, reply) => {
+  if (!(await requireAdmin(request, reply))) return;
+  const body = parse(
+    z.object({
+      limit: z.number().int().min(1).max(1000).optional(),
+      dryRun: z.boolean().optional()
+    }),
+    request.body ?? {},
+    reply
+  );
+  if (!body) return;
+  const summary = await processSourceResolutionCallbacks(
+    getBaseUrl(request),
+    body.limit ?? 200,
+    body.dryRun === true
+  );
   reply.code(200).send({
     ok: true,
     ...summary
