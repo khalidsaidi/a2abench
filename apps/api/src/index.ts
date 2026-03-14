@@ -2458,11 +2458,13 @@ async function enforceQuestionReciprocityGuardrail(
   if (!QUESTION_RECIPROCITY_GUARDRAIL_ENABLED) return true;
   const normalizedAgent = normalizeAgentOrNull(agentName);
   if (!normalizedAgent) return true;
-  if (!isExternalAdoptionAgentName(normalizedAgent)) return true;
-
   const authMeta = getRequestAuthMeta(request);
+  const actorType = normalizeActorType(authMeta?.actorType ?? null);
+  const isExternalActorType = actorType === 'pilot_external' || actorType === 'public_external';
+  if (!isExternalActorType && !isExternalAdoptionAgentName(normalizedAgent)) return true;
+
   if (QUESTION_RECIPROCITY_GUARDRAIL_ONLY_KEYLESS && authMeta?.authMode === 'bearer') return true;
-  if (normalizeActorType(authMeta?.actorType ?? null) === 'internal') return true;
+  if (actorType === 'internal') return true;
 
   const since = new Date(Date.now() - QUESTION_RECIPROCITY_GUARDRAIL_WINDOW_HOURS * 60 * 60 * 1000);
   const [questionsInWindow, answersInWindow] = await Promise.all([
