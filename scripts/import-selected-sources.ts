@@ -87,6 +87,17 @@ function stripMarkdown(value: string | null | undefined, max = 1800) {
   return text.slice(0, max);
 }
 
+function normalizeImportTags(tags: string[]) {
+  const cleaned = tags
+    .map((tag) => tag.trim().toLowerCase())
+    .map((tag) => tag.replace(/[^a-z0-9._-]+/g, '-'))
+    .map((tag) => tag.replace(/-+/g, '-').replace(/^-+|-+$/g, ''))
+    .filter(Boolean)
+    .map((tag) => tag.slice(0, 24))
+    .filter(Boolean);
+  return Array.from(new Set(cleaned)).slice(0, 10);
+}
+
 async function fetchGitHubIssues(repo: string, limit: number, sourceType: 'github' | 'discord', maxPages = 2) {
   const items: ImportItem[] = [];
   const perPage = Math.min(100, Math.max(limit, 25));
@@ -271,9 +282,15 @@ async function main() {
     .map((item) => ({
       ...item,
       title: item.title.trim().replace(/\s+/g, ' '),
-      bodyMd: item.bodyMd.trim()
+      bodyMd: item.bodyMd.trim(),
+      tags: normalizeImportTags(item.tags)
     }))
-    .filter((item) => item.title.length >= 8 && item.bodyMd.length >= 3 && item.url.trim().length > 0 && item.externalId.trim().length > 0);
+    .filter((item) =>
+      item.title.length >= 8
+      && item.bodyMd.length >= 3
+      && item.url.trim().length > 0
+      && item.externalId.trim().length > 0
+    );
   const capped = normalized.slice(0, Math.max(1, MAX_TOTAL));
 
   if (capped.length === 0) {
