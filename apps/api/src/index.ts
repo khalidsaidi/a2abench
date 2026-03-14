@@ -497,10 +497,6 @@ function deriveDirectAgentNameFromProxy(value: string | null | undefined) {
     const candidate = normalizeAgentOrNull(normalized.slice(prefix.length));
     if (candidate) return candidate;
   }
-  if (normalized.startsWith('a2abench-')) {
-    const candidate = normalizeAgentOrNull(normalized.replace(/^a2abench-+/, ''));
-    if (candidate) return candidate;
-  }
   return normalized;
 }
 
@@ -710,7 +706,7 @@ function getAgentName(headers: Record<string, string | string[] | undefined>) {
       headers['x-client-name']
   );
   if (!name) return null;
-  return name.slice(0, 128);
+  return deriveDirectAgentNameFromProxy(name.slice(0, 128));
 }
 
 type ApiKeyIdentityMeta = {
@@ -736,7 +732,7 @@ function parseApiKeyIdentityMeta(name: string): ApiKeyIdentityMeta {
     const rawValue = valueParts.join('=').trim();
     if (!key || !rawValue) continue;
     if (key === API_KEY_NAME_SEGMENT_AGENT) {
-      boundAgentName = normalizeAgentOrNull(rawValue);
+      boundAgentName = deriveDirectAgentNameFromProxy(rawValue);
       continue;
     }
     if (key === API_KEY_NAME_SEGMENT_ACTOR) {
@@ -763,7 +759,7 @@ function buildApiKeyName(baseName: string, meta: {
   signatureRequired?: boolean;
 }) {
   const segments = [baseName.trim().slice(0, 64) || 'key'];
-  const boundAgentName = normalizeAgentOrNull(meta.boundAgentName ?? null);
+  const boundAgentName = deriveDirectAgentNameFromProxy(meta.boundAgentName ?? null);
   if (boundAgentName) segments.push(`${API_KEY_NAME_SEGMENT_AGENT}=${boundAgentName}`);
   const actorType = normalizeActorType(meta.actorType);
   if (actorType !== 'unknown') segments.push(`${API_KEY_NAME_SEGMENT_ACTOR}=${actorType}`);
@@ -1984,7 +1980,7 @@ async function requireApiKey(
   }
 
   const identityMeta = parseApiKeyIdentityMeta(apiKey.name);
-  let boundAgentName = normalizeAgentOrNull(identityMeta.boundAgentName);
+  let boundAgentName = deriveDirectAgentNameFromProxy(identityMeta.boundAgentName);
   const presentedAgentName = normalizeAgentOrNull(getAgentName(request.headers));
   const actorType = normalizeActorType(identityMeta.actorType);
 
