@@ -5844,6 +5844,16 @@ async function ensureJobDiscoverySubscription(agentName: string) {
   };
 }
 
+async function opportunisticallyEnsureJobDiscoverySubscription(agentName: string | null | undefined) {
+  const normalized = normalizeAgentOrNull(agentName);
+  if (!normalized) return null;
+  try {
+    return await ensureJobDiscoverySubscription(normalized);
+  } catch {
+    return null;
+  }
+}
+
 function percentileFromSorted(values: number[], percentile: number) {
   if (values.length === 0) return null;
   const rank = clamp(percentile, 0, 1) * (values.length - 1);
@@ -10339,16 +10349,24 @@ fastify.get('/api/v1/search', {
         q: { type: 'string' },
         tag: { type: 'string' },
         page: { type: 'integer', minimum: 1 },
-        sort: { type: 'string', enum: ['quality', 'recent'] }
+        sort: { type: 'string', enum: ['quality', 'recent'] },
+        agentName: { type: 'string' }
       }
     }
   }
 }, async (request) => {
-  const query = request.query as { q?: string; tag?: string; page?: number; sort?: 'quality' | 'recent' };
+  const query = request.query as {
+    q?: string;
+    tag?: string;
+    page?: number;
+    sort?: 'quality' | 'recent';
+    agentName?: string;
+  };
   const page = Math.max(1, Number(query.page ?? 1));
   const sort = query.sort === 'recent' ? 'recent' : 'quality';
   const take = 20;
   const skip = (page - 1) * take;
+  const agentName = normalizeAgentOrNull(query.agentName ?? getAgentNameWithBinding(request));
 
   const where: any = {};
   if (query.q) {
@@ -10361,18 +10379,21 @@ fastify.get('/api/v1/search', {
     where.tags = { some: { tag: { name: query.tag } } };
   }
 
-  const items = await prisma.question.findMany({
-    where,
-    take: sort === 'quality' ? 500 : take,
-    ...(sort === 'quality' ? {} : { skip }),
-    orderBy: { createdAt: 'desc' },
-    include: {
-      tags: { include: { tag: true } },
-      _count: { select: { answers: true } },
-      resolution: true,
-      bounty: true
-    }
-  });
+  const [items] = await Promise.all([
+    prisma.question.findMany({
+      where,
+      take: sort === 'quality' ? 500 : take,
+      ...(sort === 'quality' ? {} : { skip }),
+      orderBy: { createdAt: 'desc' },
+      include: {
+        tags: { include: { tag: true } },
+        _count: { select: { answers: true } },
+        resolution: true,
+        bounty: true
+      }
+    }),
+    opportunisticallyEnsureJobDiscoverySubscription(agentName)
+  ]);
 
   const ranked = items
     .map((item) => {
@@ -10566,16 +10587,20 @@ fastify.get('/api/v1/questions', {
   schema: {
     tags: ['questions']
   }
-}, async () => {
-  const items = await prisma.question.findMany({
-    orderBy: { createdAt: 'desc' },
-    include: {
-      tags: { include: { tag: true } },
-      _count: { select: { answers: true } },
-      resolution: true,
-      bounty: true
-    }
-  });
+}, async (request) => {
+  const agentName = getAgentNameWithBinding(request);
+  const [items] = await Promise.all([
+    prisma.question.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        tags: { include: { tag: true } },
+        _count: { select: { answers: true } },
+        resolution: true,
+        bounty: true
+      }
+    }),
+    opportunisticallyEnsureJobDiscoverySubscription(agentName)
+  ]);
   return items.map((item) => ({
     id: item.id,
     title: item.title,
@@ -10809,6 +10834,7 @@ fastify.get('/api/v1/feed/solved', {
     querystring: {
       type: 'object',
       properties: {
+        agentName: { type: 'string' },
         since: { type: 'string' },
         days: { type: 'integer', minimum: 1, maximum: 90 },
         sourceType: { type: 'string' },
@@ -10819,6 +10845,7 @@ fastify.get('/api/v1/feed/solved', {
   }
 }, async (request) => {
   const query = request.query as {
+    agentName?: string;
     since?: string;
     days?: number;
     sourceType?: string;
@@ -10833,42 +10860,46 @@ fastify.get('/api/v1/feed/solved', {
   const sourceType = normalizeSourceType(query.sourceType);
   const includeSynthetic = query.includeSynthetic === true;
   const baseUrl = getBaseUrl(request);
+  const agentName = normalizeAgentOrNull(query.agentName ?? getAgentNameWithBinding(request));
 
-  const rows = await prisma.questionResolution.findMany({
-    where: {
-      updatedAt: { gte: sinceDate },
-      ...(sourceType ? { question: { sourceType } } : {})
-    },
-    orderBy: { updatedAt: 'desc' },
-    take: Math.max(take * 3, take),
-    include: {
-      answer: {
-        select: {
-          id: true,
-          agentName: true,
-          bodyText: true,
-          createdAt: true
-        }
+  const [rows] = await Promise.all([
+    prisma.questionResolution.findMany({
+      where: {
+        updatedAt: { gte: sinceDate },
+        ...(sourceType ? { question: { sourceType } } : {})
       },
-      question: {
-        select: {
-          id: true,
-          title: true,
-          sourceType: true,
-          sourceUrl: true,
-          sourceExternalId: true,
-          sourceTitle: true,
-          sourceImportedAt: true,
-          sourceImportedBy: true,
-          tags: {
-            include: {
-              tag: true
+      orderBy: { updatedAt: 'desc' },
+      take: Math.max(take * 3, take),
+      include: {
+        answer: {
+          select: {
+            id: true,
+            agentName: true,
+            bodyText: true,
+            createdAt: true
+          }
+        },
+        question: {
+          select: {
+            id: true,
+            title: true,
+            sourceType: true,
+            sourceUrl: true,
+            sourceExternalId: true,
+            sourceTitle: true,
+            sourceImportedAt: true,
+            sourceImportedBy: true,
+            tags: {
+              include: {
+                tag: true
+              }
             }
           }
         }
       }
-    }
-  });
+    }),
+    opportunisticallyEnsureJobDiscoverySubscription(agentName)
+  ]);
 
   const results = rows
     .map((row) => {
@@ -12308,34 +12339,38 @@ fastify.get('/api/v1/questions/:id', {
 }, async (request, reply) => {
   const { id } = request.params as { id: string };
   const now = new Date();
+  const agentName = getAgentNameWithBinding(request);
   if (isPlaceholderId(id)) {
     reply.code(400).send({ error: 'Replace :id with a real id (try demo_q1).' });
     return;
   }
   await expireStaleClaims(id);
-  const question = await prisma.question.findUnique({
-    where: { id },
-    include: {
-      tags: { include: { tag: true } },
-      resolution: true,
-      bounty: true,
-      claims: {
-        where: {
-          OR: [
-            { state: { in: ['claimed', 'answered'] }, expiresAt: { gte: now } },
-            { state: 'verified' }
-          ]
+  const [question] = await Promise.all([
+    prisma.question.findUnique({
+      where: { id },
+      include: {
+        tags: { include: { tag: true } },
+        resolution: true,
+        bounty: true,
+        claims: {
+          where: {
+            OR: [
+              { state: { in: ['claimed', 'answered'] }, expiresAt: { gte: now } },
+              { state: 'verified' }
+            ]
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 20
         },
-        orderBy: { createdAt: 'desc' },
-        take: 20
-      },
-      answers: {
-        include: { user: true },
-        orderBy: { createdAt: 'asc' }
-      },
-      user: true
-    }
-  });
+        answers: {
+          include: { user: true },
+          orderBy: { createdAt: 'asc' }
+        },
+        user: true
+      }
+    }),
+    opportunisticallyEnsureJobDiscoverySubscription(agentName)
+  ]);
   if (!question) {
     reply.code(404).send({ error: 'Not found' });
     return;
