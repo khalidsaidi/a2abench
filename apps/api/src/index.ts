@@ -78,6 +78,10 @@ const USAGE_LOG_FLUSH_BATCH_SIZE = Math.max(25, Number(process.env.USAGE_LOG_FLU
 const USAGE_LOG_FLUSH_INTERVAL_MS = Math.max(250, Number(process.env.USAGE_LOG_FLUSH_INTERVAL_MS ?? 1000));
 const usageSummaryCache = new Map<string, { updatedAt: number; value: unknown }>();
 const usageSummaryInflight = new Map<string, Promise<unknown>>();
+let recentAnswererCache: { updatedAt: number; names: Set<string> } = {
+  updatedAt: 0,
+  names: new Set<string>()
+};
 const QUESTION_CLAIM_TTL_MINUTES = Number(process.env.QUESTION_CLAIM_TTL_MINUTES ?? 30);
 const QUESTION_CLAIM_MIN_MINUTES = Number(process.env.QUESTION_CLAIM_MIN_MINUTES ?? 5);
 const QUESTION_CLAIM_MAX_MINUTES = Number(process.env.QUESTION_CLAIM_MAX_MINUTES ?? 240);
@@ -93,6 +97,19 @@ const DELIVERY_MAX_PENDING_PER_SUBSCRIPTION = Math.max(0, Number(process.env.DEL
 const DELIVERY_MAX_SUBSCRIPTIONS_PER_QUESTION_CREATED = Math.max(
   0,
   Number(process.env.DELIVERY_MAX_SUBSCRIPTIONS_PER_QUESTION_CREATED ?? (AGENT_OPEN_MODE ? 4 : 40))
+);
+const DELIVERY_REQUIRE_RECENT_ANSWERER = (process.env.DELIVERY_REQUIRE_RECENT_ANSWERER ?? (AGENT_OPEN_MODE ? 'true' : 'false')).toLowerCase() === 'true';
+const DELIVERY_RECENT_ANSWERER_WINDOW_MINUTES = Math.max(
+  5,
+  Number(process.env.DELIVERY_RECENT_ANSWERER_WINDOW_MINUTES ?? (AGENT_OPEN_MODE ? 180 : 1440))
+);
+const DELIVERY_RECENT_ANSWERER_CACHE_TTL_MS = Math.max(
+  5_000,
+  Number(process.env.DELIVERY_RECENT_ANSWERER_CACHE_TTL_MS ?? 60_000)
+);
+const DELIVERY_RECENT_ANSWERER_GRACE_MINUTES = Math.max(
+  0,
+  Number(process.env.DELIVERY_RECENT_ANSWERER_GRACE_MINUTES ?? (AGENT_OPEN_MODE ? 30 : 120))
 );
 const DELIVERY_REQUEUE_OPENED_ENABLED = (process.env.DELIVERY_REQUEUE_OPENED_ENABLED ?? 'true').toLowerCase() === 'true';
 const DELIVERY_REQUEUE_AFTER_MINUTES = Math.max(1, Number(process.env.DELIVERY_REQUEUE_AFTER_MINUTES ?? 6));
@@ -3861,6 +3878,35 @@ async function filterSubscriptionsForEventDelivery(
   };
 }
 
+async function getRecentAnswererNames() {
+  if (!DELIVERY_REQUIRE_RECENT_ANSWERER) return null;
+  const nowMs = Date.now();
+  if (nowMs - recentAnswererCache.updatedAt < DELIVERY_RECENT_ANSWERER_CACHE_TTL_MS) {
+    return recentAnswererCache.names;
+  }
+  const since = new Date(nowMs - DELIVERY_RECENT_ANSWERER_WINDOW_MINUTES * 60 * 1000);
+  const rows = await prisma.usageEvent.findMany({
+    where: {
+      createdAt: { gte: since },
+      status: { gte: 200, lte: 299 },
+      route: { in: ['/api/v1/questions/:id/answers', '/api/v1/questions/:id/answer-job'] },
+      agentName: { not: null }
+    },
+    distinct: ['agentName'],
+    select: { agentName: true }
+  });
+  const names = new Set<string>();
+  for (const row of rows) {
+    const normalized = normalizeAgentOrNull(row.agentName);
+    if (normalized) names.add(normalized);
+  }
+  recentAnswererCache = {
+    updatedAt: nowMs,
+    names
+  };
+  return names;
+}
+
 async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
   const fetchedSubscriptions = await prisma.questionSubscription.findMany({
     where: { active: true }
@@ -3952,9 +3998,16 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
     );
   }
 
+  const nowMs = Date.now();
+  const recentAnswerers = input.event === 'question.created' && DELIVERY_REQUIRE_RECENT_ANSWERER
+    ? await getRecentAnswererNames()
+    : null;
+  const enforceRecentAnswerers = Boolean(recentAnswerers && recentAnswerers.size > 0);
+
   let matchedSubscriptions = 0;
   let filteredBySolvability = 0;
   let filteredByPendingCap = 0;
+  let filteredByRecentAnswerer = 0;
   let filteredByFanoutCap = 0;
   const deliveryBaseUrl = (PUBLIC_BASE_URL || SYSTEM_BASE_URL || `http://127.0.0.1:${PORT}`).replace(/\/+$/, '');
   const queueCandidates = subscriptions.flatMap((sub) => {
@@ -3966,6 +4019,14 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
     const pushSolvabilityThreshold = subscriptionTags.length === 0
       ? PUSH_SOLVABILITY_UNSCOPED_MIN_SCORE
       : PUSH_SOLVABILITY_MIN_SCORE;
+    if (input.event === 'question.created' && enforceRecentAnswerers && !isProxiedSubscriber) {
+      const normalizedAgent = normalizeAgentOrNull(sub.agentName);
+      const withinGrace = (nowMs - sub.createdAt.getTime()) <= DELIVERY_RECENT_ANSWERER_GRACE_MINUTES * 60 * 1000;
+      if (!withinGrace && (!normalizedAgent || !recentAnswerers?.has(normalizedAgent))) {
+        filteredByRecentAnswerer += 1;
+        return [];
+      }
+    }
 
     if (input.event === 'question.created' && DELIVERY_MAX_PENDING_PER_SUBSCRIPTION > 0) {
       const pendingCount = pendingBySubscription.get(sub.id) ?? 0;
@@ -4067,15 +4128,23 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
   const queued = queuedCandidates.map((candidate) => candidate.row);
 
   if (queued.length === 0) {
-    if (matchedSubscriptions > 0 && (filteredBySolvability > 0 || filteredByPendingCap > 0 || filteredByFanoutCap > 0)) {
+    if (
+      matchedSubscriptions > 0
+      && (filteredBySolvability > 0 || filteredByPendingCap > 0 || filteredByRecentAnswerer > 0 || filteredByFanoutCap > 0)
+    ) {
       fastify.log.info({
         event: input.event,
         questionId: input.question.id,
         matchedSubscriptions,
         filteredBySolvability,
         filteredByPendingCap,
+        filteredByRecentAnswerer,
         filteredByFanoutCap,
         pendingCapPerSubscription: DELIVERY_MAX_PENDING_PER_SUBSCRIPTION,
+        recentAnswererFilterEnabled: DELIVERY_REQUIRE_RECENT_ANSWERER,
+        recentAnswererFilterApplied: enforceRecentAnswerers,
+        recentAnswererWindowMinutes: DELIVERY_RECENT_ANSWERER_WINDOW_MINUTES,
+        recentAnswererGraceMinutes: DELIVERY_RECENT_ANSWERER_GRACE_MINUTES,
         maxSubscriptionsPerQuestionCreated: DELIVERY_MAX_SUBSCRIPTIONS_PER_QUESTION_CREATED,
         threshold: PUSH_SOLVABILITY_MIN_SCORE,
         unscopedThreshold: PUSH_SOLVABILITY_UNSCOPED_MIN_SCORE
@@ -4103,6 +4172,18 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
       filteredByFanoutCap,
       maxSubscriptionsPerQuestionCreated: DELIVERY_MAX_SUBSCRIPTIONS_PER_QUESTION_CREATED
     }, 'question webhook fanout capped');
+  }
+  if (filteredByRecentAnswerer > 0) {
+    fastify.log.info({
+      event: input.event,
+      questionId: input.question.id,
+      matchedSubscriptions,
+      queued: queued.length,
+      filteredByRecentAnswerer,
+      recentAnswererFilterApplied: enforceRecentAnswerers,
+      recentAnswererWindowMinutes: DELIVERY_RECENT_ANSWERER_WINDOW_MINUTES,
+      recentAnswererGraceMinutes: DELIVERY_RECENT_ANSWERER_GRACE_MINUTES
+    }, 'question webhook filtered to active answerers');
   }
   await prisma.deliveryQueue.createMany({ data: queued });
   void processDeliveryQueue(Math.min(DELIVERY_PROCESS_LIMIT, queued.length)).catch(() => undefined);
@@ -7741,6 +7822,10 @@ function startBackgroundWorkers() {
     deliveryNewSubscriptionGraceMinutes: DELIVERY_NEW_SUBSCRIPTION_GRACE_MINUTES,
     deliveryMaxPendingPerSubscription: DELIVERY_MAX_PENDING_PER_SUBSCRIPTION,
     deliveryMaxSubscriptionsPerQuestionCreated: DELIVERY_MAX_SUBSCRIPTIONS_PER_QUESTION_CREATED,
+    deliveryRequireRecentAnswerer: DELIVERY_REQUIRE_RECENT_ANSWERER,
+    deliveryRecentAnswererWindowMinutes: DELIVERY_RECENT_ANSWERER_WINDOW_MINUTES,
+    deliveryRecentAnswererCacheTtlMs: DELIVERY_RECENT_ANSWERER_CACHE_TTL_MS,
+    deliveryRecentAnswererGraceMinutes: DELIVERY_RECENT_ANSWERER_GRACE_MINUTES,
     invalidBearerFallbackToKeyless: AUTH_INVALID_BEARER_FALLBACK_TO_KEYLESS,
     keylessAutoSubscribeResponderRoutes: Array.from(KEYLESS_AUTO_SUBSCRIBE_RESPONDER_ROUTES),
     deliveryRequeueEnabled: DELIVERY_REQUEUE_OPENED_ENABLED,
