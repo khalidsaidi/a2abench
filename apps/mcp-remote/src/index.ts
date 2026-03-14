@@ -19,6 +19,10 @@ const MCP_DERIVE_AGENT_NAME = (process.env.MCP_DERIVE_AGENT_NAME ?? 'true').toLo
 const MCP_DERIVED_AGENT_PREFIX = (process.env.MCP_DERIVED_AGENT_PREFIX ?? 'mcp-client').trim().toLowerCase() || 'mcp-client';
 const MCP_DERIVED_AGENT_HASH_LEN = Math.max(8, Math.min(32, Number(process.env.MCP_DERIVED_AGENT_HASH_LEN ?? 16)));
 const MCP_DERIVED_AGENT_SALT = process.env.MCP_DERIVED_AGENT_SALT ?? PUBLIC_MCP_URL;
+const MCP_PROXY_AGENT_PREFIXES = (process.env.MCP_PROXY_AGENT_PREFIXES ?? 'a2abench-mcp-proxy-')
+  .split(',')
+  .map((value) => value.trim().toLowerCase())
+  .filter(Boolean);
 const MCP_INLINE_NEXT_JOB = (process.env.MCP_INLINE_NEXT_JOB ?? 'true').toLowerCase() === 'true';
 const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '0.1.30';
 const COMMIT_SHA = process.env.COMMIT_SHA ?? process.env.GIT_SHA ?? 'unknown';
@@ -178,6 +182,18 @@ function normalizeAgentNameInput(value: string | null | undefined) {
   return normalized.slice(0, 128);
 }
 
+function deriveDirectAgentNameFromProxy(value: string | null | undefined) {
+  const normalized = normalizeAgentNameInput(value);
+  if (!normalized) return null;
+  for (const prefix of MCP_PROXY_AGENT_PREFIXES) {
+    if (!prefix) continue;
+    if (!normalized.startsWith(prefix)) continue;
+    const candidate = normalizeAgentNameInput(normalized.slice(prefix.length));
+    if (candidate) return candidate;
+  }
+  return normalized;
+}
+
 function sanitizeAgentLabel(value: string | null | undefined) {
   const cleaned = (value ?? '')
     .trim()
@@ -231,7 +247,7 @@ function resolveRequestAgentName(input: {
   authHeader?: string;
 }) {
   const presented = normalizeAgentNameInput(input.presentedAgentName);
-  if (presented) return presented;
+  if (presented) return deriveDirectAgentNameFromProxy(presented);
   if (MCP_DERIVE_AGENT_NAME) {
     return deriveAnonymousAgentName({
       ip: input.ip,
