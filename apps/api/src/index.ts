@@ -90,6 +90,10 @@ const DELIVERY_ACTIVE_WEBHOOK_WINDOW_HOURS = Math.max(1, Number(process.env.DELI
 const DELIVERY_ACTIVE_INBOX_WINDOW_MINUTES = Math.max(1, Number(process.env.DELIVERY_ACTIVE_INBOX_WINDOW_MINUTES ?? (AGENT_OPEN_MODE ? 5 : 15)));
 const DELIVERY_NEW_SUBSCRIPTION_GRACE_MINUTES = Math.max(1, Number(process.env.DELIVERY_NEW_SUBSCRIPTION_GRACE_MINUTES ?? (AGENT_OPEN_MODE ? 10 : 120)));
 const DELIVERY_MAX_PENDING_PER_SUBSCRIPTION = Math.max(0, Number(process.env.DELIVERY_MAX_PENDING_PER_SUBSCRIPTION ?? (AGENT_OPEN_MODE ? 12 : 200)));
+const DELIVERY_MAX_SUBSCRIPTIONS_PER_QUESTION_CREATED = Math.max(
+  0,
+  Number(process.env.DELIVERY_MAX_SUBSCRIPTIONS_PER_QUESTION_CREATED ?? (AGENT_OPEN_MODE ? 4 : 40))
+);
 const DELIVERY_REQUEUE_OPENED_ENABLED = (process.env.DELIVERY_REQUEUE_OPENED_ENABLED ?? 'true').toLowerCase() === 'true';
 const DELIVERY_REQUEUE_AFTER_MINUTES = Math.max(1, Number(process.env.DELIVERY_REQUEUE_AFTER_MINUTES ?? 6));
 const DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION = Math.max(1, Number(process.env.DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION ?? (AGENT_OPEN_MODE ? 2 : 5)));
@@ -3951,8 +3955,9 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
   let matchedSubscriptions = 0;
   let filteredBySolvability = 0;
   let filteredByPendingCap = 0;
+  let filteredByFanoutCap = 0;
   const deliveryBaseUrl = (PUBLIC_BASE_URL || SYSTEM_BASE_URL || `http://127.0.0.1:${PORT}`).replace(/\/+$/, '');
-  const queued = subscriptions.flatMap((sub) => {
+  const queueCandidates = subscriptions.flatMap((sub) => {
     const subscriptionTags = normalizeTags(sub.tags ?? []);
     if (!subscriptionMatches(subscriptionTags, input.question.tags)) return [];
     if (!subscriptionWantsEvent(sub.events, input.event)) return [];
@@ -4020,28 +4025,58 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
     };
 
     return [{
-      subscriptionId: sub.id,
-      agentName: sub.agentName,
-      event: input.event,
-      payload,
-      questionId: input.question.id,
-      answerId: input.answer?.id ?? input.acceptance?.acceptedAnswerId ?? null,
-      webhookUrl: sub.webhookUrl ?? null,
-      webhookSecret: sub.webhookSecret ?? null,
-      maxAttempts: DELIVERY_MAX_ATTEMPTS,
-      nextAttemptAt: new Date()
+      row: {
+        subscriptionId: sub.id,
+        agentName: sub.agentName,
+        event: input.event,
+        payload,
+        questionId: input.question.id,
+        answerId: input.answer?.id ?? input.acceptance?.acceptedAnswerId ?? null,
+        webhookUrl: sub.webhookUrl ?? null,
+        webhookSecret: sub.webhookSecret ?? null,
+        maxAttempts: DELIVERY_MAX_ATTEMPTS,
+        nextAttemptAt: new Date()
+      },
+      solvabilityScore: solvability?.score ?? 100,
+      matchedTagCount: subscriptionTags.length > 0
+        ? input.question.tags.filter((tag) => subscriptionTags.includes(tag.toLowerCase())).length
+        : 0,
+      pendingCount: pendingBySubscription.get(sub.id) ?? 0,
+      hasWebhook: Boolean(sub.webhookUrl)
     }];
   });
 
+  const queuedCandidates =
+    input.event === 'question.created' &&
+    DELIVERY_MAX_SUBSCRIPTIONS_PER_QUESTION_CREATED > 0 &&
+    queueCandidates.length > DELIVERY_MAX_SUBSCRIPTIONS_PER_QUESTION_CREATED
+      ? (() => {
+          const ranked = [...queueCandidates].sort((a, b) => {
+            if (b.solvabilityScore !== a.solvabilityScore) return b.solvabilityScore - a.solvabilityScore;
+            if (b.matchedTagCount !== a.matchedTagCount) return b.matchedTagCount - a.matchedTagCount;
+            if (a.pendingCount !== b.pendingCount) return a.pendingCount - b.pendingCount;
+            if (a.hasWebhook !== b.hasWebhook) return a.hasWebhook ? -1 : 1;
+            return a.row.subscriptionId.localeCompare(b.row.subscriptionId);
+          });
+          const limited = ranked.slice(0, DELIVERY_MAX_SUBSCRIPTIONS_PER_QUESTION_CREATED);
+          filteredByFanoutCap = ranked.length - limited.length;
+          return limited;
+        })()
+      : queueCandidates;
+
+  const queued = queuedCandidates.map((candidate) => candidate.row);
+
   if (queued.length === 0) {
-    if (matchedSubscriptions > 0 && (filteredBySolvability > 0 || filteredByPendingCap > 0)) {
+    if (matchedSubscriptions > 0 && (filteredBySolvability > 0 || filteredByPendingCap > 0 || filteredByFanoutCap > 0)) {
       fastify.log.info({
         event: input.event,
         questionId: input.question.id,
         matchedSubscriptions,
         filteredBySolvability,
         filteredByPendingCap,
+        filteredByFanoutCap,
         pendingCapPerSubscription: DELIVERY_MAX_PENDING_PER_SUBSCRIPTION,
+        maxSubscriptionsPerQuestionCreated: DELIVERY_MAX_SUBSCRIPTIONS_PER_QUESTION_CREATED,
         threshold: PUSH_SOLVABILITY_MIN_SCORE,
         unscopedThreshold: PUSH_SOLVABILITY_UNSCOPED_MIN_SCORE
       }, 'question webhook suppressed by delivery filters');
@@ -4058,6 +4093,16 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
       }, 'question webhook liveness filter stats');
     }
     return;
+  }
+  if (filteredByFanoutCap > 0) {
+    fastify.log.info({
+      event: input.event,
+      questionId: input.question.id,
+      matchedSubscriptions,
+      queued: queued.length,
+      filteredByFanoutCap,
+      maxSubscriptionsPerQuestionCreated: DELIVERY_MAX_SUBSCRIPTIONS_PER_QUESTION_CREATED
+    }, 'question webhook fanout capped');
   }
   await prisma.deliveryQueue.createMany({ data: queued });
   void processDeliveryQueue(Math.min(DELIVERY_PROCESS_LIMIT, queued.length)).catch(() => undefined);
@@ -7695,6 +7740,7 @@ function startBackgroundWorkers() {
     deliveryActiveInboxWindowMinutes: DELIVERY_ACTIVE_INBOX_WINDOW_MINUTES,
     deliveryNewSubscriptionGraceMinutes: DELIVERY_NEW_SUBSCRIPTION_GRACE_MINUTES,
     deliveryMaxPendingPerSubscription: DELIVERY_MAX_PENDING_PER_SUBSCRIPTION,
+    deliveryMaxSubscriptionsPerQuestionCreated: DELIVERY_MAX_SUBSCRIPTIONS_PER_QUESTION_CREATED,
     invalidBearerFallbackToKeyless: AUTH_INVALID_BEARER_FALLBACK_TO_KEYLESS,
     keylessAutoSubscribeResponderRoutes: Array.from(KEYLESS_AUTO_SUBSCRIBE_RESPONDER_ROUTES),
     deliveryRequeueEnabled: DELIVERY_REQUEUE_OPENED_ENABLED,
