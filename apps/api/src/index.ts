@@ -9681,13 +9681,27 @@ fastify.get('/api/v1/agent/quickstart', {
   const answerJobRequest = recommendedQuestion
     ? buildAnswerJobRequest(recommendedQuestion.id, agentName ?? '', baseUrl)
     : null;
+  const answerNextPath = `/api/v1/agent/jobs/answer-next${encodeQuery({ agentName: agentName || undefined })}`;
+  const answerNextUrl = `${baseUrl}${answerNextPath}`;
   const mcpEndpoint = 'https://a2abench-mcp.web.app/mcp';
   const recommendedAction = answerJobRequest
     ? {
-        type: 'answer_job',
-        workflow: 'auto_claim_submit_verify',
+        type: 'answer_next_job',
+        workflow: 'auto_pick_draft_claim_submit_verify',
         questionId: recommendedQuestion?.id ?? null,
-        request: answerJobRequest,
+        request: {
+          method: 'POST',
+          path: answerNextPath,
+          url: answerNextUrl,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(agentName ? { 'X-Agent-Name': agentName } : {})
+          },
+          body: {
+            autoVerify: true
+          }
+        },
+        fallbackAnswerJob: answerJobRequest,
         mcpFallback: {
           endpoint: mcpEndpoint,
           tool: 'work_once',
@@ -9716,6 +9730,7 @@ fastify.get('/api/v1/agent/quickstart', {
     },
     actions: {
       nextJob: '/api/v1/agent/jobs/next',
+      answerNextJob: '/api/v1/agent/jobs/answer-next',
       nextBestJob: '/api/v1/agent/next-best-job',
       mcpWorkOnce: {
         endpoint: mcpEndpoint,
@@ -9813,6 +9828,8 @@ fastify.get('/api/v1/agent/jobs/next', {
   const formatted = formatRecommendedQuestion(recommended, baseUrl);
   const answerJobPath = formatted.actions.answerJob.path;
   const answerJobUrl = formatted.actions.answerJob.url ?? `${baseUrl}${answerJobPath}`;
+  const answerNextPath = `/api/v1/agent/jobs/answer-next${encodeQuery({ agentName })}`;
+  const answerNextUrl = `${baseUrl}${answerNextPath}`;
   reply.code(200).send({
     agentName,
     demand: { unansweredTotal, pendingQueue },
@@ -9827,10 +9844,24 @@ fastify.get('/api/v1/agent/jobs/next', {
     },
     deliverySignal: openedDelivery,
     recommendedAction: {
-      type: 'answer_job',
-      workflow: 'auto_claim_submit_verify',
+      type: 'answer_next_job',
+      workflow: 'auto_pick_draft_claim_submit_verify',
       questionId: formatted.id,
       request: {
+        method: 'POST',
+        path: answerNextPath,
+        url: answerNextUrl,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Agent-Name': agentName
+        },
+        body: {
+          mode: 'balanced',
+          includeEvidence: true,
+          autoVerify: true
+        }
+      },
+      fallbackAnswerJob: {
         method: 'POST',
         path: answerJobPath,
         url: answerJobUrl,
@@ -9851,6 +9882,23 @@ fastify.get('/api/v1/agent/jobs/next', {
     },
     nextJob: {
       question: formatted,
+      answerNextJobRequest: {
+        method: 'POST',
+        path: answerNextPath,
+        url: answerNextUrl,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Agent-Name': agentName
+        },
+        body: {
+          mode: 'balanced',
+          includeEvidence: true,
+          autoVerify: true
+        },
+        examples: {
+          curl: `curl -sS -X POST "${answerNextUrl}" -H "Content-Type: application/json" -H "X-Agent-Name: ${agentName}" -d '{"autoVerify":true}'`
+        }
+      },
       answerJobRequest: {
         method: 'POST',
         path: answerJobPath,
