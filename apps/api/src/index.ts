@@ -435,6 +435,22 @@ function isProxiedExternalAgentName(value: string | null | undefined) {
   return PROXIED_EXTERNAL_AGENT_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
 
+function deriveDirectAgentNameFromProxy(value: string | null | undefined) {
+  const normalized = normalizeAgentOrNull(value);
+  if (!normalized) return null;
+  for (const prefix of PROXIED_EXTERNAL_AGENT_PREFIXES) {
+    if (!prefix) continue;
+    if (!normalized.startsWith(prefix)) continue;
+    const candidate = normalizeAgentOrNull(normalized.slice(prefix.length));
+    if (candidate) return candidate;
+  }
+  if (normalized.startsWith('a2abench-')) {
+    const candidate = normalizeAgentOrNull(normalized.replace(/^a2abench-+/, ''));
+    if (candidate) return candidate;
+  }
+  return normalized;
+}
+
 function isRealAgentName(value: string | null | undefined) {
   const normalized = normalizeAgentOrNull(value);
   if (!normalized) return false;
@@ -582,8 +598,19 @@ const KEYLESS_AUTH_ALLOWED_ROUTES = new Set([
   '/api/v1/answers/:id/vote',
   '/api/v1/subscriptions',
   '/api/v1/subscriptions/:id/disable',
-  '/api/v1/agent/inbox'
+  '/api/v1/agent/inbox',
+  '/api/v1/agent/migration/event'
 ]);
+const MIGRATION_PHASES = ['plan_requested', 'install_confirmed', 'direct_enabled'] as const;
+const MIGRATION_PHASE_ENUM = z.enum(MIGRATION_PHASES);
+type MigrationPhase = typeof MIGRATION_PHASES[number];
+const MIGRATION_KIND_BY_PHASE: Record<MigrationPhase, string> = {
+  plan_requested: 'proxy_migration_plan_requested',
+  install_confirmed: 'proxy_migration_install_confirmed',
+  direct_enabled: 'proxy_migration_direct_enabled'
+};
+const PROXY_MIGRATION_TARGETS = ['claude_code', 'cursor', 'custom_http'] as const;
+const PROXY_MIGRATION_TARGET_ENUM = z.enum(PROXY_MIGRATION_TARGETS);
 const keylessIdentityBudget = new Map<string, Set<string>>();
 
 function isNoiseEvent(entry: { method: string; route: string; status: number }) {
@@ -2144,6 +2171,47 @@ async function storeAgentPayloadEvent(entry: {
   responseBody?: unknown;
 }) {
   if (!CAPTURE_AGENT_PAYLOADS) return;
+  const requestBody = entry.requestBody !== undefined ? stringifyPayload(entry.requestBody) : null;
+  const responseBody = entry.responseBody !== undefined ? stringifyPayload(entry.responseBody) : null;
+
+  await prisma.agentPayloadEvent.create({
+    data: {
+      source: entry.source,
+      kind: entry.kind,
+      method: entry.method ?? null,
+      route: entry.route ?? null,
+      status: entry.status ?? null,
+      durationMs: entry.durationMs ?? null,
+      tool: entry.tool ?? null,
+      requestId: entry.requestId ?? null,
+      agentName: entry.agentName ?? null,
+      userAgent: entry.userAgent ?? null,
+      ip: entry.ip ?? null,
+      apiKeyPrefix: entry.apiKeyPrefix ?? null,
+      requestBody,
+      responseBody
+    }
+  });
+
+  void pruneAgentPayloadEvents().catch(() => undefined);
+}
+
+async function storeExplicitAgentTelemetryEvent(entry: {
+  source: string;
+  kind: string;
+  method?: string | null;
+  route?: string | null;
+  status?: number | null;
+  durationMs?: number | null;
+  tool?: string | null;
+  requestId?: string | null;
+  agentName?: string | null;
+  userAgent?: string | null;
+  ip?: string | null;
+  apiKeyPrefix?: string | null;
+  requestBody?: unknown;
+  responseBody?: unknown;
+}) {
   const requestBody = entry.requestBody !== undefined ? stringifyPayload(entry.requestBody) : null;
   const responseBody = entry.responseBody !== undefined ? stringifyPayload(entry.responseBody) : null;
 
@@ -9345,6 +9413,183 @@ fastify.get('/api/v1/agent/next-best-job', {
   };
 });
 
+fastify.get('/api/v1/agent/proxy-migration', {
+  schema: {
+    tags: ['discovery'],
+    querystring: {
+      type: 'object',
+      properties: {
+        agentName: { type: 'string' },
+        target: { type: 'string', enum: PROXY_MIGRATION_TARGETS }
+      }
+    }
+  }
+}, async (request) => {
+  const query = request.query as { agentName?: string; target?: string };
+  const target = PROXY_MIGRATION_TARGET_ENUM.safeParse(query.target).success
+    ? query.target as typeof PROXY_MIGRATION_TARGETS[number]
+    : 'claude_code';
+  const originalAgentName = normalizeAgentOrNull(query.agentName ?? getAgentNameWithBinding(request));
+  const suggestedDirectAgentName = deriveDirectAgentNameFromProxy(originalAgentName);
+  const effectiveAgentName = suggestedDirectAgentName ?? originalAgentName;
+  const baseUrl = getBaseUrl(request);
+  const mcpEndpoint = 'https://a2abench-mcp.web.app/mcp';
+
+  const [recommended, pendingQueue, autoSubscription] = effectiveAgentName
+    ? await Promise.all([
+        getRecommendedQuestionForAgent(effectiveAgentName),
+        getPendingQuestionDeliveryCountForAgent(effectiveAgentName),
+        ensureJobDiscoverySubscription(effectiveAgentName)
+      ])
+    : [null, 0, null];
+  const authMeta = getRequestAuthMeta(request);
+
+  if (originalAgentName) {
+    void storeExplicitAgentTelemetryEvent({
+      source: 'migration',
+      kind: 'proxy_migration_plan_served',
+      method: request.method,
+      route: resolveRoute(request as RouteRequest),
+      status: 200,
+      requestId: request.id,
+      agentName: originalAgentName,
+      userAgent: normalizeHeader(request.headers['user-agent']).slice(0, 256) || null,
+      ip: getClientIp(request as RouteRequest & { ip?: string; socket?: { remoteAddress?: string } }),
+      apiKeyPrefix: authMeta ? buildUsageApiKeyPrefix(authMeta) : null,
+      requestBody: {
+        target,
+        suggestedDirectAgentName
+      }
+    }).catch(() => undefined);
+  }
+
+  const installCommands = {
+    claude_code: `claude mcp add --transport http a2abench ${mcpEndpoint}`,
+    cursor: `cursor mcp add a2abench --transport http --url ${mcpEndpoint}`,
+    custom_http: `POST ${mcpEndpoint} with MCP Streamable HTTP transport`
+  } as const;
+
+  return {
+    target,
+    classification: {
+      agentName: originalAgentName,
+      suggestedDirectAgentName,
+      isProxied: isProxiedExternalAgentName(originalAgentName),
+      isSynthetic: isSyntheticAgentName(originalAgentName),
+      isExcluded: isExcludedExternalAgentName(originalAgentName),
+      isExternalAdoptionEligible: isExternalAdoptionAgentName(originalAgentName)
+    },
+    recommendation: {
+      action: isProxiedExternalAgentName(originalAgentName) ? 'install_direct_mcp' : 'already_direct_or_unknown',
+      reason: isProxiedExternalAgentName(originalAgentName)
+        ? 'Current agent identity is proxied. Direct install will count as independent adoption.'
+        : 'Agent is not currently classified as proxied.'
+    },
+    directInstall: {
+      mcpEndpoint,
+      command: installCommands[target],
+      commands: installCommands,
+      verify: {
+        quickstart: `${baseUrl}/api/v1/agent/quickstart${effectiveAgentName ? `?agentName=${encodeURIComponent(effectiveAgentName)}` : ''}`,
+        unanswered: `${baseUrl}/api/v1/questions/unanswered${effectiveAgentName ? `?agentName=${encodeURIComponent(effectiveAgentName)}` : ''}`
+      }
+    },
+    auth: {
+      mode: 'keyless_managed_default',
+      requiredHeaderForKeyless: 'X-Agent-Name',
+      optionalTrialKey: `${baseUrl}/api/v1/auth/trial-key`,
+      writeExample: effectiveAgentName
+        ? `curl -sS -X POST "${baseUrl}/api/v1/questions" -H "Content-Type: application/json" -H "X-Agent-Name: ${effectiveAgentName}" -d '{"title":"Agent migration test","bodyMd":"Direct install check","tags":["migration"]}'`
+        : null
+    },
+    demand: {
+      pendingQueue
+    },
+    onboarding: {
+      autoSubscription: autoSubscription
+        ? {
+            enabled: autoSubscription.enabled,
+            created: autoSubscription.created,
+            subscriptionId: autoSubscription.id,
+            mode: autoSubscription.mode
+          }
+        : null
+    },
+    nextBestJob: recommended ? formatRecommendedQuestion(recommended, baseUrl) : null
+  };
+});
+
+fastify.post('/api/v1/agent/migration/event', {
+  schema: {
+    tags: ['discovery'],
+    security: [{ ApiKeyAuth: [] }],
+    body: {
+      type: 'object',
+      required: ['phase'],
+      properties: {
+        phase: { type: 'string', enum: MIGRATION_PHASES },
+        target: { type: 'string', enum: PROXY_MIGRATION_TARGETS },
+        directAgentName: { type: 'string' },
+        notes: { type: 'string' }
+      }
+    }
+  },
+  config: {
+    rateLimit: {
+      max: 240,
+      timeWindow: '1 minute',
+      keyGenerator: (request: RouteRequest) => extractApiKeyPrefix(request.headers) ?? request.ip ?? 'unknown'
+    }
+  }
+}, async (request, reply) => {
+  const apiKey = await requireApiKey(request, reply);
+  if (!apiKey) return;
+  const body = parse(
+    z.object({
+      phase: MIGRATION_PHASE_ENUM,
+      target: PROXY_MIGRATION_TARGET_ENUM.optional(),
+      directAgentName: z.string().min(1).max(128).optional(),
+      notes: z.string().min(1).max(500).optional()
+    }),
+    request.body,
+    reply
+  );
+  if (!body) return;
+  const agentName = getAgentNameWithBinding(request);
+  if (!agentName) {
+    reply.code(400).send({ error: 'X-Agent-Name is required.' });
+    return;
+  }
+  const authMeta = getRequestAuthMeta(request);
+  const kind = MIGRATION_KIND_BY_PHASE[body.phase];
+  await storeExplicitAgentTelemetryEvent({
+    source: 'migration',
+    kind,
+    method: request.method,
+    route: resolveRoute(request as RouteRequest),
+    status: 200,
+    durationMs: null,
+    requestId: request.id,
+    agentName,
+    userAgent: normalizeHeader(request.headers['user-agent']).slice(0, 256) || null,
+    ip: getClientIp(request as RouteRequest & { ip?: string; socket?: { remoteAddress?: string } }),
+    apiKeyPrefix: authMeta ? buildUsageApiKeyPrefix(authMeta) : apiKey.keyPrefix,
+    requestBody: {
+      phase: body.phase,
+      target: body.target ?? null,
+      directAgentName: normalizeAgentOrNull(body.directAgentName ?? null),
+      notes: body.notes ?? null
+    }
+  });
+  reply.code(200).send({
+    ok: true,
+    kind,
+    phase: body.phase,
+    agentName,
+    recordedAt: new Date().toISOString()
+  });
+});
+
 fastify.get('/api/v1/bounties', {
   schema: {
     tags: ['questions', 'discovery'],
@@ -13066,6 +13311,88 @@ fastify.get('/api/v1/admin/agent-events', {
     where,
     orderBy: { createdAt: 'desc' },
     take
+  });
+});
+
+fastify.get('/api/v1/admin/proxy-migration/funnel', {
+  schema: {
+    tags: ['admin'],
+    security: [{ AdminToken: [] }],
+    querystring: {
+      type: 'object',
+      properties: {
+        days: { type: 'integer', minimum: 1, maximum: 90 }
+      }
+    }
+  }
+}, async (request, reply) => {
+  if (!(await requireAdmin(request, reply))) return;
+  const query = request.query as { days?: number };
+  const days = Math.max(1, Math.min(90, Number(query.days ?? 7)));
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const kinds = Object.values(MIGRATION_KIND_BY_PHASE);
+
+  const [rows, uniqueRows, recent] = await Promise.all([
+    prisma.agentPayloadEvent.groupBy({
+      by: ['kind'],
+      where: {
+        source: 'migration',
+        kind: { in: kinds },
+        createdAt: { gte: since }
+      },
+      _count: { kind: true }
+    }),
+    prisma.$queryRaw<Array<{ kind: string; agents: bigint | number | string }>>`
+      SELECT
+        "kind",
+        COUNT(DISTINCT "agentName") AS agents
+      FROM "AgentPayloadEvent"
+      WHERE "source" = 'migration'
+        AND "createdAt" >= ${since}
+        AND "kind" IN (${Prisma.join(kinds)})
+      GROUP BY "kind"
+    `,
+    prisma.agentPayloadEvent.findMany({
+      where: {
+        source: 'migration',
+        kind: { in: kinds },
+        createdAt: { gte: since }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50
+    })
+  ]);
+
+  const counts = new Map(rows.map((row) => [row.kind, row._count.kind]));
+  const uniqueAgents = new Map(uniqueRows.map((row) => [row.kind, toNumber(row.agents)]));
+  const planRequested = counts.get(MIGRATION_KIND_BY_PHASE.plan_requested) ?? 0;
+  const installConfirmed = counts.get(MIGRATION_KIND_BY_PHASE.install_confirmed) ?? 0;
+  const directEnabled = counts.get(MIGRATION_KIND_BY_PHASE.direct_enabled) ?? 0;
+
+  reply.code(200).send({
+    days,
+    since: since.toISOString(),
+    totals: {
+      planRequested,
+      installConfirmed,
+      directEnabled
+    },
+    conversion: {
+      installConfirmedFromPlan: ratio(installConfirmed, planRequested),
+      directEnabledFromPlan: ratio(directEnabled, planRequested)
+    },
+    byKind: kinds.map((kind) => ({
+      kind,
+      events: counts.get(kind) ?? 0,
+      uniqueAgents: uniqueAgents.get(kind) ?? 0
+    })),
+    recent: recent.map((row) => ({
+      id: row.id,
+      kind: row.kind,
+      agentName: row.agentName,
+      createdAt: row.createdAt,
+      requestBody: row.requestBody ? parseJsonMaybe(row.requestBody) : null
+    }))
   });
 });
 

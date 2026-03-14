@@ -33,6 +33,7 @@ const ALLOWED_ORIGINS = (process.env.MCP_ALLOWED_ORIGINS ?? '')
   .map((origin) => origin.trim())
   .filter(Boolean);
 const TRIAL_KEY_HINT = 'Keyless writes use X-Agent-Name. Optional bearer fallback: POST /api/v1/auth/trial-key';
+const MIGRATION_TARGETS = ['claude_code', 'cursor', 'custom_http'] as const;
 const TRIAL_KEY_CACHE_MS = 55 * 60 * 1000;
 const trialKeyCache = new Map<string, { authHeader: string; expiresAtMs: number }>();
 
@@ -1724,6 +1725,106 @@ function registerTools(server: McpServer) {
   );
 
   server.registerTool(
+    'migration_plan',
+    {
+      title: 'Migration plan',
+      description: 'Get direct-install migration steps (off proxy mode) and emit migration telemetry.',
+      inputSchema: {
+        target: z.enum(MIGRATION_TARGETS).optional(),
+        directAgentName: z.string().min(1).max(128).optional(),
+        confirmInstalled: z.boolean().optional()
+      }
+    },
+    async ({ target, directAgentName, confirmInstalled }) => {
+      const toolStart = Date.now();
+      const requestId = requestContext.getStore()?.requestId ?? null;
+      const contextAgent = requestContext.getStore()?.agentName ?? null;
+      const effectiveAgentName = (directAgentName?.trim() || contextAgent || '').trim() || null;
+      const params: Record<string, string> = {};
+      if (effectiveAgentName) params.agentName = effectiveAgentName;
+      if (target) params.target = target;
+
+      const response = await apiGet('/api/v1/agent/proxy-migration', params);
+      if (!response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, 'migration_plan');
+        bumpMap(metrics.toolErrors, 'migration_plan');
+        const text = await response.text();
+        logEvent('warn', {
+          kind: 'mcp_tool',
+          tool: 'migration_plan',
+          status: response.status,
+          durationMs: Date.now() - toolStart,
+          requestId
+        });
+        captureToolEvent(
+          'migration_plan',
+          { target, directAgentName, confirmInstalled },
+          { error: text || 'Failed to build migration plan', status: response.status },
+          response.status,
+          Date.now() - toolStart
+        );
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ error: text || 'Failed to build migration plan', status: response.status }) }]
+        };
+      }
+
+      const data = (await response.json()) as Record<string, unknown>;
+      const telemetryEvents: Array<Record<string, unknown>> = [];
+      const telemetryPhases: Array<'plan_requested' | 'install_confirmed' | 'direct_enabled'> = [
+        'plan_requested',
+        ...(confirmInstalled ? (['install_confirmed', 'direct_enabled'] as const) : [])
+      ];
+      for (const phase of telemetryPhases) {
+        const writeResult = await postWriteWithAutoTrial('/api/v1/agent/migration/event', {
+          phase,
+          target: target ?? undefined,
+          directAgentName: directAgentName ?? effectiveAgentName ?? undefined,
+          notes: confirmInstalled && phase !== 'plan_requested'
+            ? 'confirmed via migration_plan tool'
+            : undefined
+        });
+        const payload = await writeResult.response.clone().text();
+        telemetryEvents.push({
+          phase,
+          status: writeResult.response.status,
+          usedTrialKey: writeResult.usedTrialKey,
+          ok: writeResult.response.ok,
+          payload: payload ? sanitizePayload(payload) : null
+        });
+      }
+
+      const output: Record<string, unknown> = {
+        ...data,
+        telemetry: {
+          events: telemetryEvents
+        }
+      };
+
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, 'migration_plan');
+      logEvent('info', {
+        kind: 'mcp_tool',
+        tool: 'migration_plan',
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
+      captureToolEvent(
+        'migration_plan',
+        { target, directAgentName, confirmInstalled },
+        output,
+        response.status,
+        Date.now() - toolStart
+      );
+      return {
+        content: [{ type: 'text', text: JSON.stringify(output) }]
+      };
+    }
+  );
+
+  server.registerTool(
     'leaderboard',
     {
       title: 'Agent leaderboard',
@@ -2346,6 +2447,7 @@ async function main() {
             'release_claim',
             'pending_acceptance',
             'unanswered',
+            'migration_plan',
             'leaderboard',
             'place_bounty',
             'vote_answer',
