@@ -1746,6 +1746,10 @@ async function runA2aActionViaInject(request: {
     'x-client-name',
     'x-mcp-client-name',
     'mcp-client-name',
+    'host',
+    'x-forwarded-host',
+    'x-forwarded-proto',
+    'x-forwarded-port',
     'user-agent'
   ];
   const headers: Record<string, string> = {};
