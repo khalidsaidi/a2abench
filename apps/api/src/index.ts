@@ -2285,6 +2285,7 @@ const CAPTURED_ROUTES = new Set([
   '/api/v1/admin/delivery/process',
   '/api/v1/admin/delivery/queue',
   '/api/v1/admin/delivery/requeue-opened-unanswered',
+  '/api/v1/admin/delivery/prune-low-solvability',
   '/api/v1/admin/subscriptions/health',
   '/api/v1/admin/subscriptions/prune',
   '/api/v1/admin/reminders/process',
@@ -3105,6 +3106,140 @@ async function processOpenedUnansweredRequeue(options?: { limit?: number; dryRun
     windowMinutes: DELIVERY_REQUEUE_AFTER_MINUTES,
     maxPerQuestionSubscription: DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION,
     delivery
+  };
+}
+
+async function pruneLowSolvabilityPendingDeliveries(options?: { limit?: number; dryRun?: boolean }) {
+  const dryRun = options?.dryRun === true;
+  const scanLimit = Math.max(1, Math.min(5000, options?.limit ?? 2000));
+  const pendingRows = await prisma.deliveryQueue.findMany({
+    where: {
+      event: 'question.created',
+      deliveredAt: null,
+      attemptCount: { lt: DELIVERY_MAX_ATTEMPTS },
+      questionId: { not: null }
+    },
+    select: {
+      id: true,
+      subscriptionId: true,
+      questionId: true,
+      createdAt: true
+    },
+    orderBy: { createdAt: 'asc' },
+    take: scanLimit
+  });
+
+  if (pendingRows.length === 0) {
+    return {
+      dryRun,
+      scanned: 0,
+      eligible: 0,
+      removed: 0,
+      skipped: {
+        missingSubscription: 0,
+        missingQuestion: 0,
+        proxiedSubscription: 0,
+        passesSolvability: 0
+      },
+      threshold: PUSH_SOLVABILITY_MIN_SCORE,
+      unscopedThreshold: PUSH_SOLVABILITY_UNSCOPED_MIN_SCORE
+    };
+  }
+
+  const subscriptionIds = Array.from(new Set(pendingRows.map((row) => row.subscriptionId)));
+  const questionIds = Array.from(new Set(
+    pendingRows
+      .map((row) => row.questionId?.trim() ?? '')
+      .filter(Boolean)
+  ));
+
+  const [subscriptions, questions] = await Promise.all([
+    prisma.questionSubscription.findMany({
+      where: { id: { in: subscriptionIds } },
+      select: {
+        id: true,
+        agentName: true,
+        tags: true
+      }
+    }),
+    prisma.question.findMany({
+      where: { id: { in: questionIds } },
+      include: {
+        tags: { include: { tag: true } },
+        _count: { select: { answers: true } },
+        bounty: true
+      }
+    })
+  ]);
+
+  const subscriptionById = new Map(subscriptions.map((row) => [row.id, row]));
+  const questionById = new Map(questions.map((row) => [row.id, row]));
+
+  const removableIds: string[] = [];
+  const skipped = {
+    missingSubscription: 0,
+    missingQuestion: 0,
+    proxiedSubscription: 0,
+    passesSolvability: 0
+  };
+
+  for (const row of pendingRows) {
+    const questionId = row.questionId?.trim();
+    if (!questionId) {
+      skipped.missingQuestion += 1;
+      continue;
+    }
+    const subscription = subscriptionById.get(row.subscriptionId);
+    if (!subscription) {
+      skipped.missingSubscription += 1;
+      continue;
+    }
+    if (isProxiedExternalAgentName(subscription.agentName)) {
+      skipped.proxiedSubscription += 1;
+      continue;
+    }
+    const question = questionById.get(questionId);
+    if (!question) {
+      skipped.missingQuestion += 1;
+      continue;
+    }
+    const subscriptionTags = normalizeTags(subscription.tags ?? []);
+    const threshold = subscriptionTags.length === 0
+      ? PUSH_SOLVABILITY_UNSCOPED_MIN_SCORE
+      : PUSH_SOLVABILITY_MIN_SCORE;
+    const solvability = assessQuestionSolvability({
+      title: question.title,
+      bodyText: question.bodyText,
+      tags: question.tags.map((link) => link.tag.name),
+      sourceType: question.sourceType,
+      answerCount: question._count.answers,
+      bountyAmount: getActiveBountyAmount(question.bounty),
+      createdAt: question.createdAt,
+      preferredTags: new Set(subscriptionTags)
+    }, threshold);
+    if (solvability.pass) {
+      skipped.passesSolvability += 1;
+      continue;
+    }
+    removableIds.push(row.id);
+  }
+
+  let removed = 0;
+  if (!dryRun && removableIds.length > 0) {
+    const deleted = await prisma.deliveryQueue.deleteMany({
+      where: { id: { in: removableIds } }
+    });
+    removed = deleted.count;
+  }
+
+  return {
+    dryRun,
+    scanned: pendingRows.length,
+    eligible: removableIds.length,
+    removed: dryRun ? 0 : removed,
+    skipped,
+    threshold: PUSH_SOLVABILITY_MIN_SCORE,
+    unscopedThreshold: PUSH_SOLVABILITY_UNSCOPED_MIN_SCORE
   };
 }
 
@@ -13650,6 +13785,44 @@ fastify.post('/api/v1/admin/delivery/requeue-opened-unanswered', {
   const summary = await withPrismaPoolRetry(
     'admin_delivery_requeue_opened_unanswered',
     () => processOpenedUnansweredRequeue({
+      limit: body.limit,
+      dryRun: body.dryRun
+    }),
+    3
+  );
+  reply.code(200).send({
+    ok: true,
+    ...summary,
+    processedAt: new Date().toISOString()
+  });
+});
+
+fastify.post('/api/v1/admin/delivery/prune-low-solvability', {
+  schema: {
+    tags: ['admin'],
+    security: [{ AdminToken: [] }],
+    body: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 5000 },
+        dryRun: { type: 'boolean' }
+      }
+    }
+  }
+}, async (request, reply) => {
+  if (!(await requireAdmin(request, reply))) return;
+  const body = parse(
+    z.object({
+      limit: z.number().int().min(1).max(5000).optional(),
+      dryRun: z.boolean().optional()
+    }),
+    request.body ?? {},
+    reply
+  );
+  if (!body) return;
+  const summary = await withPrismaPoolRetry(
+    'admin_delivery_prune_low_solvability',
+    () => pruneLowSolvabilityPendingDeliveries({
       limit: body.limit,
       dryRun: body.dryRun
     }),
