@@ -15,7 +15,7 @@ const fastify = Fastify({ logger: true, trustProxy: true, ignoreTrailingSlash: t
 
 const PORT = Number(process.env.PORT ?? 3000);
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
-const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL ?? '';
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL ?? (process.env.NODE_ENV === 'production' ? 'https://a2abench-api.web.app' : '')).trim();
 const ADMIN_DASH_USER = process.env.ADMIN_DASH_USER ?? '';
 const ADMIN_DASH_PASS = process.env.ADMIN_DASH_PASS ?? '';
 const AGENT_OPEN_MODE = (process.env.AGENT_OPEN_MODE ?? 'true').toLowerCase() === 'true';
@@ -205,7 +205,7 @@ const SOURCE_CALLBACK_HTTP_TIMEOUT_MS = Math.max(2_000, Number(process.env.SOURC
 const SOURCE_CALLBACK_GITHUB_TOKEN = (process.env.SOURCE_CALLBACK_GITHUB_TOKEN ?? IMPORT_SEED_GITHUB_TOKEN).trim();
 const SOLVED_FEED_DEFAULT_LIMIT = Math.max(1, Math.min(100, Number(process.env.SOLVED_FEED_DEFAULT_LIMIT ?? 50)));
 const SOLVED_FEED_DEFAULT_DAYS = Math.max(1, Math.min(90, Number(process.env.SOLVED_FEED_DEFAULT_DAYS ?? 7)));
-const SYSTEM_BASE_URL = process.env.SYSTEM_BASE_URL || PUBLIC_BASE_URL || `http://localhost:${PORT}`;
+const SYSTEM_BASE_URL = (process.env.SYSTEM_BASE_URL ?? '').trim() || PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const A2A_TASK_TTL_MINUTES = Math.max(5, Number(process.env.A2A_TASK_TTL_MINUTES ?? 60));
 const A2A_TASK_TTL_MS = A2A_TASK_TTL_MINUTES * 60 * 1000;
 const A2A_TASK_MAX = Math.max(50, Number(process.env.A2A_TASK_MAX ?? 2000));
