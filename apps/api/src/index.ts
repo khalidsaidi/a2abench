@@ -89,10 +89,10 @@ const DELIVERY_REQUIRE_RECENT_ACTIVITY = (process.env.DELIVERY_REQUIRE_RECENT_AC
 const DELIVERY_ACTIVE_WEBHOOK_WINDOW_HOURS = Math.max(1, Number(process.env.DELIVERY_ACTIVE_WEBHOOK_WINDOW_HOURS ?? 24));
 const DELIVERY_ACTIVE_INBOX_WINDOW_MINUTES = Math.max(1, Number(process.env.DELIVERY_ACTIVE_INBOX_WINDOW_MINUTES ?? (AGENT_OPEN_MODE ? 5 : 15)));
 const DELIVERY_NEW_SUBSCRIPTION_GRACE_MINUTES = Math.max(1, Number(process.env.DELIVERY_NEW_SUBSCRIPTION_GRACE_MINUTES ?? (AGENT_OPEN_MODE ? 10 : 120)));
-const DELIVERY_MAX_PENDING_PER_SUBSCRIPTION = Math.max(0, Number(process.env.DELIVERY_MAX_PENDING_PER_SUBSCRIPTION ?? (AGENT_OPEN_MODE ? 40 : 200)));
+const DELIVERY_MAX_PENDING_PER_SUBSCRIPTION = Math.max(0, Number(process.env.DELIVERY_MAX_PENDING_PER_SUBSCRIPTION ?? (AGENT_OPEN_MODE ? 12 : 200)));
 const DELIVERY_REQUEUE_OPENED_ENABLED = (process.env.DELIVERY_REQUEUE_OPENED_ENABLED ?? 'true').toLowerCase() === 'true';
 const DELIVERY_REQUEUE_AFTER_MINUTES = Math.max(1, Number(process.env.DELIVERY_REQUEUE_AFTER_MINUTES ?? 6));
-const DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION = Math.max(1, Number(process.env.DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION ?? (AGENT_OPEN_MODE ? 5 : 5)));
+const DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION = Math.max(1, Number(process.env.DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION ?? (AGENT_OPEN_MODE ? 2 : 5)));
 const DELIVERY_REQUEUE_SCAN_LIMIT = Math.max(1, Math.min(2000, Number(process.env.DELIVERY_REQUEUE_SCAN_LIMIT ?? (AGENT_OPEN_MODE ? 1200 : 400))));
 const DELIVERY_REQUEUE_LOOP_INTERVAL_MS = Math.max(15_000, Number(process.env.DELIVERY_REQUEUE_LOOP_INTERVAL_MS ?? 60_000));
 const JOB_DISCOVERY_AUTO_SUBSCRIBE = (process.env.JOB_DISCOVERY_AUTO_SUBSCRIBE ?? (AGENT_OPEN_MODE ? 'true' : 'false')).toLowerCase() === 'true';
@@ -120,8 +120,12 @@ const DELIVERY_LOOP_ENABLED = (process.env.DELIVERY_LOOP_ENABLED ?? 'true').toLo
 const DELIVERY_LOOP_INTERVAL_MS = Math.max(1000, Number(process.env.DELIVERY_LOOP_INTERVAL_MS ?? 5000));
 const REMINDER_LOOP_ENABLED = (process.env.REMINDER_LOOP_ENABLED ?? 'true').toLowerCase() === 'true';
 const REMINDER_LOOP_INTERVAL_MS = Math.max(5000, Number(process.env.REMINDER_LOOP_INTERVAL_MS ?? 60_000));
-const PUSH_SOLVABILITY_FILTER_ENABLED = (process.env.PUSH_SOLVABILITY_FILTER_ENABLED ?? (AGENT_OPEN_MODE ? 'false' : 'true')).toLowerCase() === 'true';
-const PUSH_SOLVABILITY_MIN_SCORE = Math.max(0, Math.min(100, Number(process.env.PUSH_SOLVABILITY_MIN_SCORE ?? (AGENT_OPEN_MODE ? 0 : 56))));
+const PUSH_SOLVABILITY_FILTER_ENABLED = (process.env.PUSH_SOLVABILITY_FILTER_ENABLED ?? 'true').toLowerCase() === 'true';
+const PUSH_SOLVABILITY_MIN_SCORE = Math.max(0, Math.min(100, Number(process.env.PUSH_SOLVABILITY_MIN_SCORE ?? (AGENT_OPEN_MODE ? 42 : 56))));
+const PUSH_SOLVABILITY_UNSCOPED_MIN_SCORE = Math.max(
+  PUSH_SOLVABILITY_MIN_SCORE,
+  Math.min(100, Number(process.env.PUSH_SOLVABILITY_UNSCOPED_MIN_SCORE ?? (AGENT_OPEN_MODE ? 58 : 64)))
+);
 const NEXT_BEST_JOB_MIN_SOLVABILITY = Math.max(0, Math.min(100, Number(process.env.NEXT_BEST_JOB_MIN_SOLVABILITY ?? 40)));
 const NEXT_JOB_FIRST_TOUCH_MODE_ENABLED = (process.env.NEXT_JOB_FIRST_TOUCH_MODE_ENABLED ?? 'true').toLowerCase() === 'true';
 const NEXT_JOB_FIRST_TOUCH_MAX_ANSWERS = Math.max(0, Number(process.env.NEXT_JOB_FIRST_TOUCH_MAX_ANSWERS ?? 2));
@@ -3501,6 +3505,9 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
     if (!subscriptionWantsEvent(sub.events, input.event)) return [];
     matchedSubscriptions += 1;
     const isProxiedSubscriber = isProxiedExternalAgentName(sub.agentName);
+    const pushSolvabilityThreshold = subscriptionTags.length === 0
+      ? PUSH_SOLVABILITY_UNSCOPED_MIN_SCORE
+      : PUSH_SOLVABILITY_MIN_SCORE;
 
     if (input.event === 'question.created' && DELIVERY_MAX_PENDING_PER_SUBSCRIPTION > 0) {
       const pendingCount = pendingBySubscription.get(sub.id) ?? 0;
@@ -3522,7 +3529,7 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
         bountyAmount: 0,
         createdAt: input.question.createdAt,
         preferredTags: new Set(subscriptionTags)
-      }, PUSH_SOLVABILITY_MIN_SCORE);
+      }, pushSolvabilityThreshold);
       if (PUSH_SOLVABILITY_FILTER_ENABLED && !solvability.pass && !isProxiedSubscriber) {
         filteredBySolvability += 1;
         return [];
@@ -3551,7 +3558,7 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
         solvability: solvability
           ? {
               score: solvability.score,
-              threshold: PUSH_SOLVABILITY_MIN_SCORE,
+              threshold: pushSolvabilityThreshold,
               pass: solvability.pass,
               reasons: solvability.reasons
             }
@@ -3582,7 +3589,8 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
         filteredBySolvability,
         filteredByPendingCap,
         pendingCapPerSubscription: DELIVERY_MAX_PENDING_PER_SUBSCRIPTION,
-        threshold: PUSH_SOLVABILITY_MIN_SCORE
+        threshold: PUSH_SOLVABILITY_MIN_SCORE,
+        unscopedThreshold: PUSH_SOLVABILITY_UNSCOPED_MIN_SCORE
       }, 'question webhook suppressed by delivery filters');
     }
     if (liveness.suppressedInactive > 0) {
@@ -7251,6 +7259,7 @@ function startBackgroundWorkers() {
     nextJobGuardrailEasyMinSolvability: NEXT_JOB_GUARDRAIL_EASY_MIN_SOLVABILITY,
     pushSolvabilityFilterEnabled: PUSH_SOLVABILITY_FILTER_ENABLED,
     pushSolvabilityMinScore: PUSH_SOLVABILITY_MIN_SCORE,
+    pushSolvabilityUnscopedMinScore: PUSH_SOLVABILITY_UNSCOPED_MIN_SCORE,
     nextBestJobMinSolvability: NEXT_BEST_JOB_MIN_SOLVABILITY
   }, 'background workers started');
 }
