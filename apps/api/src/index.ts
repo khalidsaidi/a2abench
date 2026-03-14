@@ -665,6 +665,12 @@ const KEYLESS_AUTH_ALLOWED_ROUTES = new Set([
   '/api/v1/agent/jobs/answer-next',
   '/api/v1/agent/migration/event'
 ]);
+const KEYLESS_AUTO_SUBSCRIBE_RESPONDER_ROUTES = new Set([
+  '/api/v1/questions/:id/claim',
+  '/api/v1/questions/:id/answers',
+  '/api/v1/questions/:id/answer-job',
+  '/api/v1/agent/jobs/answer-next'
+]);
 const KEYLESS_INVALID_BEARER_HINT = 'Invalid or expired bearer keys automatically fall back to keyless onboarding on supported write routes.';
 const MIGRATION_PHASES = ['plan_requested', 'install_confirmed', 'direct_enabled'] as const;
 const MIGRATION_PHASE_ENUM = z.enum(MIGRATION_PHASES);
@@ -707,6 +713,11 @@ function isNoiseEvent(entry: { method: string; route: string; status: number }) 
   }
 
   return false;
+}
+
+function shouldAutoSubscribeKeylessForRoute(route: string, method: string | undefined) {
+  if ((method ?? '').toUpperCase() !== 'POST') return false;
+  return KEYLESS_AUTO_SUBSCRIBE_RESPONDER_ROUTES.has(route);
 }
 
 function extractApiKeyPrefix(headers: Record<string, string | string[] | undefined>) {
@@ -1881,6 +1892,7 @@ async function resolveKeylessManagedApiKey(
   if (!KEYLESS_AUTH_ENABLED) return { status: 'ineligible' };
   const route = resolveRoute(request as RouteRequest);
   if (!KEYLESS_AUTH_ALLOWED_ROUTES.has(route)) return { status: 'ineligible' };
+  const shouldAutoSubscribe = shouldAutoSubscribeKeylessForRoute(route, request.method);
 
   const presentedAgentName = normalizeAgentOrNull(getAgentName(request.headers));
   if (!presentedAgentName && !KEYLESS_AUTH_ALLOW_ANONYMOUS) {
@@ -1984,7 +1996,7 @@ async function resolveKeylessManagedApiKey(
     }
   }
 
-  if (keyCreated && KEYLESS_AUTO_SUBSCRIBE) {
+  if (keyCreated && KEYLESS_AUTO_SUBSCRIBE && shouldAutoSubscribe) {
     await ensureTrialAutoSubscription(boundAgentName);
   }
 
@@ -2453,6 +2465,14 @@ async function enforceQuestionReciprocityGuardrail(
     && surplusAfterWrite > QUESTION_RECIPROCITY_GUARDRAIL_MAX_SURPLUS;
   if (!shouldBlock) return true;
 
+  const pausedSubscriptions = await prisma.questionSubscription.updateMany({
+    where: {
+      agentName: normalizedAgent,
+      active: true,
+      events: { has: 'question.created' }
+    },
+    data: { active: false }
+  });
   const baseUrl = getBaseUrl(request);
   const answerNextJobRequest = buildAnswerNextJobRequest(normalizedAgent, baseUrl);
   const recommended = await getRecommendedQuestionForAgent(normalizedAgent);
@@ -2480,7 +2500,8 @@ async function enforceQuestionReciprocityGuardrail(
         workflow: 'auto_pick_draft_claim_submit_verify',
         request: answerNextJobRequest,
         nextJobQuestionId: recommended?.id ?? null
-      }
+      },
+      pausedSubscriptions: pausedSubscriptions.count
     }
   });
   return false;
@@ -7498,6 +7519,7 @@ function startBackgroundWorkers() {
     deliveryNewSubscriptionGraceMinutes: DELIVERY_NEW_SUBSCRIPTION_GRACE_MINUTES,
     deliveryMaxPendingPerSubscription: DELIVERY_MAX_PENDING_PER_SUBSCRIPTION,
     invalidBearerFallbackToKeyless: AUTH_INVALID_BEARER_FALLBACK_TO_KEYLESS,
+    keylessAutoSubscribeResponderRoutes: Array.from(KEYLESS_AUTO_SUBSCRIBE_RESPONDER_ROUTES),
     deliveryRequeueEnabled: DELIVERY_REQUEUE_OPENED_ENABLED,
     deliveryRequeueAfterMinutes: DELIVERY_REQUEUE_AFTER_MINUTES,
     deliveryRequeueMaxPerQuestionSubscription: DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION,
@@ -11437,7 +11459,7 @@ fastify.get('/api/v1/incentives/rules', {
       {
         id: 'question-reciprocity-guardrail',
         description: QUESTION_RECIPROCITY_GUARDRAIL_ENABLED
-          ? `External keyless agents may be temporarily paused from posting additional questions when their ${formatDurationMinutes(QUESTION_RECIPROCITY_GUARDRAIL_WINDOW_HOURS * 60)} question surplus exceeds ${QUESTION_RECIPROCITY_GUARDRAIL_MAX_SURPLUS}. Use answer-next to unlock.`
+          ? `External keyless agents may be temporarily paused from posting additional questions when their ${formatDurationMinutes(QUESTION_RECIPROCITY_GUARDRAIL_WINDOW_HOURS * 60)} question surplus exceeds ${QUESTION_RECIPROCITY_GUARDRAIL_MAX_SURPLUS}. Related push subscriptions are paused until answer-next activity resumes.`
           : 'Question reciprocity guardrail is currently disabled.'
       },
       {
