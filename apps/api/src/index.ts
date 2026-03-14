@@ -648,6 +648,7 @@ const KEYLESS_AUTH_ALLOWED_ROUTES = new Set([
   '/api/v1/subscriptions',
   '/api/v1/subscriptions/:id/disable',
   '/api/v1/agent/inbox',
+  '/api/v1/agent/jobs/answer-next',
   '/api/v1/agent/migration/event'
 ]);
 const KEYLESS_INVALID_BEARER_HINT = 'Invalid or expired bearer keys automatically fall back to keyless onboarding on supported write routes.';
@@ -1033,6 +1034,11 @@ function agentCard(baseUrl: string) {
         description: 'Return one executable answer_job request payload for the best next question.'
       },
       {
+        id: 'answer_next_job',
+        name: 'Answer Next Job',
+        description: 'REST one-call flow: fetch next job, auto-draft answer, then auto-claim+submit+verify.'
+      },
+      {
         id: 'next_best_job',
         name: 'Next Best Job',
         description: 'Return a scored, personalized next question to answer with one-call action paths.'
@@ -1124,6 +1130,7 @@ const A2A_ACTIONS = new Set([
   'fetch',
   'answer',
   'next_job',
+  'answer_next_job',
   'next_best_job',
   'agent_quickstart',
   'questions_unanswered',
@@ -1163,6 +1170,10 @@ function normalizeA2aAction(action: string | null | undefined) {
     nextjob: 'next_job',
     jobsnext: 'next_job',
     next_job_one_call: 'next_job',
+    answernextjob: 'answer_next_job',
+    answer_next: 'answer_next_job',
+    workonce: 'answer_next_job',
+    work_once: 'answer_next_job',
     nextbestjob: 'next_best_job',
     quickstart: 'agent_quickstart',
     unanswered: 'questions_unanswered',
@@ -1222,6 +1233,9 @@ function inferA2aActionFromText(messageText: string) {
   const fetchMatch = text.match(/^fetch\s+([a-zA-Z0-9_-]+)$/i);
   if (fetchMatch) {
     return { action: 'fetch', args: { id: fetchMatch[1] } };
+  }
+  if (/work[\s_-]*once|answer[\s_-]*next/i.test(text)) {
+    return { action: 'answer_next_job', args: {} as Record<string, unknown> };
   }
   if (/next[\s_-]*job/i.test(text)) {
     return { action: 'next_job', args: {} as Record<string, unknown> };
@@ -1474,6 +1488,24 @@ function buildA2aActionRequest(action: string, args: Record<string, unknown>, fa
       return {
         method: 'GET' as const,
         url: `/api/v1/agent/jobs/next${encodeQuery({ agentName: agentName || undefined })}`
+      };
+    }
+    case 'answer_next_job': {
+      const agentName = firstString(args.agentName, args.agent, fallbackAgentName);
+      return {
+        method: 'POST' as const,
+        url: `/api/v1/agent/jobs/answer-next${encodeQuery({ agentName: agentName || undefined })}`,
+        payload: {
+          bodyMd: firstString(args.bodyMd, args.body, args.markdown) || undefined,
+          mode: firstString(args.mode) || undefined,
+          topK: optionalNumber(args.topK ?? args.top_k),
+          includeEvidence: optionalBoolean(args.includeEvidence ?? args.include_evidence),
+          ttlMinutes: optionalNumber(args.ttlMinutes),
+          forceTakeover: optionalBoolean(args.forceTakeover),
+          acceptToken: firstString(args.acceptToken) || undefined,
+          acceptIfOwner: optionalBoolean(args.acceptIfOwner),
+          autoVerify: optionalBoolean(args.autoVerify)
+        }
       };
     }
     case 'agent_quickstart': {
@@ -2169,6 +2201,7 @@ const CAPTURED_ROUTES = new Set([
   '/api/v1/subscriptions',
   '/api/v1/subscriptions/:id/disable',
   '/api/v1/agent/jobs/next',
+  '/api/v1/agent/jobs/answer-next',
   '/api/v1/agent/next-best-job',
   '/api/v1/search',
   '/api/v1/questions/unanswered',
@@ -9835,6 +9868,274 @@ fastify.get('/api/v1/agent/jobs/next', {
         }
       }
     }
+  });
+});
+
+fastify.post('/api/v1/agent/jobs/answer-next', {
+  schema: {
+    tags: ['answers', 'discovery', 'incentives'],
+    security: [{ ApiKeyAuth: [] }],
+    querystring: {
+      type: 'object',
+      properties: {
+        agentName: { type: 'string' }
+      }
+    },
+    body: {
+      type: 'object',
+      properties: {
+        bodyMd: { type: 'string' },
+        mode: { type: 'string', enum: ['balanced', 'strict'] },
+        topK: { type: 'integer', minimum: 1, maximum: 10 },
+        includeEvidence: { type: 'boolean' },
+        ttlMinutes: { type: 'integer', minimum: QUESTION_CLAIM_MIN_MINUTES, maximum: QUESTION_CLAIM_MAX_MINUTES },
+        forceTakeover: { type: 'boolean' },
+        acceptToken: { type: 'string' },
+        acceptIfOwner: { type: 'boolean' },
+        autoVerify: { type: 'boolean' }
+      }
+    }
+  },
+  config: {
+    rateLimit: {
+      max: 120,
+      timeWindow: '1 minute',
+      keyGenerator: (request: RouteRequest) => extractApiKeyPrefix(request.headers) ?? request.ip ?? 'unknown'
+    }
+  }
+}, async (request, reply) => {
+  const apiKey = await requireApiKey(request, reply, 'write:answers');
+  if (!apiKey) return;
+  const query = request.query as { agentName?: string };
+  const body = parse(
+    z.object({
+      bodyMd: z.string().min(3).max(20000).optional(),
+      mode: z.enum(['balanced', 'strict']).optional(),
+      topK: z.number().int().min(1).max(10).optional(),
+      includeEvidence: z.boolean().optional(),
+      ttlMinutes: z.number().int().min(QUESTION_CLAIM_MIN_MINUTES).max(QUESTION_CLAIM_MAX_MINUTES).optional(),
+      forceTakeover: z.boolean().optional(),
+      acceptToken: z.string().max(4000).optional(),
+      acceptIfOwner: z.boolean().optional(),
+      autoVerify: z.boolean().optional()
+    }),
+    request.body ?? {},
+    reply
+  );
+  if (!body) return;
+
+  const agentName = normalizeAgentOrNull(query.agentName ?? getAgentNameWithBinding(request));
+  if (!agentName) {
+    reply.code(400).send({ error: 'agentName query param or X-Agent-Name header is required.' });
+    return;
+  }
+
+  const baseUrl = getBaseUrl(request);
+  const [recommended, pendingQueue, unansweredTotal, autoSubscription] = await Promise.all([
+    getRecommendedQuestionForAgent(agentName),
+    getPendingQuestionDeliveryCountForAgent(agentName),
+    prisma.question.count({
+      where: {
+        resolution: null,
+        answers: { none: {} }
+      }
+    }),
+    ensureJobDiscoverySubscription(agentName)
+  ]);
+
+  if (!recommended) {
+    reply.code(409).send({
+      error: 'No next job available for this agent.',
+      agentName,
+      demand: {
+        unansweredTotal,
+        pendingQueue
+      },
+      onboarding: {
+        autoSubscription: {
+          enabled: autoSubscription.enabled,
+          created: autoSubscription.created,
+          subscriptionId: autoSubscription.id,
+          mode: autoSubscription.mode
+        },
+        rankingRuntime: getNextJobRankingRuntime()
+      },
+      suggestedAction: {
+        type: 'work_once',
+        mcp: {
+          endpoint: 'https://a2abench-mcp.web.app/mcp',
+          tool: 'work_once',
+          args: {}
+        }
+      }
+    });
+    return;
+  }
+
+  let resolvedBodyMd = body.bodyMd?.trim() ?? '';
+  let draft: Record<string, unknown> | null = null;
+
+  if (!resolvedBodyMd) {
+    const question = await prisma.question.findUnique({
+      where: { id: recommended.id },
+      select: {
+        id: true,
+        title: true,
+        bodyMd: true,
+        bodyText: true
+      }
+    });
+    if (!question) {
+      reply.code(404).send({ error: 'Question not found' });
+      return;
+    }
+    const querySource = [question.title, question.bodyText || question.bodyMd]
+      .map((value) => (value ?? '').trim())
+      .filter(Boolean)
+      .join('\n\n')
+      .slice(0, 500);
+    if (querySource.length < 8) {
+      reply.code(422).send({ error: 'Could not build a useful draft query from the next job question.' });
+      return;
+    }
+
+    const forwardHeaderKeys = [
+      'authorization',
+      'x-agent-name',
+      'x-agent-signature',
+      'x-agent-timestamp',
+      'x-llm-provider',
+      'x-llm-api-key',
+      'x-llm-model',
+      'user-agent'
+    ] as const;
+    const forwardHeaders: Record<string, string> = {};
+    for (const key of forwardHeaderKeys) {
+      const value = normalizeHeader(request.headers[key]);
+      if (value) forwardHeaders[key] = value;
+    }
+    if (!forwardHeaders['x-agent-name']) {
+      forwardHeaders['x-agent-name'] = agentName;
+    }
+
+    const draftResult = await fastify.inject({
+      method: 'POST',
+      url: '/answer',
+      headers: {
+        ...forwardHeaders,
+        'content-type': 'application/json'
+      },
+      payload: {
+        query: querySource,
+        top_k: body.topK ?? 5,
+        include_evidence: body.includeEvidence ?? true,
+        mode: body.mode ?? 'balanced'
+      }
+    });
+    const parsedDraft = parseInjectedBody(draftResult.payload, draftResult.headers['content-type']);
+    if (draftResult.statusCode < 200 || draftResult.statusCode >= 300) {
+      reply.code(draftResult.statusCode).send(
+        isJsonObject(parsedDraft)
+          ? parsedDraft
+          : { error: typeof parsedDraft === 'string' && parsedDraft ? parsedDraft : 'Failed to auto-generate answer draft.' }
+      );
+      return;
+    }
+    if (!isJsonObject(parsedDraft)) {
+      reply.code(502).send({ error: 'Draft generation returned an unexpected response format.' });
+      return;
+    }
+    const draftMarkdown = typeof parsedDraft.answer_markdown === 'string'
+      ? parsedDraft.answer_markdown.trim()
+      : '';
+    if (!draftMarkdown) {
+      reply.code(422).send({ error: 'Auto-generated draft is empty.' });
+      return;
+    }
+    const citations = Array.isArray(parsedDraft.citations) ? parsedDraft.citations : [];
+    const citationLines = citations
+      .map((entry) => {
+        if (!isJsonObject(entry)) return '';
+        const title = typeof entry.title === 'string' ? entry.title.trim() : '';
+        const url = typeof entry.url === 'string' ? entry.url.trim() : '';
+        if (!title || !url) return '';
+        return `- [${title}](${url})`;
+      })
+      .filter(Boolean)
+      .slice(0, 6);
+    resolvedBodyMd = citationLines.length > 0
+      ? `${draftMarkdown}\n\nSources:\n${citationLines.join('\n')}`
+      : draftMarkdown;
+    draft = {
+      mode: body.mode ?? 'balanced',
+      topK: body.topK ?? 5,
+      includeEvidence: body.includeEvidence ?? true,
+      warningCount: Array.isArray(parsedDraft.warnings) ? parsedDraft.warnings.length : 0
+    };
+  }
+
+  if (containsSensitive(resolvedBodyMd)) {
+    reply.code(400).send({ error: 'Content appears to include secrets or personal data.' });
+    return;
+  }
+
+  const answerJobPayload: Record<string, unknown> = {
+    bodyMd: resolvedBodyMd,
+    autoVerify: body.autoVerify ?? true
+  };
+  if (body.ttlMinutes !== undefined) answerJobPayload.ttlMinutes = body.ttlMinutes;
+  if (body.forceTakeover !== undefined) answerJobPayload.forceTakeover = body.forceTakeover;
+  if (body.acceptToken !== undefined) answerJobPayload.acceptToken = body.acceptToken;
+  if (body.acceptIfOwner !== undefined) answerJobPayload.acceptIfOwner = body.acceptIfOwner;
+
+  const answerHeaders: Record<string, string> = {};
+  for (const key of ['authorization', 'x-agent-name', 'x-agent-signature', 'x-agent-timestamp', 'user-agent'] as const) {
+    const value = normalizeHeader(request.headers[key]);
+    if (value) answerHeaders[key] = value;
+  }
+  if (!answerHeaders['x-agent-name']) {
+    answerHeaders['x-agent-name'] = agentName;
+  }
+
+  const answerResult = await fastify.inject({
+    method: 'POST',
+    url: `/api/v1/questions/${encodeURIComponent(recommended.id)}/answer-job`,
+    headers: {
+      ...answerHeaders,
+      'content-type': 'application/json'
+    },
+    payload: answerJobPayload
+  });
+
+  const parsedAnswer = parseInjectedBody(answerResult.payload, answerResult.headers['content-type']);
+  if (answerResult.statusCode < 200 || answerResult.statusCode >= 300) {
+    reply.code(answerResult.statusCode).send(
+      isJsonObject(parsedAnswer)
+        ? parsedAnswer
+        : { error: typeof parsedAnswer === 'string' && parsedAnswer ? parsedAnswer : 'Failed to complete answer job.' }
+    );
+    return;
+  }
+
+  reply.code(200).send({
+    ok: true,
+    agentName,
+    job: formatRecommendedQuestion(recommended, baseUrl),
+    demand: {
+      unansweredTotal,
+      pendingQueue
+    },
+    onboarding: {
+      autoSubscription: {
+        enabled: autoSubscription.enabled,
+        created: autoSubscription.created,
+        subscriptionId: autoSubscription.id,
+        mode: autoSubscription.mode
+      },
+      rankingRuntime: getNextJobRankingRuntime()
+    },
+    draft,
+    completion: isJsonObject(parsedAnswer) ? parsedAnswer : { raw: parsedAnswer }
   });
 });
 
