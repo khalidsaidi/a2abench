@@ -111,6 +111,10 @@ const DELIVERY_RECENT_ANSWERER_GRACE_MINUTES = Math.max(
   0,
   Number(process.env.DELIVERY_RECENT_ANSWERER_GRACE_MINUTES ?? (AGENT_OPEN_MODE ? 30 : 120))
 );
+const DELIVERY_RECENT_ANSWERER_MIN_MATCHED_SUBSCRIPTIONS = Math.max(
+  1,
+  Number(process.env.DELIVERY_RECENT_ANSWERER_MIN_MATCHED_SUBSCRIPTIONS ?? (AGENT_OPEN_MODE ? 6 : 10))
+);
 const DELIVERY_REQUEUE_OPENED_ENABLED = (process.env.DELIVERY_REQUEUE_OPENED_ENABLED ?? 'true').toLowerCase() === 'true';
 const DELIVERY_REQUEUE_AFTER_MINUTES = Math.max(1, Number(process.env.DELIVERY_REQUEUE_AFTER_MINUTES ?? 6));
 const DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION = Math.max(1, Number(process.env.DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION ?? (AGENT_OPEN_MODE ? 2 : 5)));
@@ -4005,6 +4009,8 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
     ? await getRecentAnswererNames()
     : null;
   const enforceRecentAnswerers = Boolean(recentAnswerers && recentAnswerers.size > 0);
+  const applyRecentAnswererFilter = enforceRecentAnswerers
+    && subscriptions.length >= DELIVERY_RECENT_ANSWERER_MIN_MATCHED_SUBSCRIPTIONS;
 
   let matchedSubscriptions = 0;
   let filteredBySolvability = 0;
@@ -4021,7 +4027,7 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
     const pushSolvabilityThreshold = subscriptionTags.length === 0
       ? PUSH_SOLVABILITY_UNSCOPED_MIN_SCORE
       : PUSH_SOLVABILITY_MIN_SCORE;
-    if (input.event === 'question.created' && enforceRecentAnswerers && !isProxiedSubscriber) {
+    if (input.event === 'question.created' && applyRecentAnswererFilter && !isProxiedSubscriber) {
       const normalizedAgent = normalizeAgentOrNull(sub.agentName);
       const withinGrace = (nowMs - sub.createdAt.getTime()) <= DELIVERY_RECENT_ANSWERER_GRACE_MINUTES * 60 * 1000;
       if (!withinGrace && (!normalizedAgent || !recentAnswerers?.has(normalizedAgent))) {
@@ -4145,6 +4151,8 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
         pendingCapPerSubscription: DELIVERY_MAX_PENDING_PER_SUBSCRIPTION,
         recentAnswererFilterEnabled: DELIVERY_REQUIRE_RECENT_ANSWERER,
         recentAnswererFilterApplied: enforceRecentAnswerers,
+        recentAnswererFilterActive: applyRecentAnswererFilter,
+        recentAnswererMinMatchedSubscriptions: DELIVERY_RECENT_ANSWERER_MIN_MATCHED_SUBSCRIPTIONS,
         recentAnswererWindowMinutes: DELIVERY_RECENT_ANSWERER_WINDOW_MINUTES,
         recentAnswererGraceMinutes: DELIVERY_RECENT_ANSWERER_GRACE_MINUTES,
         maxSubscriptionsPerQuestionCreated: DELIVERY_MAX_SUBSCRIPTIONS_PER_QUESTION_CREATED,
@@ -4183,6 +4191,8 @@ async function dispatchQuestionWebhookEvent(input: QuestionWebhookInput) {
       queued: queued.length,
       filteredByRecentAnswerer,
       recentAnswererFilterApplied: enforceRecentAnswerers,
+      recentAnswererFilterActive: applyRecentAnswererFilter,
+      recentAnswererMinMatchedSubscriptions: DELIVERY_RECENT_ANSWERER_MIN_MATCHED_SUBSCRIPTIONS,
       recentAnswererWindowMinutes: DELIVERY_RECENT_ANSWERER_WINDOW_MINUTES,
       recentAnswererGraceMinutes: DELIVERY_RECENT_ANSWERER_GRACE_MINUTES
     }, 'question webhook filtered to active answerers');
@@ -7828,6 +7838,7 @@ function startBackgroundWorkers() {
     deliveryRecentAnswererWindowMinutes: DELIVERY_RECENT_ANSWERER_WINDOW_MINUTES,
     deliveryRecentAnswererCacheTtlMs: DELIVERY_RECENT_ANSWERER_CACHE_TTL_MS,
     deliveryRecentAnswererGraceMinutes: DELIVERY_RECENT_ANSWERER_GRACE_MINUTES,
+    deliveryRecentAnswererMinMatchedSubscriptions: DELIVERY_RECENT_ANSWERER_MIN_MATCHED_SUBSCRIPTIONS,
     invalidBearerFallbackToKeyless: AUTH_INVALID_BEARER_FALLBACK_TO_KEYLESS,
     keylessAutoSubscribeResponderRoutes: Array.from(KEYLESS_AUTO_SUBSCRIBE_RESPONDER_ROUTES),
     deliveryRequeueEnabled: DELIVERY_REQUEUE_OPENED_ENABLED,
