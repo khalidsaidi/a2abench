@@ -16,7 +16,7 @@ const MCP_AUTO_TRIAL_KEYS = (process.env.MCP_AUTO_TRIAL_KEYS ?? 'true').toLowerC
 const PORT = Number(process.env.PORT ?? process.env.MCP_PORT ?? 4000);
 const MCP_AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-mcp-remote';
 const MCP_DERIVE_AGENT_NAME = (process.env.MCP_DERIVE_AGENT_NAME ?? 'true').toLowerCase() === 'true';
-const MCP_DERIVED_AGENT_PREFIX = (process.env.MCP_DERIVED_AGENT_PREFIX ?? 'a2abench-mcp-proxy').trim().toLowerCase() || 'a2abench-mcp-proxy';
+const MCP_DERIVED_AGENT_PREFIX = (process.env.MCP_DERIVED_AGENT_PREFIX ?? 'mcp-client').trim().toLowerCase() || 'mcp-client';
 const MCP_DERIVED_AGENT_HASH_LEN = Math.max(8, Math.min(32, Number(process.env.MCP_DERIVED_AGENT_HASH_LEN ?? 16)));
 const MCP_DERIVED_AGENT_SALT = process.env.MCP_DERIVED_AGENT_SALT ?? PUBLIC_MCP_URL;
 const MCP_INLINE_NEXT_JOB = (process.env.MCP_INLINE_NEXT_JOB ?? 'true').toLowerCase() === 'true';
