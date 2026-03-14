@@ -39,6 +39,7 @@ const TRIAL_AUTO_SUBSCRIBE_TAGS_RAW = (process.env.TRIAL_AUTO_SUBSCRIBE_TAGS ?? 
 const KEYLESS_AUTH_ENABLED = (process.env.KEYLESS_AUTH_ENABLED ?? 'true').toLowerCase() === 'true';
 const KEYLESS_AUTH_ALLOW_ANONYMOUS = (process.env.KEYLESS_AUTH_ALLOW_ANONYMOUS ?? (AGENT_OPEN_MODE ? 'true' : 'false')).toLowerCase() === 'true';
 const KEYLESS_AUTH_ACTOR_TYPE = normalizeActorType(process.env.KEYLESS_AUTH_ACTOR_TYPE ?? 'public_external');
+const AUTH_INVALID_BEARER_FALLBACK_TO_KEYLESS = (process.env.AUTH_INVALID_BEARER_FALLBACK_TO_KEYLESS ?? (AGENT_OPEN_MODE ? 'true' : 'false')).toLowerCase() === 'true';
 const KEYLESS_DAILY_WRITE_LIMIT = Number(process.env.KEYLESS_DAILY_WRITE_LIMIT ?? (AGENT_OPEN_MODE ? 5000 : 200));
 const KEYLESS_DAILY_QUESTION_LIMIT = Number(process.env.KEYLESS_DAILY_QUESTION_LIMIT ?? (AGENT_OPEN_MODE ? 1200 : 80));
 const KEYLESS_DAILY_ANSWER_LIMIT = Number(process.env.KEYLESS_DAILY_ANSWER_LIMIT ?? (AGENT_OPEN_MODE ? 5000 : 200));
@@ -601,6 +602,7 @@ const KEYLESS_AUTH_ALLOWED_ROUTES = new Set([
   '/api/v1/agent/inbox',
   '/api/v1/agent/migration/event'
 ]);
+const KEYLESS_INVALID_BEARER_HINT = 'Invalid or expired bearer keys automatically fall back to keyless onboarding on supported write routes.';
 const MIGRATION_PHASES = ['plan_requested', 'install_confirmed', 'direct_enabled'] as const;
 const MIGRATION_PHASE_ENUM = z.enum(MIGRATION_PHASES);
 type MigrationPhase = typeof MIGRATION_PHASES[number];
@@ -779,6 +781,8 @@ type RequestAuthMeta = {
   identityVerified: boolean;
   signatureVerified: boolean;
   signatureRequired: boolean;
+  fallbackFromBearerError: boolean;
+  fallbackReason: 'invalid_api_key' | 'expired_api_key' | null;
   isWrite: boolean;
 };
 
@@ -805,7 +809,8 @@ function getAgentNameWithBinding(
 function buildUsageApiKeyPrefix(meta: RequestAuthMeta) {
   const idFlag = meta.identityVerified ? '1' : '0';
   const sigFlag = meta.signatureVerified ? '1' : '0';
-  return `${meta.apiKeyPrefix}|mode=${meta.authMode}|actor=${meta.actorType}|idv=${idFlag}|sigv=${sigFlag}`;
+  const fallbackFlag = meta.fallbackFromBearerError ? '1' : '0';
+  return `${meta.apiKeyPrefix}|mode=${meta.authMode}|actor=${meta.actorType}|idv=${idFlag}|sigv=${sigFlag}|fb=${fallbackFlag}`;
 }
 
 function getWriteAttribution(
@@ -1857,6 +1862,7 @@ async function requireApiKey(
   const key = extractBearerToken(request.headers);
   let apiKey: ApiKeyWithUser | null = null;
   let authMode: RequestAuthMeta['authMode'] = 'bearer';
+  let fallbackReason: RequestAuthMeta['fallbackReason'] = null;
 
   if (key) {
     const keyPrefix = key.slice(0, 8);
@@ -1865,13 +1871,26 @@ async function requireApiKey(
       where: { keyPrefix, keyHash, revokedAt: null },
       include: { user: true }
     });
-    if (!apiKey) {
-      reply.code(401).send({ error: 'Invalid API key' });
-      return null;
-    }
-    if (apiKey.expiresAt && apiKey.expiresAt.getTime() < Date.now()) {
-      reply.code(401).send({ error: 'API key expired' });
-      return null;
+    const invalidKey = !apiKey;
+    const expiredKey = Boolean(apiKey?.expiresAt && apiKey.expiresAt.getTime() < Date.now());
+    if (invalidKey || expiredKey) {
+      const failedReason: RequestAuthMeta['fallbackReason'] = invalidKey ? 'invalid_api_key' : 'expired_api_key';
+      if (AUTH_INVALID_BEARER_FALLBACK_TO_KEYLESS) {
+        const keyless = await resolveKeylessManagedApiKey(request, reply);
+        if (keyless.status === 'ok') {
+          apiKey = keyless.apiKey;
+          authMode = 'keyless_managed';
+          fallbackReason = failedReason;
+          reply.header('X-A2ABench-Auth-Fallback', fallbackReason);
+        } else if (keyless.status === 'failed') {
+          return null;
+        }
+      }
+      const stillInvalid = !apiKey || Boolean(apiKey.expiresAt && apiKey.expiresAt.getTime() < Date.now());
+      if (stillInvalid) {
+        reply.code(401).send({ error: failedReason === 'expired_api_key' ? 'API key expired' : 'Invalid API key' });
+        return null;
+      }
     }
   } else {
     const keyless = await resolveKeylessManagedApiKey(request, reply);
@@ -2005,6 +2024,8 @@ async function requireApiKey(
     identityVerified,
     signatureVerified,
     signatureRequired: Boolean(signatureRequired),
+    fallbackFromBearerError: Boolean(fallbackReason),
+    fallbackReason,
     isWrite
   };
   return apiKey;
@@ -4942,6 +4963,7 @@ async function getTractionFunnel(days: number, options?: {
     answerCreates: bigint | number | string;
     identityVerifiedWrites: bigint | number | string;
     signatureVerifiedWrites: bigint | number | string;
+    fallbackWrites: bigint | number | string;
   };
   const externalWriteAttemptRows = externalOnly && externalActorTypes.length > 0
     ? await prisma.$queryRaw<Array<ExternalWriteAttemptRow>>`
@@ -4965,7 +4987,11 @@ async function getTractionFunnel(days: number, options?: {
         COUNT(*) FILTER (
           WHERE POSITION('|sigv=' IN COALESCE("apiKeyPrefix", '')) > 0
             AND split_part(split_part(COALESCE("apiKeyPrefix", ''), '|sigv=', 2), '|', 1) IN ('1', 'true')
-        ) AS "signatureVerifiedWrites"
+        ) AS "signatureVerifiedWrites",
+        COUNT(*) FILTER (
+          WHERE POSITION('|fb=' IN COALESCE("apiKeyPrefix", '')) > 0
+            AND split_part(split_part(COALESCE("apiKeyPrefix", ''), '|fb=', 2), '|', 1) IN ('1', 'true')
+        ) AS "fallbackWrites"
       FROM "UsageEvent"
       WHERE "createdAt" >= ${since}
         AND UPPER("method") IN ('POST', 'PUT', 'PATCH', 'DELETE')
@@ -4984,6 +5010,7 @@ async function getTractionFunnel(days: number, options?: {
     answerCreates: number;
     identityVerifiedWrites: number;
     signatureVerifiedWrites: number;
+    fallbackWrites: number;
     activeAgents: number;
     topAgents: Array<{
       agentName: string;
@@ -5003,6 +5030,7 @@ async function getTractionFunnel(days: number, options?: {
       answerCreates: 0,
       identityVerifiedWrites: 0,
       signatureVerifiedWrites: 0,
+      fallbackWrites: 0,
       activeAgents: 0,
       topAgents: []
     };
@@ -5016,6 +5044,7 @@ async function getTractionFunnel(days: number, options?: {
     answerCreates: number;
     identityVerifiedWrites: number;
     signatureVerifiedWrites: number;
+    fallbackWrites: number;
     agents: Map<string, {
       agentName: string;
       writes: number;
@@ -5034,6 +5063,7 @@ async function getTractionFunnel(days: number, options?: {
       answerCreates: 0,
       identityVerifiedWrites: 0,
       signatureVerifiedWrites: 0,
+      fallbackWrites: 0,
       agents: new Map()
     };
   }
@@ -5046,6 +5076,7 @@ async function getTractionFunnel(days: number, options?: {
     const answerCreates = toNumber(row.answerCreates);
     const identityVerifiedWrites = toNumber(row.identityVerifiedWrites);
     const signatureVerifiedWrites = toNumber(row.signatureVerifiedWrites);
+    const fallbackWrites = toNumber(row.fallbackWrites);
 
     bucket.writes += writes;
     bucket.successfulWrites += successfulWrites;
@@ -5054,6 +5085,7 @@ async function getTractionFunnel(days: number, options?: {
     bucket.answerCreates += answerCreates;
     bucket.identityVerifiedWrites += identityVerifiedWrites;
     bucket.signatureVerifiedWrites += signatureVerifiedWrites;
+    bucket.fallbackWrites += fallbackWrites;
 
     if (!normalizedAgent) return;
     const current = bucket.agents.get(normalizedAgent) ?? {
@@ -5079,6 +5111,7 @@ async function getTractionFunnel(days: number, options?: {
       answerCreates: bucket.answerCreates,
       identityVerifiedWrites: bucket.identityVerifiedWrites,
       signatureVerifiedWrites: bucket.signatureVerifiedWrites,
+      fallbackWrites: bucket.fallbackWrites,
       activeAgents: bucket.agents.size,
       topAgents: Array.from(bucket.agents.values())
         .sort((a, b) => b.writes - a.writes || b.successfulWrites - a.successfulWrites || a.agentName.localeCompare(b.agentName))
@@ -6391,6 +6424,7 @@ function startBackgroundWorkers() {
     deliveryActiveInboxWindowMinutes: DELIVERY_ACTIVE_INBOX_WINDOW_MINUTES,
     deliveryNewSubscriptionGraceMinutes: DELIVERY_NEW_SUBSCRIPTION_GRACE_MINUTES,
     deliveryMaxPendingPerSubscription: DELIVERY_MAX_PENDING_PER_SUBSCRIPTION,
+    invalidBearerFallbackToKeyless: AUTH_INVALID_BEARER_FALLBACK_TO_KEYLESS,
     deliveryRequeueEnabled: DELIVERY_REQUEUE_OPENED_ENABLED,
     deliveryRequeueAfterMinutes: DELIVERY_REQUEUE_AFTER_MINUTES,
     deliveryRequeueMaxPerQuestionSubscription: DELIVERY_REQUEUE_MAX_PER_QUESTION_SUBSCRIPTION,
@@ -9269,6 +9303,7 @@ fastify.get('/api/v1/agent/quickstart', {
       hint: 'Writes work with X-Agent-Name and no bearer key on supported routes. Bearer keys still work.',
       requiredHeaderForKeyless: 'X-Agent-Name',
       fallbackBearer: 'Authorization: Bearer <api-key>',
+      invalidBearerFallback: KEYLESS_INVALID_BEARER_HINT,
       trialKeyOptional: 'POST /api/v1/auth/trial-key'
     },
     recommendedQuestion: recommended ? formatRecommendedQuestion(recommended, baseUrl) : null
@@ -9497,6 +9532,7 @@ fastify.get('/api/v1/agent/proxy-migration', {
     auth: {
       mode: 'keyless_managed_default',
       requiredHeaderForKeyless: 'X-Agent-Name',
+      invalidBearerFallback: KEYLESS_INVALID_BEARER_HINT,
       optionalTrialKey: `${baseUrl}/api/v1/auth/trial-key`,
       writeExample: effectiveAgentName
         ? `curl -sS -X POST "${baseUrl}/api/v1/questions" -H "Content-Type: application/json" -H "X-Agent-Name: ${effectiveAgentName}" -d '{"title":"Agent migration test","bodyMd":"Direct install check","tags":["migration"]}'`
@@ -12012,6 +12048,7 @@ fastify.get('/admin/traction', async (request, reply) => {
           <div class="metric"><div class="label">Failed deliveries</div><div id="failed" class="value">—</div><small id="pending">—</small></div>
           <div class="metric"><div class="label">Attempted writes</div><div id="attemptsTotal" class="value">—</div></div>
           <div class="metric"><div class="label">Eligible writes</div><div id="attemptsEligible" class="value">—</div><small id="attemptsEligibleShare">—</small></div>
+          <div class="metric"><div class="label">Bearer fallback writes</div><div id="attemptsFallback" class="value">—</div><small id="attemptsFallbackShare">—</small></div>
           <div class="metric"><div class="label">Proxied writes</div><div id="attemptsProxied" class="value">—</div><small id="attemptsProxiedShare">—</small></div>
           <div class="metric"><div class="label">Excluded writes</div><div id="attemptsExcluded" class="value">—</div><small id="attemptsExcludedShare">—</small></div>
           <div class="metric"><div class="label">Unknown agent writes</div><div id="attemptsUnknown" class="value">—</div><small id="attemptsUnknownShare">—</small></div>
@@ -12058,10 +12095,16 @@ fastify.get('/admin/traction', async (request, reply) => {
           $('latencyP90').textContent = 'p90: ' + (data.latencyMinutes?.p90 == null ? '—' : Number(data.latencyMinutes.p90).toFixed(1));
           $('attemptsTotal').textContent = fmtNum(data.attempts?.totals?.writes);
           $('attemptsEligible').textContent = fmtNum(data.attempts?.buckets?.eligible?.writes);
+          $('attemptsFallback').textContent = fmtNum(data.attempts?.buckets?.eligible?.fallbackWrites);
           $('attemptsProxied').textContent = fmtNum(data.attempts?.buckets?.proxied?.writes);
           $('attemptsExcluded').textContent = fmtNum(data.attempts?.buckets?.excluded?.writes);
           $('attemptsUnknown').textContent = fmtNum(data.attempts?.buckets?.unknownAgent?.writes);
           $('attemptsEligibleShare').textContent = 'share: ' + fmtPct(data.attempts?.shares?.eligibleWriteShare);
+          $('attemptsFallbackShare').textContent = 'eligible share: ' + fmtPct(
+            Number(data.attempts?.buckets?.eligible?.writes || 0) > 0
+              ? Number(data.attempts?.buckets?.eligible?.fallbackWrites || 0) / Number(data.attempts?.buckets?.eligible?.writes || 0)
+              : null
+          );
           $('attemptsProxiedShare').textContent = 'share: ' + fmtPct(data.attempts?.shares?.proxiedWriteShare);
           $('attemptsExcludedShare').textContent = 'share: ' + fmtPct(data.attempts?.shares?.excludedWriteShare);
           $('attemptsUnknownShare').textContent = 'share: ' + fmtPct(data.attempts?.shares?.unknownAgentWriteShare);
