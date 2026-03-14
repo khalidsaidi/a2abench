@@ -151,6 +151,11 @@ const NEXT_JOB_GUARDRAIL_EASY_MIN_SOLVABILITY = Math.max(
   0,
   Math.min(NEXT_BEST_JOB_MIN_SOLVABILITY, Number(process.env.NEXT_JOB_GUARDRAIL_EASY_MIN_SOLVABILITY ?? 25))
 );
+const QUESTION_RECIPROCITY_GUARDRAIL_ENABLED = (process.env.QUESTION_RECIPROCITY_GUARDRAIL_ENABLED ?? (AGENT_OPEN_MODE ? 'true' : 'false')).toLowerCase() === 'true';
+const QUESTION_RECIPROCITY_GUARDRAIL_WINDOW_HOURS = Math.max(1, Number(process.env.QUESTION_RECIPROCITY_GUARDRAIL_WINDOW_HOURS ?? 24));
+const QUESTION_RECIPROCITY_GUARDRAIL_MIN_QUESTIONS = Math.max(1, Number(process.env.QUESTION_RECIPROCITY_GUARDRAIL_MIN_QUESTIONS ?? 5));
+const QUESTION_RECIPROCITY_GUARDRAIL_MAX_SURPLUS = Math.max(1, Number(process.env.QUESTION_RECIPROCITY_GUARDRAIL_MAX_SURPLUS ?? 4));
+const QUESTION_RECIPROCITY_GUARDRAIL_ONLY_KEYLESS = (process.env.QUESTION_RECIPROCITY_GUARDRAIL_ONLY_KEYLESS ?? 'true').toLowerCase() === 'true';
 const SUBSCRIPTION_PRUNE_ENABLED = (process.env.SUBSCRIPTION_PRUNE_ENABLED ?? 'true').toLowerCase() === 'true';
 const SUBSCRIPTION_PRUNE_INTERVAL_MS = Math.max(30_000, Number(process.env.SUBSCRIPTION_PRUNE_INTERVAL_MS ?? (AGENT_OPEN_MODE ? 60_000 : 300_000)));
 const SUBSCRIPTION_PRUNE_WINDOW_HOURS = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_WINDOW_HOURS ?? (AGENT_OPEN_MODE ? 6 : 24)));
@@ -2410,6 +2415,77 @@ async function storeExplicitAgentTelemetryEvent(entry: {
   void pruneAgentPayloadEvents().catch(() => undefined);
 }
 
+async function enforceQuestionReciprocityGuardrail(
+  request: RouteRequest,
+  reply: any,
+  apiKey: { userId: string },
+  agentName: string | null
+) {
+  if (!QUESTION_RECIPROCITY_GUARDRAIL_ENABLED) return true;
+  const normalizedAgent = normalizeAgentOrNull(agentName);
+  if (!normalizedAgent) return true;
+  if (!isExternalAdoptionAgentName(normalizedAgent)) return true;
+
+  const authMeta = getRequestAuthMeta(request);
+  if (QUESTION_RECIPROCITY_GUARDRAIL_ONLY_KEYLESS && authMeta?.authMode === 'bearer') return true;
+  if (normalizeActorType(authMeta?.actorType ?? null) === 'internal') return true;
+
+  const since = new Date(Date.now() - QUESTION_RECIPROCITY_GUARDRAIL_WINDOW_HOURS * 60 * 60 * 1000);
+  const [questionsInWindow, answersInWindow] = await Promise.all([
+    prisma.question.count({
+      where: {
+        userId: apiKey.userId,
+        createdAt: { gte: since },
+        sourceImportedBy: null
+      }
+    }),
+    prisma.answer.count({
+      where: {
+        userId: apiKey.userId,
+        createdAt: { gte: since }
+      }
+    })
+  ]);
+
+  const nextQuestionsInWindow = questionsInWindow + 1;
+  const surplusAfterWrite = nextQuestionsInWindow - answersInWindow;
+  const shouldBlock = nextQuestionsInWindow >= QUESTION_RECIPROCITY_GUARDRAIL_MIN_QUESTIONS
+    && surplusAfterWrite > QUESTION_RECIPROCITY_GUARDRAIL_MAX_SURPLUS;
+  if (!shouldBlock) return true;
+
+  const baseUrl = getBaseUrl(request);
+  const answerNextJobRequest = buildAnswerNextJobRequest(normalizedAgent, baseUrl);
+  const recommended = await getRecommendedQuestionForAgent(normalizedAgent);
+
+  reply.code(429).send({
+    error: 'reciprocity_guardrail',
+    message: `Question posting is temporarily paused for this agent until it contributes answers. Use answer-next to unlock.`,
+    limits: {
+      enabled: true,
+      windowHours: QUESTION_RECIPROCITY_GUARDRAIL_WINDOW_HOURS,
+      minQuestionsBeforeBlock: QUESTION_RECIPROCITY_GUARDRAIL_MIN_QUESTIONS,
+      maxQuestionSurplus: QUESTION_RECIPROCITY_GUARDRAIL_MAX_SURPLUS,
+      keylessOnly: QUESTION_RECIPROCITY_GUARDRAIL_ONLY_KEYLESS
+    },
+    window: {
+      since: since.toISOString(),
+      questions: questionsInWindow,
+      answers: answersInWindow,
+      surplusAfterWrite
+    },
+    unlock: {
+      requiredAnswers: Math.max(1, surplusAfterWrite - QUESTION_RECIPROCITY_GUARDRAIL_MAX_SURPLUS),
+      suggestedAction: {
+        type: 'answer_next_job',
+        workflow: 'auto_pick_draft_claim_submit_verify',
+        request: answerNextJobRequest,
+        nextJobQuestionId: recommended?.id ?? null
+      }
+    }
+  });
+  return false;
+}
+
 async function enforceWriteLimits(
   apiKey: { id: string; dailyWriteLimit: number | null; dailyQuestionLimit: number | null; dailyAnswerLimit: number | null },
   kind: 'question' | 'answer',
@@ -3176,6 +3252,20 @@ async function pruneLowSolvabilityPendingDeliveries(options?: { limit?: number; 
   const questionById = new Map(questions.map((row) => [row.id, row]));
 
   const removableIds: string[] = [];
+  const allScores: number[] = [];
+  const scoredByScope = {
+    scoped: [] as number[],
+    unscoped: [] as number[]
+  };
+  const lowScoreSamples: Array<{
+    deliveryId: string;
+    questionId: string;
+    agentName: string;
+    title: string;
+    sourceType: string | null;
+    score: number;
+    threshold: number;
+  }> = [];
   const skipped = {
     missingSubscription: 0,
     missingQuestion: 0,
@@ -3217,12 +3307,30 @@ async function pruneLowSolvabilityPendingDeliveries(options?: { limit?: number; 
       createdAt: question.createdAt,
       preferredTags: new Set(subscriptionTags)
     }, threshold);
+    allScores.push(solvability.score);
+    if (subscriptionTags.length === 0) scoredByScope.unscoped.push(solvability.score);
+    else scoredByScope.scoped.push(solvability.score);
     if (solvability.pass) {
       skipped.passesSolvability += 1;
       continue;
     }
+    if (lowScoreSamples.length < 20) {
+      lowScoreSamples.push({
+        deliveryId: row.id,
+        questionId,
+        agentName: subscription.agentName,
+        title: question.title,
+        sourceType: question.sourceType ?? null,
+        score: solvability.score,
+        threshold
+      });
+    }
     removableIds.push(row.id);
   }
+
+  const sortedScores = [...allScores].sort((a, b) => a - b);
+  const sortedScopedScores = [...scoredByScope.scoped].sort((a, b) => a - b);
+  const sortedUnscopedScores = [...scoredByScope.unscoped].sort((a, b) => a - b);
 
   let removed = 0;
   if (!dryRun && removableIds.length > 0) {
@@ -3238,6 +3346,18 @@ async function pruneLowSolvabilityPendingDeliveries(options?: { limit?: number; 
     eligible: removableIds.length,
     removed: dryRun ? 0 : removed,
     skipped,
+    scoreStats: {
+      sampleCount: allScores.length,
+      min: percentileFromSorted(sortedScores, 0),
+      p50: percentileFromSorted(sortedScores, 0.5),
+      p90: percentileFromSorted(sortedScores, 0.9),
+      max: percentileFromSorted(sortedScores, 1),
+      scopedSampleCount: sortedScopedScores.length,
+      scopedP50: percentileFromSorted(sortedScopedScores, 0.5),
+      unscopedSampleCount: sortedUnscopedScores.length,
+      unscopedP50: percentileFromSorted(sortedUnscopedScores, 0.5)
+    },
+    lowScoreSamples,
     threshold: PUSH_SOLVABILITY_MIN_SCORE,
     unscopedThreshold: PUSH_SOLVABILITY_UNSCOPED_MIN_SCORE
   };
@@ -5039,6 +5159,30 @@ function getQuestionActionHints(questionId: string, baseUrl?: string) {
       method: 'POST',
       path: claimPath,
       url: baseUrl ? `${baseUrl}${claimPath}` : null
+    }
+  };
+}
+
+function buildAnswerNextJobRequest(agentName: string, baseUrl: string) {
+  const normalizedAgent = normalizeAgentOrNull(agentName) ?? '<agent-name>';
+  const normalizedBase = baseUrl.replace(/\/+$/, '');
+  const path = `/api/v1/agent/jobs/answer-next${encodeQuery({ agentName: normalizedAgent })}`;
+  const url = `${normalizedBase}${path}`;
+  return {
+    method: 'POST',
+    path,
+    url,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Agent-Name': normalizedAgent
+    },
+    body: {
+      mode: 'balanced',
+      includeEvidence: true,
+      autoVerify: true
+    },
+    examples: {
+      curl: `curl -sS -X POST "${url}" -H "Content-Type: application/json" -H "X-Agent-Name: ${normalizedAgent}" -d '{"autoVerify":true}'`
     }
   };
 }
@@ -7392,6 +7536,11 @@ function startBackgroundWorkers() {
     nextJobGuardrailTriggerAnswerRate: NEXT_JOB_GUARDRAIL_TRIGGER_ANSWER_RATE,
     nextJobGuardrailRecoverAnswerRate: NEXT_JOB_GUARDRAIL_RECOVER_ANSWER_RATE,
     nextJobGuardrailEasyMinSolvability: NEXT_JOB_GUARDRAIL_EASY_MIN_SOLVABILITY,
+    questionReciprocityGuardrailEnabled: QUESTION_RECIPROCITY_GUARDRAIL_ENABLED,
+    questionReciprocityWindowHours: QUESTION_RECIPROCITY_GUARDRAIL_WINDOW_HOURS,
+    questionReciprocityMinQuestions: QUESTION_RECIPROCITY_GUARDRAIL_MIN_QUESTIONS,
+    questionReciprocityMaxSurplus: QUESTION_RECIPROCITY_GUARDRAIL_MAX_SURPLUS,
+    questionReciprocityKeylessOnly: QUESTION_RECIPROCITY_GUARDRAIL_ONLY_KEYLESS,
     pushSolvabilityFilterEnabled: PUSH_SOLVABILITY_FILTER_ENABLED,
     pushSolvabilityMinScore: PUSH_SOLVABILITY_MIN_SCORE,
     pushSolvabilityUnscopedMinScore: PUSH_SOLVABILITY_UNSCOPED_MIN_SCORE,
@@ -11286,6 +11435,12 @@ fastify.get('/api/v1/incentives/rules', {
         description: `A one-time starter bonus of ${STARTER_BONUS_CREDITS} credits is granted on an agent's first accepted answer.`
       },
       {
+        id: 'question-reciprocity-guardrail',
+        description: QUESTION_RECIPROCITY_GUARDRAIL_ENABLED
+          ? `External keyless agents may be temporarily paused from posting additional questions when their ${formatDurationMinutes(QUESTION_RECIPROCITY_GUARDRAIL_WINDOW_HOURS * 60)} question surplus exceeds ${QUESTION_RECIPROCITY_GUARDRAIL_MAX_SURPLUS}. Use answer-next to unlock.`
+          : 'Question reciprocity guardrail is currently disabled.'
+      },
+      {
         id: 'autoclose-sla',
         description: `If enabled, unresolved questions older than ${formatDurationMinutes(AUTO_CLOSE_AFTER_MINUTES)} with an answer older than ${formatDurationMinutes(AUTO_CLOSE_MIN_ANSWER_AGE_MINUTES)} are auto-accepted by ${AUTO_CLOSE_AGENT_NAME}.`
       }
@@ -11303,6 +11458,14 @@ fastify.get('/api/v1/incentives/rules', {
       minAnswerAgeMinutes: AUTO_CLOSE_MIN_ANSWER_AGE_MINUTES,
       afterHours: AUTO_CLOSE_AFTER_HOURS,
       minAnswerAgeHours: AUTO_CLOSE_MIN_ANSWER_AGE_HOURS
+    },
+    reciprocityGuardrail: {
+      enabled: QUESTION_RECIPROCITY_GUARDRAIL_ENABLED,
+      onlyKeyless: QUESTION_RECIPROCITY_GUARDRAIL_ONLY_KEYLESS,
+      windowHours: QUESTION_RECIPROCITY_GUARDRAIL_WINDOW_HOURS,
+      minQuestionsBeforeBlock: QUESTION_RECIPROCITY_GUARDRAIL_MIN_QUESTIONS,
+      maxQuestionSurplus: QUESTION_RECIPROCITY_GUARDRAIL_MAX_SURPLUS,
+      recoveryAction: 'POST /api/v1/agent/jobs/answer-next'
     }
   };
 });
@@ -12010,6 +12173,9 @@ fastify.post('/api/v1/questions', {
 }, async (request, reply) => {
   const apiKey = await requireApiKey(request, reply, 'write:questions');
   if (!apiKey) return;
+  const agentName = normalizeAgentOrNull(
+    getAgentName(request.headers) ?? getRequestAuthMeta(request)?.boundAgentName ?? null
+  );
 
   const body = parse(
     z.object({
@@ -12063,6 +12229,7 @@ fastify.post('/api/v1/questions', {
     }
   }
 
+  if (!(await enforceQuestionReciprocityGuardrail(request as RouteRequest, reply, apiKey, agentName))) return;
   if (!(await enforceWriteLimits(apiKey, 'question', reply))) return;
 
   const bodyText = markdownToText(body.bodyMd);
@@ -12089,6 +12256,7 @@ fastify.post('/api/v1/questions', {
   });
 
   const baseUrl = getBaseUrl(request);
+  const answerNextJobRequest = agentName ? buildAnswerNextJobRequest(agentName, baseUrl) : null;
   void dispatchQuestionCreatedEvent({
     id: question.id,
     title: question.title,
@@ -12109,7 +12277,14 @@ fastify.post('/api/v1/questions', {
     source: getQuestionSource(question),
     tags: question.tags.map((link) => link.tag.name),
     createdAt: question.createdAt,
-    updatedAt: question.updatedAt
+    updatedAt: question.updatedAt,
+    nextAction: answerNextJobRequest
+      ? {
+          type: 'answer_next_job',
+          message: 'Answer one open question now to improve matching quality and unlock higher ask throughput.',
+          request: answerNextJobRequest
+        }
+      : null
   });
 });
 
