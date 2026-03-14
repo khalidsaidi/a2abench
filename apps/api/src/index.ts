@@ -2591,6 +2591,32 @@ async function enforceWriteLimits(
 
 const ACCEPT_REPUTATION_REWARD = 15;
 
+type DeliveryOpenSource = 'job_fetch' | 'feed_discovery' | 'answer_writeback' | 'pull_discovery';
+type DeliveryOpenSourceOrUnknown = DeliveryOpenSource | 'unknown';
+
+const DELIVERY_OPEN_MARKERS = {
+  jobFetch: 'opened_via_job_fetch',
+  feedDiscovery: 'opened_via_feed_discovery',
+  answerWriteback: 'opened_via_answer_writeback',
+  legacyPullDiscovery: 'opened_via_pull_discovery'
+} as const;
+
+function markerForDeliveryOpenSource(source: DeliveryOpenSource): string {
+  if (source === 'job_fetch') return DELIVERY_OPEN_MARKERS.jobFetch;
+  if (source === 'feed_discovery') return DELIVERY_OPEN_MARKERS.feedDiscovery;
+  if (source === 'answer_writeback') return DELIVERY_OPEN_MARKERS.answerWriteback;
+  return DELIVERY_OPEN_MARKERS.legacyPullDiscovery;
+}
+
+function parseDeliveryOpenSourceFromMarker(value: string | null | undefined): DeliveryOpenSourceOrUnknown {
+  if (!value) return 'unknown';
+  if (value === DELIVERY_OPEN_MARKERS.jobFetch) return 'job_fetch';
+  if (value === DELIVERY_OPEN_MARKERS.feedDiscovery) return 'feed_discovery';
+  if (value === DELIVERY_OPEN_MARKERS.answerWriteback) return 'answer_writeback';
+  if (value === DELIVERY_OPEN_MARKERS.legacyPullDiscovery) return 'pull_discovery';
+  return 'unknown';
+}
+
 function normalizeAgentOrNull(value: string | null | undefined) {
   const normalized = normalizeAgentName(value);
   return normalized || null;
@@ -2852,13 +2878,15 @@ async function processDeliveryQueue(limit = DELIVERY_PROCESS_LIMIT) {
 async function markAgentPullDeliveryOpened(
   agentName: string,
   preferredQuestionId?: string | null,
-  options?: { fallbackToAny?: boolean; createIfMissing?: boolean }
+  options?: { fallbackToAny?: boolean; createIfMissing?: boolean; source?: DeliveryOpenSource }
 ) {
   const normalizedAgent = normalizeAgentOrNull(agentName);
   if (!normalizedAgent) return null;
   const now = new Date();
   const fallbackToAny = options?.fallbackToAny !== false;
   const createIfMissing = options?.createIfMissing === true;
+  const openSource = options?.source ?? 'pull_discovery';
+  const openMarker = markerForDeliveryOpenSource(openSource);
   const baseWhere: Prisma.DeliveryQueueWhereInput = {
     agentName: normalizedAgent,
     event: 'question.created',
@@ -2895,11 +2923,12 @@ async function markAgentPullDeliveryOpened(
       orderBy: { deliveredAt: 'desc' }
     });
     if (existingOpened) {
+      const existingSource = parseDeliveryOpenSourceFromMarker(existingOpened.lastError);
       return {
         id: existingOpened.id,
         questionId: existingOpened.questionId ?? null,
         openedAt: existingOpened.deliveredAt?.toISOString() ?? now.toISOString(),
-        via: 'pull_discovery'
+        via: existingSource === 'unknown' ? openSource : existingSource
       };
     }
 
@@ -2928,7 +2957,7 @@ async function markAgentPullDeliveryOpened(
             id: preferredQuestion
           },
           meta: {
-            openedVia: 'pull_discovery_backfill',
+            openedVia: openSource,
             openedAt: now.toISOString()
           }
         },
@@ -2942,7 +2971,7 @@ async function markAgentPullDeliveryOpened(
         lastAttemptAt: now,
         deliveredAt: now,
         lastStatus: 200,
-        lastError: 'opened_via_pull_discovery'
+        lastError: openMarker
       }
     });
 
@@ -2950,7 +2979,7 @@ async function markAgentPullDeliveryOpened(
       id: synthetic.id,
       questionId: synthetic.questionId ?? null,
       openedAt: now.toISOString(),
-      via: 'pull_discovery'
+      via: openSource
     };
   }
 
@@ -2960,7 +2989,7 @@ async function markAgentPullDeliveryOpened(
       deliveredAt: now,
       lastAttemptAt: now,
       lastStatus: 200,
-      lastError: 'opened_via_pull_discovery',
+      lastError: openMarker,
       attemptCount: { increment: 1 }
     }
   });
@@ -2969,18 +2998,19 @@ async function markAgentPullDeliveryOpened(
     id: fallback.id,
     questionId: fallback.questionId ?? null,
     openedAt: now.toISOString(),
-    via: 'pull_discovery'
+    via: openSource
   };
 }
 
 async function markAgentPullDeliveriesOpened(
   agentName: string | null | undefined,
   questionIds: Array<string | null | undefined>,
-  options?: { limit?: number }
+  options?: { limit?: number; source?: DeliveryOpenSource }
 ) {
   const normalizedAgent = normalizeAgentOrNull(agentName);
   if (!normalizedAgent) return [];
   const limit = Math.max(1, Math.min(20, Number(options?.limit ?? 8)));
+  const openSource = options?.source ?? 'pull_discovery';
   const uniqueQuestionIds = Array.from(new Set(
     questionIds
       .map((value) => (value ?? '').trim())
@@ -2990,7 +3020,10 @@ async function markAgentPullDeliveriesOpened(
 
   const opened: Array<{ id: string; questionId: string | null; openedAt: string; via: string }> = [];
   for (const questionId of uniqueQuestionIds) {
-    const signal = await markAgentPullDeliveryOpened(normalizedAgent, questionId, { fallbackToAny: false });
+    const signal = await markAgentPullDeliveryOpened(normalizedAgent, questionId, {
+      fallbackToAny: false,
+      source: openSource
+    });
     if (signal) opened.push(signal);
   }
   return opened;
@@ -6337,19 +6370,32 @@ async function getTractionFunnel(days: number, options?: {
       totals: {
         queued: 0,
         opened: 0,
+        strictOpened: 0,
         pending: 0,
         failed: 0,
         webhookOpened: 0,
         inboxOpened: 0,
+        openedViaJobFetch: 0,
+        openedViaFeedDiscovery: 0,
+        openedViaAnswerWriteback: 0,
+        openedViaLegacyPullDiscovery: 0,
+        openedViaUnknownSignal: 0,
         answered: 0,
+        strictAnswered: 0,
         accepted: 0,
-        answeredWithinWindow: 0
+        strictAccepted: 0,
+        answeredWithinWindow: 0,
+        strictAnsweredWithinWindow: 0
       },
       conversion: {
         openRate: 0,
+        openRateStrict: 0,
         answerRateFromOpened: 0,
+        answerRateFromStrictOpened: 0,
         acceptRateFromAnswered: 0,
-        withinWindowRate: 0
+        acceptRateFromStrictAnswered: 0,
+        withinWindowRate: 0,
+        strictWithinWindowRate: 0
       },
       latencyMinutes: {
         median: null,
@@ -6385,6 +6431,7 @@ async function getTractionFunnel(days: number, options?: {
       createdAt: true,
       deliveredAt: true,
       webhookUrl: true,
+      lastError: true,
       attemptCount: true,
       maxAttempts: true
     },
@@ -6395,7 +6442,8 @@ async function getTractionFunnel(days: number, options?: {
     .map((row) => ({
       ...row,
       agentName: normalizeAgentOrNull(row.agentName),
-      questionId: row.questionId?.trim() ?? null
+      questionId: row.questionId?.trim() ?? null,
+      openSource: parseDeliveryOpenSourceFromMarker(row.lastError)
     }))
     .filter((row): row is typeof row & { agentName: string; questionId: string } => Boolean(row.agentName && row.questionId))
     .filter((row) => includeProxied
@@ -6406,33 +6454,46 @@ async function getTractionFunnel(days: number, options?: {
   const queued = deliveries.length;
   const openedRows = deliveries.filter((row) => Boolean(row.deliveredAt));
   const opened = openedRows.length;
+  const strictOpenedRows = openedRows.filter((row) => row.openSource !== 'answer_writeback');
+  const strictOpened = strictOpenedRows.length;
   const webhookOpened = openedRows.filter((row) => Boolean(row.webhookUrl)).length;
   const inboxOpened = openedRows.filter((row) => !row.webhookUrl).length;
+  const openedViaJobFetch = openedRows.filter((row) => row.openSource === 'job_fetch').length;
+  const openedViaFeedDiscovery = openedRows.filter((row) => row.openSource === 'feed_discovery').length;
+  const openedViaAnswerWriteback = openedRows.filter((row) => row.openSource === 'answer_writeback').length;
+  const openedViaLegacyPullDiscovery = openedRows.filter((row) => row.lastError === DELIVERY_OPEN_MARKERS.legacyPullDiscovery).length;
+  const openedViaUnknownSignal = openedRows.filter((row) => row.openSource === 'unknown').length;
   const pending = deliveries.filter((row) => !row.deliveredAt && row.attemptCount < row.maxAttempts).length;
   const failed = deliveries.filter((row) => !row.deliveredAt && row.attemptCount >= row.maxAttempts).length;
   const queueCoverageFromEligibleQuestionCreates = ratio(queued, attempts.buckets.eligible.questionCreates);
 
-  const earliestByKey = new Map<string, {
-    agentName: string;
-    questionId: string;
-    deliveredAt: Date;
-    createdAt: Date;
-  }>();
-  for (const row of openedRows) {
-    if (!row.deliveredAt) continue;
-    const key = `${row.agentName}|${row.questionId}`;
-    const existing = earliestByKey.get(key);
-    if (!existing || row.deliveredAt.getTime() < existing.deliveredAt.getTime()) {
-      earliestByKey.set(key, {
-        agentName: row.agentName,
-        questionId: row.questionId,
-        deliveredAt: row.deliveredAt,
-        createdAt: row.createdAt
-      });
+  const toEarliestOpenMap = (rowsToMap: typeof openedRows) => {
+    const byKey = new Map<string, {
+      agentName: string;
+      questionId: string;
+      deliveredAt: Date;
+      createdAt: Date;
+    }>();
+    for (const row of rowsToMap) {
+      if (!row.deliveredAt) continue;
+      const key = `${row.agentName}|${row.questionId}`;
+      const existing = byKey.get(key);
+      if (!existing || row.deliveredAt.getTime() < existing.deliveredAt.getTime()) {
+        byKey.set(key, {
+          agentName: row.agentName,
+          questionId: row.questionId,
+          deliveredAt: row.deliveredAt,
+          createdAt: row.createdAt
+        });
+      }
     }
-  }
+    return byKey;
+  };
 
+  const earliestByKey = toEarliestOpenMap(openedRows);
+  const strictEarliestByKey = toEarliestOpenMap(strictOpenedRows);
   const openKeys = Array.from(earliestByKey.values());
+  const strictOpenKeys = Array.from(strictEarliestByKey.values());
   const questionIds = Array.from(new Set(openKeys.map((row) => row.questionId)));
   const agentNames = Array.from(new Set(openKeys.map((row) => row.agentName)));
   const answers = questionIds.length > 0 && agentNames.length > 0
@@ -6489,7 +6550,37 @@ async function getTractionFunnel(days: number, options?: {
       day: item.createdAt.toISOString().slice(0, 10)
     });
   }
-  const answerIds = Array.from(new Set(answeredKeys.map((row) => row.answerId)));
+  const strictAnsweredKeys: Array<{
+    key: string;
+    agentName: string;
+    questionId: string;
+    answerId: string;
+    minutes: number;
+    withinWindow: boolean;
+    day: string;
+  }> = [];
+  for (const item of strictOpenKeys) {
+    const key = `${item.agentName}|${item.questionId}`;
+    const answer = earliestAnswerByKey.get(key);
+    if (!answer) continue;
+    if (answer.createdAt.getTime() < item.deliveredAt.getTime()) continue;
+    const minutes = (answer.createdAt.getTime() - item.deliveredAt.getTime()) / 60000;
+    strictAnsweredKeys.push({
+      key,
+      agentName: item.agentName,
+      questionId: item.questionId,
+      answerId: answer.id,
+      minutes,
+      withinWindow: answer.createdAt.getTime() <= item.deliveredAt.getTime() + answerWindowMs,
+      day: item.createdAt.toISOString().slice(0, 10)
+    });
+  }
+
+  const answerIds = Array.from(new Set(
+    answeredKeys
+      .map((row) => row.answerId)
+      .concat(strictAnsweredKeys.map((row) => row.answerId))
+  ));
   const acceptedSet = answerIds.length > 0
     ? new Set(
       (await prisma.questionResolution.findMany({
@@ -6500,8 +6591,11 @@ async function getTractionFunnel(days: number, options?: {
     : new Set<string>();
 
   const answered = answeredKeys.length;
+  const strictAnswered = strictAnsweredKeys.length;
   const accepted = answeredKeys.filter((row) => acceptedSet.has(row.answerId)).length;
+  const strictAccepted = strictAnsweredKeys.filter((row) => acceptedSet.has(row.answerId)).length;
   const answeredWithinWindow = answeredKeys.filter((row) => row.withinWindow).length;
+  const strictAnsweredWithinWindow = strictAnsweredKeys.filter((row) => row.withinWindow).length;
   const latencySorted = answeredKeys.map((row) => row.minutes).filter((value) => Number.isFinite(value) && value >= 0).sort((a, b) => a - b);
 
   const dailyMap = new Map<string, {
@@ -6563,11 +6657,11 @@ async function getTractionFunnel(days: number, options?: {
             : 'all_external_writes_filtered_or_missing_agent_name')
         : (queued === 0
             ? 'eligible_writes_without_delivery_queue_activity'
-            : (opened === 0
+            : (strictOpened === 0
                 ? 'deliveries_not_opened'
-                : (answered === 0
+                : (strictAnswered === 0
                     ? 'opened_not_answered'
-                    : (accepted === 0 ? 'answered_not_accepted' : 'healthy_or_insufficient_data')))));
+                    : (strictAccepted === 0 ? 'answered_not_accepted' : 'healthy_or_insufficient_data')))));
 
   return {
     days: windowDays,
@@ -6586,19 +6680,32 @@ async function getTractionFunnel(days: number, options?: {
     totals: {
       queued,
       opened,
+      strictOpened,
       pending,
       failed,
       webhookOpened,
       inboxOpened,
+      openedViaJobFetch,
+      openedViaFeedDiscovery,
+      openedViaAnswerWriteback,
+      openedViaLegacyPullDiscovery,
+      openedViaUnknownSignal,
       answered,
+      strictAnswered,
       accepted,
-      answeredWithinWindow
+      strictAccepted,
+      answeredWithinWindow,
+      strictAnsweredWithinWindow
     },
     conversion: {
       openRate: ratio(opened, queued),
+      openRateStrict: ratio(strictOpened, queued),
       answerRateFromOpened: ratio(answered, opened),
+      answerRateFromStrictOpened: ratio(strictAnswered, strictOpened),
       acceptRateFromAnswered: ratio(accepted, answered),
-      withinWindowRate: ratio(answeredWithinWindow, answered)
+      acceptRateFromStrictAnswered: ratio(strictAccepted, strictAnswered),
+      withinWindowRate: ratio(answeredWithinWindow, answered),
+      strictWithinWindowRate: ratio(strictAnsweredWithinWindow, strictAnswered)
     },
     latencyMinutes: {
       median: percentileFromSorted(latencySorted, 0.5),
@@ -10569,7 +10676,7 @@ fastify.get('/api/v1/questions/unanswered', {
     ? await markAgentPullDeliveriesOpened(
         agentName,
         paged.filter((row) => row.queuedForAgent).map((row) => row.id),
-        { limit: Math.min(10, take) }
+        { limit: Math.min(10, take), source: 'feed_discovery' }
       )
     : [];
 
@@ -10669,7 +10776,7 @@ fastify.get('/api/v1/feed/unanswered', {
     ? await markAgentPullDeliveriesOpened(
         agentName,
         results.filter((row) => row.queuedForAgent).map((row) => row.id),
-        { limit: Math.min(10, take) }
+        { limit: Math.min(10, take), source: 'feed_discovery' }
       )
     : [];
 
@@ -10900,7 +11007,7 @@ fastify.get('/api/v1/agent/quickstart', {
     getPendingQuestionDeliveryCountForAgent(agentName)
   ]);
   const openedDelivery = (agentName && recommended)
-    ? await markAgentPullDeliveryOpened(agentName, recommended.id, { fallbackToAny: false })
+    ? await markAgentPullDeliveryOpened(agentName, recommended.id, { fallbackToAny: false, source: 'job_fetch' })
     : null;
   const unansweredTotal = await prisma.question.count({
     where: {
@@ -11020,7 +11127,7 @@ fastify.get('/api/v1/agent/jobs/next', {
     getPendingQuestionDeliveryCountForAgent(agentName)
   ]);
   const openedDelivery = recommended
-    ? await markAgentPullDeliveryOpened(agentName, recommended.id, { fallbackToAny: false })
+    ? await markAgentPullDeliveryOpened(agentName, recommended.id, { fallbackToAny: false, source: 'job_fetch' })
     : null;
   const unansweredTotal = await prisma.question.count({
     where: {
@@ -11440,7 +11547,7 @@ fastify.get('/api/v1/agent/next-best-job', {
     getPendingQuestionDeliveryCountForAgent(agentName)
   ]);
   const openedDelivery = (agentName && recommended)
-    ? await markAgentPullDeliveryOpened(agentName, recommended.id, { fallbackToAny: false })
+    ? await markAgentPullDeliveryOpened(agentName, recommended.id, { fallbackToAny: false, source: 'job_fetch' })
     : null;
   const unansweredTotal = await prisma.question.count({
     where: {
@@ -12707,7 +12814,11 @@ fastify.post('/api/v1/questions/:id/answers', {
     return;
   }
   const openedDelivery = agentName
-    ? await markAgentPullDeliveryOpened(agentName, id, { fallbackToAny: false, createIfMissing: true })
+    ? await markAgentPullDeliveryOpened(agentName, id, {
+        fallbackToAny: false,
+        createIfMissing: true,
+        source: 'answer_writeback'
+      })
     : null;
 
   const bodyText = markdownToText(body.bodyMd);
@@ -12898,7 +13009,11 @@ fastify.post('/api/v1/questions/:id/answer-job', {
       }
     });
   }
-  const openedDelivery = await markAgentPullDeliveryOpened(agentName, id, { fallbackToAny: false, createIfMissing: true });
+  const openedDelivery = await markAgentPullDeliveryOpened(agentName, id, {
+    fallbackToAny: false,
+    createIfMissing: true,
+    source: 'answer_writeback'
+  });
 
   const bodyText = markdownToText(body.bodyMd);
   const answer = await prisma.answer.create({
@@ -14133,11 +14248,19 @@ fastify.get('/admin/traction', async (request, reply) => {
         <div class="grid">
           <div class="metric"><div class="label">Queued</div><div id="queued" class="value">—</div></div>
           <div class="metric"><div class="label">Opened</div><div id="opened" class="value">—</div><small id="openRate">—</small></div>
+          <div class="metric"><div class="label">Strict opened</div><div id="strictOpened" class="value">—</div><small id="openRateStrict">—</small></div>
           <div class="metric"><div class="label">Answered</div><div id="answered" class="value">—</div><small id="answerRate">—</small></div>
+          <div class="metric"><div class="label">Strict answered</div><div id="strictAnswered" class="value">—</div><small id="answerRateStrict">—</small></div>
           <div class="metric"><div class="label">Accepted</div><div id="accepted" class="value">—</div><small id="acceptRate">—</small></div>
+          <div class="metric"><div class="label">Strict accepted</div><div id="strictAccepted" class="value">—</div><small id="acceptRateStrict">—</small></div>
           <div class="metric"><div class="label">Median latency (min)</div><div id="latencyP50" class="value">—</div><small id="latencyP90">—</small></div>
           <div class="metric"><div class="label">Opened via webhook</div><div id="webhookOpened" class="value">—</div></div>
           <div class="metric"><div class="label">Opened via inbox</div><div id="inboxOpened" class="value">—</div></div>
+          <div class="metric"><div class="label">Opened via job fetch</div><div id="openedViaJobFetch" class="value">—</div></div>
+          <div class="metric"><div class="label">Opened via feed</div><div id="openedViaFeedDiscovery" class="value">—</div></div>
+          <div class="metric"><div class="label">Opened via writeback</div><div id="openedViaAnswerWriteback" class="value">—</div></div>
+          <div class="metric"><div class="label">Opened via legacy pull</div><div id="openedViaLegacyPullDiscovery" class="value">—</div></div>
+          <div class="metric"><div class="label">Opened unknown signal</div><div id="openedViaUnknownSignal" class="value">—</div></div>
           <div class="metric"><div class="label">Failed deliveries</div><div id="failed" class="value">—</div><small id="pending">—</small></div>
           <div class="metric"><div class="label">Attempted writes</div><div id="attemptsTotal" class="value">—</div></div>
           <div class="metric"><div class="label">Eligible writes</div><div id="attemptsEligible" class="value">—</div><small id="attemptsEligibleShare">—</small></div>
@@ -14175,15 +14298,26 @@ fastify.get('/admin/traction', async (request, reply) => {
           const data = await res.json();
           $('queued').textContent = fmtNum(data.totals?.queued);
           $('opened').textContent = fmtNum(data.totals?.opened);
+          $('strictOpened').textContent = fmtNum(data.totals?.strictOpened);
           $('answered').textContent = fmtNum(data.totals?.answered);
+          $('strictAnswered').textContent = fmtNum(data.totals?.strictAnswered);
           $('accepted').textContent = fmtNum(data.totals?.accepted);
+          $('strictAccepted').textContent = fmtNum(data.totals?.strictAccepted);
           $('webhookOpened').textContent = fmtNum(data.totals?.webhookOpened);
           $('inboxOpened').textContent = fmtNum(data.totals?.inboxOpened);
+          $('openedViaJobFetch').textContent = fmtNum(data.totals?.openedViaJobFetch);
+          $('openedViaFeedDiscovery').textContent = fmtNum(data.totals?.openedViaFeedDiscovery);
+          $('openedViaAnswerWriteback').textContent = fmtNum(data.totals?.openedViaAnswerWriteback);
+          $('openedViaLegacyPullDiscovery').textContent = fmtNum(data.totals?.openedViaLegacyPullDiscovery);
+          $('openedViaUnknownSignal').textContent = fmtNum(data.totals?.openedViaUnknownSignal);
           $('failed').textContent = fmtNum(data.totals?.failed);
           $('pending').textContent = 'pending: ' + fmtNum(data.totals?.pending);
           $('openRate').textContent = 'open rate: ' + fmtPct(data.conversion?.openRate);
+          $('openRateStrict').textContent = 'strict open rate: ' + fmtPct(data.conversion?.openRateStrict);
           $('answerRate').textContent = 'answer/open: ' + fmtPct(data.conversion?.answerRateFromOpened);
+          $('answerRateStrict').textContent = 'answer/strict open: ' + fmtPct(data.conversion?.answerRateFromStrictOpened);
           $('acceptRate').textContent = 'accept/answer: ' + fmtPct(data.conversion?.acceptRateFromAnswered);
+          $('acceptRateStrict').textContent = 'accept/strict answer: ' + fmtPct(data.conversion?.acceptRateFromStrictAnswered);
           $('latencyP50').textContent = data.latencyMinutes?.median == null ? '—' : Number(data.latencyMinutes.median).toFixed(1);
           $('latencyP90').textContent = 'p90: ' + (data.latencyMinutes?.p90 == null ? '—' : Number(data.latencyMinutes.p90).toFixed(1));
           $('attemptsTotal').textContent = fmtNum(data.attempts?.totals?.writes);
