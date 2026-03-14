@@ -3771,6 +3771,20 @@ async function dispatchSourceResolutionCallback(input: {
     'content-type': 'application/json',
     'user-agent': 'a2abench-source-callback'
   };
+  const priorPosted = await prisma.agentPayloadEvent.findFirst({
+    where: {
+      source: 'source_callback',
+      kind: 'github_resolution_comment_created',
+      requestBody: {
+        contains: `"questionId":"${input.questionId}"`
+      }
+    },
+    select: { id: true }
+  });
+  if (priorPosted) {
+    return { ok: true, sent: false, reason: 'already_posted_local' as const, sourceUrl: issueRef.canonicalUrl };
+  }
+
   const commentsUrl = `https://api.github.com/repos/${issueRef.owner}/${issueRef.repo}/issues/${issueRef.issueNumber}/comments?per_page=100`;
 
   const existingResponse = await fetch(commentsUrl, {
