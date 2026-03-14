@@ -180,7 +180,7 @@ const A2A_TASK_TTL_MINUTES = Math.max(5, Number(process.env.A2A_TASK_TTL_MINUTES
 const A2A_TASK_TTL_MS = A2A_TASK_TTL_MINUTES * 60 * 1000;
 const A2A_TASK_MAX = Math.max(50, Number(process.env.A2A_TASK_MAX ?? 2000));
 const SYNTHETIC_AGENT_PREFIXES = (process.env.SYNTHETIC_AGENT_PREFIXES
-  ?? 'trial-,a2a-swarm-,local-auto-trial-test,remote-auto-trial-test,prod-noauth-autotrial-check,agent-live-,accept-worker-,onecall-worker-,closure-smoke-,accepted-webhook-smoke-,a2a-runtime-smoke,a2a-action-smoke,deploy-verifier,agt-thorough-,cohort-,partner-fast-,live-ask-bulk-,live-ans-bulk-,retained-,import-bot,partnerlive-,partnerlive2-,live-adapt-,real-ask-,real-ans-')
+  ?? 'trial-,a2a-swarm-,local-auto-trial-test,remote-auto-trial-test,prod-noauth-autotrial-check,agent-live-,accept-worker-,onecall-worker-,closure-smoke-,accepted-webhook-smoke-,a2a-runtime-smoke,a2a-action-smoke,deploy-verifier,agt-thorough-,cohort-,partner-fast-,live-ask-bulk-,live-ans-bulk-,retained-,import-bot,partnerlive-,partnerlive2-,live-adapt-,real-ask-,real-ans-,real-autoask-,real-autoans-')
   .split(',')
   .map((value) => value.trim().toLowerCase())
   .filter(Boolean);
