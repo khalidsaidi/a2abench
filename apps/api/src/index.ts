@@ -123,6 +123,30 @@ const REMINDER_LOOP_INTERVAL_MS = Math.max(5000, Number(process.env.REMINDER_LOO
 const PUSH_SOLVABILITY_FILTER_ENABLED = (process.env.PUSH_SOLVABILITY_FILTER_ENABLED ?? (AGENT_OPEN_MODE ? 'false' : 'true')).toLowerCase() === 'true';
 const PUSH_SOLVABILITY_MIN_SCORE = Math.max(0, Math.min(100, Number(process.env.PUSH_SOLVABILITY_MIN_SCORE ?? (AGENT_OPEN_MODE ? 0 : 56))));
 const NEXT_BEST_JOB_MIN_SOLVABILITY = Math.max(0, Math.min(100, Number(process.env.NEXT_BEST_JOB_MIN_SOLVABILITY ?? 40)));
+const NEXT_JOB_FIRST_TOUCH_MODE_ENABLED = (process.env.NEXT_JOB_FIRST_TOUCH_MODE_ENABLED ?? 'true').toLowerCase() === 'true';
+const NEXT_JOB_FIRST_TOUCH_MAX_ANSWERS = Math.max(0, Number(process.env.NEXT_JOB_FIRST_TOUCH_MAX_ANSWERS ?? 2));
+const NEXT_JOB_FIRST_TOUCH_MAX_WRITES_30D = Math.max(0, Number(process.env.NEXT_JOB_FIRST_TOUCH_MAX_WRITES_30D ?? 12));
+const NEXT_JOB_FIRST_TOUCH_MIN_SOLVABILITY = Math.max(
+  0,
+  Math.min(NEXT_BEST_JOB_MIN_SOLVABILITY, Number(process.env.NEXT_JOB_FIRST_TOUCH_MIN_SOLVABILITY ?? 28))
+);
+const NEXT_JOB_GUARDRAIL_ENABLED = (process.env.NEXT_JOB_GUARDRAIL_ENABLED ?? 'true').toLowerCase() === 'true';
+const NEXT_JOB_GUARDRAIL_INTERVAL_MS = Math.max(60_000, Number(process.env.NEXT_JOB_GUARDRAIL_INTERVAL_MS ?? 900_000));
+const NEXT_JOB_GUARDRAIL_WINDOW_MINUTES = Math.max(5, Number(process.env.NEXT_JOB_GUARDRAIL_WINDOW_MINUTES ?? 15));
+const NEXT_JOB_GUARDRAIL_MIN_STRICT_WRITES = Math.max(1, Number(process.env.NEXT_JOB_GUARDRAIL_MIN_STRICT_WRITES ?? 20));
+const NEXT_JOB_GUARDRAIL_TRIGGER_ANSWER_RATE = Math.max(
+  0,
+  Math.min(1, Number(process.env.NEXT_JOB_GUARDRAIL_TRIGGER_ANSWER_RATE ?? 0.2))
+);
+const NEXT_JOB_GUARDRAIL_RECOVER_ANSWER_RATE = Math.max(
+  NEXT_JOB_GUARDRAIL_TRIGGER_ANSWER_RATE,
+  Math.min(1, Number(process.env.NEXT_JOB_GUARDRAIL_RECOVER_ANSWER_RATE ?? 0.35))
+);
+const NEXT_JOB_GUARDRAIL_STICKY_MINUTES = Math.max(1, Number(process.env.NEXT_JOB_GUARDRAIL_STICKY_MINUTES ?? 30));
+const NEXT_JOB_GUARDRAIL_EASY_MIN_SOLVABILITY = Math.max(
+  0,
+  Math.min(NEXT_BEST_JOB_MIN_SOLVABILITY, Number(process.env.NEXT_JOB_GUARDRAIL_EASY_MIN_SOLVABILITY ?? 25))
+);
 const SUBSCRIPTION_PRUNE_ENABLED = (process.env.SUBSCRIPTION_PRUNE_ENABLED ?? 'true').toLowerCase() === 'true';
 const SUBSCRIPTION_PRUNE_INTERVAL_MS = Math.max(30_000, Number(process.env.SUBSCRIPTION_PRUNE_INTERVAL_MS ?? (AGENT_OPEN_MODE ? 60_000 : 300_000)));
 const SUBSCRIPTION_PRUNE_WINDOW_HOURS = Math.max(1, Number(process.env.SUBSCRIPTION_PRUNE_WINDOW_HOURS ?? (AGENT_OPEN_MODE ? 6 : 24)));
@@ -219,6 +243,7 @@ let subscriptionPruneLoopTimer: NodeJS.Timeout | null = null;
 let tractionAlertLoopTimer: NodeJS.Timeout | null = null;
 let deliveryRequeueLoopTimer: NodeJS.Timeout | null = null;
 let sourceImportLoopTimer: NodeJS.Timeout | null = null;
+let nextJobGuardrailLoopTimer: NodeJS.Timeout | null = null;
 let deliveryLoopRunning = false;
 let reminderLoopRunning = false;
 let autoCloseLoopRunning = false;
@@ -226,10 +251,37 @@ let subscriptionPruneLoopRunning = false;
 let tractionAlertLoopRunning = false;
 let deliveryRequeueLoopRunning = false;
 let sourceImportLoopRunning = false;
+let nextJobGuardrailLoopRunning = false;
 let sourceSeedGithubRateLimitUntilMs = 0;
 let lastTractionAlertDigest: string | null = null;
 let lastTractionAlertStatus: 'pass' | 'fail' | null = null;
 let lastTractionAlertAt = 0;
+type NextJobGuardrailWindow = {
+  since: string;
+  until: string;
+  strictWrites: number;
+  strictQuestionWrites: number;
+  strictAnswerWrites: number;
+  strictAnswerRate: number;
+  proxiedWrites: number;
+  proxiedQuestionWrites: number;
+  proxiedAnswerWrites: number;
+};
+const nextJobGuardrailState: {
+  easyModeEnabled: boolean;
+  reason: string;
+  updatedAt: string;
+  stickyUntil: string | null;
+  lastDecision: string;
+  lastWindow: NextJobGuardrailWindow | null;
+} = {
+  easyModeEnabled: false,
+  reason: 'startup',
+  updatedAt: new Date(0).toISOString(),
+  stickyUntil: null,
+  lastDecision: 'bootstrap',
+  lastWindow: null
+};
 
 await fastify.register(cors, { origin: true });
 await fastify.register(rateLimit, { global: false });
@@ -938,6 +990,11 @@ function agentCard(baseUrl: string) {
         id: 'answer_job',
         name: 'Answer Job',
         description: 'One-step flow: claim question + submit answer + mark job progress.'
+      },
+      {
+        id: 'work_once',
+        name: 'Work Once',
+        description: 'MCP single-call flow: auto-pick next question, draft, answer, and verify.'
       },
       {
         id: 'claim_question',
@@ -4205,6 +4262,12 @@ type RecommendedQuestion = {
   reasons: string[];
   matchedTags: string[];
   solvability: QuestionSolvabilityResult;
+  solvabilityThreshold: number;
+  rankingMode: {
+    firstTouchEasy: boolean;
+    guardrailEasy: boolean;
+  };
+  firstTouchProfile: FirstTouchProfile | null;
   activeClaim: {
     id: string;
     agentName: string;
@@ -4261,12 +4324,99 @@ async function getPendingQuestionDeliveryCountForAgent(agentName: string | null)
   });
 }
 
+type FirstTouchProfile = {
+  enabled: boolean;
+  answersAllTime: number;
+  successfulWrites30d: number;
+  reasons: string[];
+};
+
+async function getFirstTouchProfile(agentName: string | null): Promise<FirstTouchProfile> {
+  const normalizedAgent = normalizeAgentOrNull(agentName);
+  if (!NEXT_JOB_FIRST_TOUCH_MODE_ENABLED || !normalizedAgent) {
+    return {
+      enabled: false,
+      answersAllTime: 0,
+      successfulWrites30d: 0,
+      reasons: ['agent_missing_or_mode_disabled']
+    };
+  }
+  if (!isExternalAdoptionAgentName(normalizedAgent)) {
+    return {
+      enabled: false,
+      answersAllTime: 0,
+      successfulWrites30d: 0,
+      reasons: ['not_external_adoption_agent']
+    };
+  }
+
+  const writesSince = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const [answersAllTime, writeRows] = await Promise.all([
+    prisma.answer.count({
+      where: {
+        agentName: normalizedAgent
+      }
+    }),
+    prisma.$queryRaw<Array<{ count: bigint | number | string }>>`
+      SELECT COUNT(*) AS count
+      FROM "UsageEvent"
+      WHERE "createdAt" >= ${writesSince}
+        AND NULLIF("agentName", '') = ${normalizedAgent}
+        AND UPPER("method") = 'POST'
+        AND "status" BETWEEN 200 AND 299
+        AND "route" IN ('/api/v1/questions', '/api/v1/questions/:id/answers', '/api/v1/questions/:id/answer-job')
+    `
+  ]);
+  const successfulWrites30d = toNumber(writeRows[0]?.count);
+
+  const reasons: string[] = [];
+  if (answersAllTime <= NEXT_JOB_FIRST_TOUCH_MAX_ANSWERS) {
+    reasons.push(`answers_lte_${NEXT_JOB_FIRST_TOUCH_MAX_ANSWERS}`);
+  }
+  if (successfulWrites30d <= NEXT_JOB_FIRST_TOUCH_MAX_WRITES_30D) {
+    reasons.push(`writes30d_lte_${NEXT_JOB_FIRST_TOUCH_MAX_WRITES_30D}`);
+  }
+
+  return {
+    enabled: answersAllTime <= NEXT_JOB_FIRST_TOUCH_MAX_ANSWERS && successfulWrites30d <= NEXT_JOB_FIRST_TOUCH_MAX_WRITES_30D,
+    answersAllTime,
+    successfulWrites30d,
+    reasons
+  };
+}
+
+function getNextJobSolvabilityThreshold(firstTouchMode: boolean) {
+  if (firstTouchMode) {
+    return Math.min(NEXT_BEST_JOB_MIN_SOLVABILITY, NEXT_JOB_FIRST_TOUCH_MIN_SOLVABILITY);
+  }
+  if (nextJobGuardrailState.easyModeEnabled) {
+    return Math.min(NEXT_BEST_JOB_MIN_SOLVABILITY, NEXT_JOB_GUARDRAIL_EASY_MIN_SOLVABILITY);
+  }
+  return NEXT_BEST_JOB_MIN_SOLVABILITY;
+}
+
+function getNextJobRankingRuntime() {
+  const guardrail = getNextJobGuardrailSnapshot();
+  return {
+    guardrailEasyMode: guardrail.easyModeEnabled,
+    guardrailReason: guardrail.reason,
+    guardrailUpdatedAt: guardrail.updatedAt,
+    guardrailStickyUntil: guardrail.stickyUntil,
+    firstTouchModeEnabled: NEXT_JOB_FIRST_TOUCH_MODE_ENABLED,
+    firstTouchMaxAnswers: NEXT_JOB_FIRST_TOUCH_MAX_ANSWERS,
+    firstTouchMaxWrites30d: NEXT_JOB_FIRST_TOUCH_MAX_WRITES_30D
+  };
+}
+
 async function getRecommendedQuestionForAgent(agentName?: string | null) {
   const normalizedAgent = normalizeAgentOrNull(agentName);
-  const [preferredTags, pendingQuestionIds] = await Promise.all([
+  const [preferredTags, pendingQuestionIds, firstTouchProfile] = await Promise.all([
     getAgentTagPreferences(normalizedAgent),
-    getPendingQuestionDeliveryIdsForAgent(normalizedAgent)
+    getPendingQuestionDeliveryIdsForAgent(normalizedAgent),
+    getFirstTouchProfile(normalizedAgent)
   ]);
+  const firstTouchMode = firstTouchProfile.enabled;
+  const solvabilityThreshold = getNextJobSolvabilityThreshold(firstTouchMode);
   const pendingQuestionSet = new Set(pendingQuestionIds);
   const now = new Date();
   const baseWhere: Prisma.QuestionWhereInput = {
@@ -4337,23 +4487,39 @@ async function getRecommendedQuestionForAgent(agentName?: string | null) {
         bountyAmount,
         createdAt: row.createdAt,
         preferredTags
-      }, NEXT_BEST_JOB_MIN_SOLVABILITY);
+      }, solvabilityThreshold);
       if (!solvability.pass && !queuedForAgent) return null;
+      const guardrailEasyMode = nextJobGuardrailState.easyModeEnabled && !firstTouchMode;
       const matchedTags = solvability.matchedTags;
-      const unansweredBonus = answerCount === 0 ? 450 : 0;
+      const unansweredBonus = answerCount === 0
+        ? (firstTouchMode ? 900 : guardrailEasyMode ? 650 : 450)
+        : 0;
       const sourceWeight = sourcePriorityWeight(row.sourceType);
       const claimBonus = activeClaim ? 100 : 0;
       const queuedBonus = queuedForAgent ? 2400 : 0;
-      const score =
-        (bountyAmount * 1000) +
-        unansweredBonus +
-        (matchedTags.length * 140) +
-        (solvability.score * 6) +
-        (Math.min(120, ageHours) * 1.5) +
-        sourceWeight +
-        claimBonus -
-        (answerCount * 35) +
-        queuedBonus;
+      const score = firstTouchMode
+        ? (
+          queuedBonus +
+          claimBonus +
+          unansweredBonus +
+          (matchedTags.length * 220) +
+          (solvability.score * 26) +
+          (Math.min(120, ageHours) * 2.2) +
+          (sourceWeight * 3) +
+          Math.min(500, bountyAmount * 140) -
+          (answerCount * 160)
+        )
+        : (
+          (bountyAmount * (guardrailEasyMode ? 550 : 1000)) +
+          unansweredBonus +
+          (matchedTags.length * (guardrailEasyMode ? 170 : 140)) +
+          (solvability.score * (guardrailEasyMode ? 12 : 6)) +
+          (Math.min(120, ageHours) * (guardrailEasyMode ? 2 : 1.5)) +
+          sourceWeight +
+          claimBonus -
+          (answerCount * (guardrailEasyMode ? 55 : 35)) +
+          queuedBonus
+        );
       const reasons: string[] = [];
       if (queuedForAgent) reasons.push('queued_for_you');
       if (bountyAmount > 0) reasons.push(`bounty_${bountyAmount}`);
@@ -4361,6 +4527,9 @@ async function getRecommendedQuestionForAgent(agentName?: string | null) {
       if (matchedTags.length > 0) reasons.push(`tag_match_${matchedTags.length}`);
       if (sourceWeight > 0) reasons.push(`source_${row.sourceType ?? 'none'}`);
       if (activeClaim) reasons.push('already_claimed_by_agent');
+      if (firstTouchMode) reasons.push('first_touch_easy_mode');
+      if (guardrailEasyMode) reasons.push('guardrail_easy_mode');
+      reasons.push(`solvability_threshold_${solvabilityThreshold}`);
       reasons.push(`solvability_${solvability.score}`);
 
       return {
@@ -4381,6 +4550,12 @@ async function getRecommendedQuestionForAgent(agentName?: string | null) {
         reasons,
         matchedTags,
         solvability,
+        solvabilityThreshold,
+        rankingMode: {
+          firstTouchEasy: firstTouchMode,
+          guardrailEasy: guardrailEasyMode
+        },
+        firstTouchProfile: normalizedAgent ? firstTouchProfile : null,
         activeClaim: activeClaim
           ? {
               id: activeClaim.id,
@@ -4417,10 +4592,12 @@ function formatRecommendedQuestion(
     matchedTags: recommended.matchedTags,
     solvability: {
       score: recommended.solvability.score,
-      threshold: NEXT_BEST_JOB_MIN_SOLVABILITY,
+      threshold: recommended.solvabilityThreshold,
       pass: recommended.solvability.pass,
       reasons: recommended.solvability.reasons
     },
+    rankingMode: recommended.rankingMode,
+    firstTouchProfile: recommended.firstTouchProfile,
     activeClaim: recommended.activeClaim,
     url: `${baseUrl}/q/${recommended.id}`,
     actions
@@ -6209,6 +6386,161 @@ async function processAutoCloseQuestions(baseUrl: string, limit = AUTO_CLOSE_PRO
   };
 }
 
+function getNextJobGuardrailSnapshot() {
+  return {
+    enabled: NEXT_JOB_GUARDRAIL_ENABLED,
+    easyModeEnabled: nextJobGuardrailState.easyModeEnabled,
+    reason: nextJobGuardrailState.reason,
+    updatedAt: nextJobGuardrailState.updatedAt,
+    stickyUntil: nextJobGuardrailState.stickyUntil,
+    lastDecision: nextJobGuardrailState.lastDecision,
+    config: {
+      intervalMs: NEXT_JOB_GUARDRAIL_INTERVAL_MS,
+      windowMinutes: NEXT_JOB_GUARDRAIL_WINDOW_MINUTES,
+      minStrictWrites: NEXT_JOB_GUARDRAIL_MIN_STRICT_WRITES,
+      triggerAnswerRate: NEXT_JOB_GUARDRAIL_TRIGGER_ANSWER_RATE,
+      recoverAnswerRate: NEXT_JOB_GUARDRAIL_RECOVER_ANSWER_RATE,
+      stickyMinutes: NEXT_JOB_GUARDRAIL_STICKY_MINUTES,
+      easyMinSolvability: NEXT_JOB_GUARDRAIL_EASY_MIN_SOLVABILITY
+    },
+    lastWindow: nextJobGuardrailState.lastWindow
+  };
+}
+
+async function getNextJobGuardrailWindowSnapshot(): Promise<NextJobGuardrailWindow> {
+  const until = new Date();
+  const since = new Date(until.getTime() - NEXT_JOB_GUARDRAIL_WINDOW_MINUTES * 60 * 1000);
+  const rows = await prisma.$queryRaw<Array<{ agentName: string | null; route: string; count: bigint | number | string }>>`
+    SELECT
+      NULLIF("agentName", '') AS "agentName",
+      "route" AS "route",
+      COUNT(*) AS count
+    FROM "UsageEvent"
+    WHERE "createdAt" >= ${since}
+      AND "createdAt" <= ${until}
+      AND UPPER("method") = 'POST'
+      AND "status" BETWEEN 200 AND 299
+      AND "route" IN ('/api/v1/questions', '/api/v1/questions/:id/answers', '/api/v1/questions/:id/answer-job')
+    GROUP BY 1, 2
+  `;
+
+  const snapshot: NextJobGuardrailWindow = {
+    since: since.toISOString(),
+    until: until.toISOString(),
+    strictWrites: 0,
+    strictQuestionWrites: 0,
+    strictAnswerWrites: 0,
+    strictAnswerRate: 0,
+    proxiedWrites: 0,
+    proxiedQuestionWrites: 0,
+    proxiedAnswerWrites: 0
+  };
+
+  for (const row of rows) {
+    const route = String(row.route ?? '');
+    const count = toNumber(row.count);
+    if (count <= 0) continue;
+    const normalizedAgent = normalizeAgentOrNull(row.agentName);
+    if (!normalizedAgent) continue;
+    const isQuestionWrite = route === '/api/v1/questions';
+    const isAnswerWrite = route === '/api/v1/questions/:id/answers' || route === '/api/v1/questions/:id/answer-job';
+    if (!isQuestionWrite && !isAnswerWrite) continue;
+
+    if (isExternalAdoptionAgentName(normalizedAgent)) {
+      snapshot.strictWrites += count;
+      if (isQuestionWrite) snapshot.strictQuestionWrites += count;
+      if (isAnswerWrite) snapshot.strictAnswerWrites += count;
+      continue;
+    }
+    if (isProxiedExternalAgentName(normalizedAgent)) {
+      snapshot.proxiedWrites += count;
+      if (isQuestionWrite) snapshot.proxiedQuestionWrites += count;
+      if (isAnswerWrite) snapshot.proxiedAnswerWrites += count;
+    }
+  }
+
+  snapshot.strictAnswerRate = ratio(snapshot.strictAnswerWrites, snapshot.strictWrites);
+  return snapshot;
+}
+
+async function runNextJobGuardrail(input: { source: 'startup' | 'loop' }) {
+  if (!NEXT_JOB_GUARDRAIL_ENABLED) {
+    nextJobGuardrailState.easyModeEnabled = false;
+    nextJobGuardrailState.reason = 'guardrail_disabled';
+    nextJobGuardrailState.updatedAt = new Date().toISOString();
+    nextJobGuardrailState.stickyUntil = null;
+    nextJobGuardrailState.lastDecision = 'disabled';
+    nextJobGuardrailState.lastWindow = null;
+    return;
+  }
+
+  const snapshot = await getNextJobGuardrailWindowSnapshot();
+  const nowMs = Date.now();
+  const currentlyEnabled = nextJobGuardrailState.easyModeEnabled;
+  const stickyUntilMs = nextJobGuardrailState.stickyUntil ? Date.parse(nextJobGuardrailState.stickyUntil) : Number.NaN;
+  const stickyActive = Number.isFinite(stickyUntilMs) && stickyUntilMs > nowMs;
+
+  let nextEnabled = currentlyEnabled;
+  let reason = nextJobGuardrailState.reason;
+  let decision = 'hold';
+
+  if (!currentlyEnabled) {
+    if (
+      snapshot.strictWrites >= NEXT_JOB_GUARDRAIL_MIN_STRICT_WRITES
+      && snapshot.strictAnswerRate < NEXT_JOB_GUARDRAIL_TRIGGER_ANSWER_RATE
+    ) {
+      nextEnabled = true;
+      reason = 'enabled_low_strict_answer_rate';
+      decision = 'enable_easy_mode';
+    } else if (snapshot.strictWrites < NEXT_JOB_GUARDRAIL_MIN_STRICT_WRITES) {
+      reason = 'insufficient_strict_volume';
+      decision = 'hold_low_volume';
+    } else {
+      reason = 'strict_answer_rate_healthy';
+      decision = 'hold_healthy';
+    }
+  } else if (stickyActive) {
+    reason = 'sticky_window_active';
+    decision = 'hold_sticky';
+  } else if (
+    snapshot.strictWrites >= NEXT_JOB_GUARDRAIL_MIN_STRICT_WRITES
+    && snapshot.strictAnswerRate >= NEXT_JOB_GUARDRAIL_RECOVER_ANSWER_RATE
+  ) {
+    nextEnabled = false;
+    reason = 'disabled_recovered_strict_answer_rate';
+    decision = 'disable_recovered';
+  } else if (snapshot.strictWrites < NEXT_JOB_GUARDRAIL_MIN_STRICT_WRITES) {
+    reason = 'hold_easy_low_volume';
+    decision = 'hold_easy_low_volume';
+  } else {
+    reason = 'hold_easy_low_conversion';
+    decision = 'hold_easy_low_conversion';
+  }
+
+  const changed = nextEnabled !== currentlyEnabled;
+  nextJobGuardrailState.easyModeEnabled = nextEnabled;
+  nextJobGuardrailState.reason = reason;
+  nextJobGuardrailState.updatedAt = new Date(nowMs).toISOString();
+  nextJobGuardrailState.lastDecision = decision;
+  nextJobGuardrailState.lastWindow = snapshot;
+  if (nextEnabled) {
+    nextJobGuardrailState.stickyUntil = new Date(nowMs + NEXT_JOB_GUARDRAIL_STICKY_MINUTES * 60 * 1000).toISOString();
+  } else {
+    nextJobGuardrailState.stickyUntil = null;
+  }
+
+  if (changed) {
+    fastify.log.info({
+      source: input.source,
+      easyModeEnabled: nextEnabled,
+      reason,
+      strictWrites: snapshot.strictWrites,
+      strictAnswerRate: Number(snapshot.strictAnswerRate.toFixed(4)),
+      proxiedWrites: snapshot.proxiedWrites
+    }, 'next-job guardrail toggled ranking mode');
+  }
+}
+
 function startBackgroundWorkers() {
   if (!usageFlushTimer) {
     usageFlushTimer = setInterval(() => {
@@ -6415,6 +6747,31 @@ function startBackgroundWorkers() {
     }
   }
 
+  if (NEXT_JOB_GUARDRAIL_ENABLED && !nextJobGuardrailLoopTimer) {
+    nextJobGuardrailLoopTimer = setInterval(() => {
+      if (nextJobGuardrailLoopRunning) return;
+      nextJobGuardrailLoopRunning = true;
+      void withPrismaPoolRetry('next_job_guardrail_loop', () => runNextJobGuardrail({ source: 'loop' }), 3)
+        .catch((err) => {
+          fastify.log.warn({ err }, 'next-job guardrail loop failed');
+        })
+        .finally(() => {
+          nextJobGuardrailLoopRunning = false;
+        });
+    }, NEXT_JOB_GUARDRAIL_INTERVAL_MS);
+    nextJobGuardrailLoopTimer.unref?.();
+    if (!nextJobGuardrailLoopRunning) {
+      nextJobGuardrailLoopRunning = true;
+      void withPrismaPoolRetry('next_job_guardrail_startup', () => runNextJobGuardrail({ source: 'startup' }), 3)
+        .catch((err) => {
+          fastify.log.warn({ err }, 'next-job guardrail startup run failed');
+        })
+        .finally(() => {
+          nextJobGuardrailLoopRunning = false;
+        });
+    }
+  }
+
   fastify.log.info({
     usageLogFlushMs: USAGE_LOG_FLUSH_INTERVAL_MS,
     deliveryLoopEnabled: DELIVERY_LOOP_ENABLED,
@@ -6456,6 +6813,13 @@ function startBackgroundWorkers() {
     sourceSeedDiscordRepos: IMPORT_SEED_DISCORD_REPOS.length,
     sourceSeedStackOverflowTags: IMPORT_SEED_STACKOVERFLOW_TAGS.length,
     sourceSeedDryRun: IMPORT_SEED_DRY_RUN,
+    nextJobGuardrailEnabled: NEXT_JOB_GUARDRAIL_ENABLED,
+    nextJobGuardrailIntervalMs: NEXT_JOB_GUARDRAIL_INTERVAL_MS,
+    nextJobGuardrailWindowMinutes: NEXT_JOB_GUARDRAIL_WINDOW_MINUTES,
+    nextJobGuardrailMinStrictWrites: NEXT_JOB_GUARDRAIL_MIN_STRICT_WRITES,
+    nextJobGuardrailTriggerAnswerRate: NEXT_JOB_GUARDRAIL_TRIGGER_ANSWER_RATE,
+    nextJobGuardrailRecoverAnswerRate: NEXT_JOB_GUARDRAIL_RECOVER_ANSWER_RATE,
+    nextJobGuardrailEasyMinSolvability: NEXT_JOB_GUARDRAIL_EASY_MIN_SOLVABILITY,
     pushSolvabilityFilterEnabled: PUSH_SOLVABILITY_FILTER_ENABLED,
     pushSolvabilityMinScore: PUSH_SOLVABILITY_MIN_SCORE,
     nextBestJobMinSolvability: NEXT_BEST_JOB_MIN_SOLVABILITY
@@ -6495,6 +6859,11 @@ async function stopBackgroundWorkers() {
     clearInterval(sourceImportLoopTimer);
     sourceImportLoopTimer = null;
   }
+  if (nextJobGuardrailLoopTimer) {
+    clearInterval(nextJobGuardrailLoopTimer);
+    nextJobGuardrailLoopTimer = null;
+  }
+  nextJobGuardrailLoopRunning = false;
 
   if (usageEventFlushPromise) {
     try {
@@ -7942,6 +8311,7 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
         signatureVerifiedWritesInRange: externalRequestStrictStats.signedWritesInRange,
         questionWritesInRange: externalRequestStrictStats.questionWritesInRange,
         answerWritesInRange: externalRequestStrictStats.answerWritesInRange,
+        answerRateFromWritesInRange: ratio(externalRequestStrictStats.answerWritesInRange, externalRequestStrictStats.writesInRange),
         activeAgentsInRange: externalRequestStrictStats.activeAgentsInRange,
         proxiedWritesInRange: externalRequestProxiedStats.writesInRange,
         proxiedWritesLast24h: externalRequestProxiedStats.writesLast24h,
@@ -7973,6 +8343,7 @@ async function getUsageSummary(days: number, includeNoise: boolean) {
           activeAgentsInRange: externalRequestProxiedStats.activeAgentsInRange
         }
       },
+      guardrail: getNextJobGuardrailSnapshot(),
       kpi: {
         currentAnswerers7d: externalCurrentAnswerers7d.size,
         previousAnswerers7d: externalPreviousAnswerers7d.size,
@@ -9276,6 +9647,37 @@ fastify.get('/api/v1/agent/quickstart', {
     }
   });
   const baseUrl = getBaseUrl(request);
+  const rankingRuntime = getNextJobRankingRuntime();
+  const recommendedQuestion = recommended ? formatRecommendedQuestion(recommended, baseUrl) : null;
+  const answerJobRequest = recommendedQuestion
+    ? buildAnswerJobRequest(recommendedQuestion.id, agentName ?? '', baseUrl)
+    : null;
+  const mcpEndpoint = 'https://a2abench-mcp.web.app/mcp';
+  const recommendedAction = answerJobRequest
+    ? {
+        type: 'answer_job',
+        workflow: 'auto_claim_submit_verify',
+        questionId: recommendedQuestion?.id ?? null,
+        request: answerJobRequest,
+        mcpFallback: {
+          endpoint: mcpEndpoint,
+          tool: 'work_once',
+          args: {}
+        }
+      }
+    : {
+        type: 'work_once',
+        workflow: 'wait_for_demand_then_answer',
+        mcp: {
+          endpoint: mcpEndpoint,
+          tool: 'work_once',
+          args: {}
+        },
+        pollFallback: {
+          method: 'GET',
+          path: '/api/v1/agent/jobs/next'
+        }
+      };
 
   return {
     agentName: agentName ?? null,
@@ -9285,8 +9687,13 @@ fastify.get('/api/v1/agent/quickstart', {
     },
     actions: {
       nextJob: '/api/v1/agent/jobs/next',
-      nextBestJob: '/api/v1/agent/next-best-job'
+      nextBestJob: '/api/v1/agent/next-best-job',
+      mcpWorkOnce: {
+        endpoint: mcpEndpoint,
+        tool: 'work_once'
+      }
     },
+    recommendedAction,
     onboarding: {
       autoSubscription: autoSubscription
         ? {
@@ -9295,7 +9702,8 @@ fastify.get('/api/v1/agent/quickstart', {
             subscriptionId: autoSubscription.id,
             mode: autoSubscription.mode
           }
-        : null
+        : null,
+      rankingRuntime
     },
     deliverySignal: openedDelivery,
     auth: {
@@ -9306,7 +9714,7 @@ fastify.get('/api/v1/agent/quickstart', {
       invalidBearerFallback: KEYLESS_INVALID_BEARER_HINT,
       trialKeyOptional: 'POST /api/v1/auth/trial-key'
     },
-    recommendedQuestion: recommended ? formatRecommendedQuestion(recommended, baseUrl) : null
+    recommendedQuestion
   };
 });
 
@@ -9343,6 +9751,8 @@ fastify.get('/api/v1/agent/jobs/next', {
       answers: { none: {} }
     }
   });
+  const mcpEndpoint = 'https://a2abench-mcp.web.app/mcp';
+  const rankingRuntime = getNextJobRankingRuntime();
 
   if (!recommended) {
     reply.code(200).send({
@@ -9354,9 +9764,18 @@ fastify.get('/api/v1/agent/jobs/next', {
           created: autoSubscription.created,
           subscriptionId: autoSubscription.id,
           mode: autoSubscription.mode
-        }
+        },
+        rankingRuntime
       },
       deliverySignal: openedDelivery,
+      recommendedAction: {
+        type: 'work_once',
+        mcp: {
+          endpoint: mcpEndpoint,
+          tool: 'work_once',
+          args: {}
+        }
+      },
       nextJob: null
     });
     return;
@@ -9374,9 +9793,33 @@ fastify.get('/api/v1/agent/jobs/next', {
         created: autoSubscription.created,
         subscriptionId: autoSubscription.id,
         mode: autoSubscription.mode
-      }
+      },
+      rankingRuntime
     },
     deliverySignal: openedDelivery,
+    recommendedAction: {
+      type: 'answer_job',
+      workflow: 'auto_claim_submit_verify',
+      questionId: formatted.id,
+      request: {
+        method: 'POST',
+        path: answerJobPath,
+        url: answerJobUrl,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Agent-Name': agentName
+        },
+        body: {
+          bodyMd: '<markdown answer>',
+          autoVerify: true
+        }
+      },
+      mcpFallback: {
+        endpoint: mcpEndpoint,
+        tool: 'work_once',
+        args: {}
+      }
+    },
     nextJob: {
       question: formatted,
       answerJobRequest: {
@@ -9427,6 +9870,7 @@ fastify.get('/api/v1/agent/next-best-job', {
       answers: { none: {} }
     }
   });
+  const mcpEndpoint = 'https://a2abench-mcp.web.app/mcp';
   return {
     agentName: agentName ?? null,
     demand: {
@@ -9442,6 +9886,15 @@ fastify.get('/api/v1/agent/next-best-job', {
             mode: autoSubscription.mode
           }
         : null
+    },
+    rankingRuntime: getNextJobRankingRuntime(),
+    recommendedAction: {
+      type: 'work_once',
+      mcp: {
+        endpoint: mcpEndpoint,
+        tool: 'work_once',
+        args: {}
+      }
     },
     deliverySignal: openedDelivery,
     nextBestJob: recommended ? formatRecommendedQuestion(recommended, baseUrl) : null

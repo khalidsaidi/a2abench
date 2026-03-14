@@ -1118,6 +1118,333 @@ function registerTools(server: McpServer) {
     }
   );
 
+  const runAnswerNextJobTool = async (
+    input: {
+      bodyMd?: string;
+      mode?: 'balanced' | 'strict';
+      topK?: number;
+      includeEvidence?: boolean;
+      ttlMinutes?: number;
+      forceTakeover?: boolean;
+      acceptToken?: string;
+      acceptIfOwner?: boolean;
+      autoVerify?: boolean;
+    },
+    options?: {
+      toolName?: string;
+      workflow?: string;
+    }
+  ): Promise<{
+    isError?: boolean;
+    content: Array<{ type: 'text'; text: string }>;
+  }> => {
+    const {
+      bodyMd,
+      mode,
+      topK,
+      includeEvidence,
+      ttlMinutes,
+      forceTakeover,
+      acceptToken,
+      acceptIfOwner,
+      autoVerify
+    } = input;
+    const toolName = options?.toolName ?? 'answer_next_job';
+    const workflow = options?.workflow ?? toolName;
+    const toolStart = Date.now();
+    const requestId = requestContext.getStore()?.requestId ?? null;
+
+    const nextJobResponse = await getProtectedWithAutoTrial('/api/v1/agent/jobs/next');
+    if (!nextJobResponse.response.ok) {
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, toolName);
+      bumpMap(metrics.toolErrors, toolName);
+      const text = await nextJobResponse.response.text();
+      logEvent('warn', {
+        kind: 'mcp_tool',
+        tool: toolName,
+        status: nextJobResponse.response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
+      captureToolEvent(
+        toolName,
+        { bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+        { error: text || 'Failed to fetch next job', status: nextJobResponse.response.status },
+        nextJobResponse.response.status,
+        Date.now() - toolStart
+      );
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ error: text || 'Failed to fetch next job', status: nextJobResponse.response.status })
+          }
+        ]
+      };
+    }
+
+    const nextJobData = (await nextJobResponse.response.json()) as Record<string, unknown>;
+    const nextJob = extractNextJobQuestionFromResponse(nextJobData);
+    if (!nextJob) {
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, toolName);
+      bumpMap(metrics.toolErrors, toolName);
+      logEvent('info', {
+        kind: 'mcp_tool',
+        tool: toolName,
+        status: 409,
+        durationMs: Date.now() - toolStart,
+        requestId,
+        reason: 'no_next_job'
+      });
+      captureToolEvent(
+        toolName,
+        { bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+        { error: 'No next job available for this agent.', status: 409, nextJob: null, demand: nextJobData.demand ?? null },
+        409,
+        Date.now() - toolStart
+      );
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              error: 'No next job available for this agent.',
+              status: 409,
+              demand: nextJobData.demand ?? null,
+              onboarding: nextJobData.onboarding ?? null
+            })
+          }
+        ]
+      };
+    }
+
+    let resolvedBodyMd = typeof bodyMd === 'string' ? bodyMd.trim() : '';
+    let generatedDraft: Record<string, unknown> | null = null;
+    if (!resolvedBodyMd) {
+      const ctx = requestContext.getStore();
+      const hasByok = Boolean((ctx?.llmProvider ?? '').trim() && (ctx?.llmApiKey ?? '').trim());
+      const questionResponse = await getProtectedWithAutoTrial(`/api/v1/questions/${nextJob.questionId}`);
+      if (!questionResponse.response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, toolName);
+        bumpMap(metrics.toolErrors, toolName);
+        const text = await questionResponse.response.text();
+        const errorPayload = {
+          error: text || 'Failed to load next job question details',
+          status: questionResponse.response.status
+        };
+        captureToolEvent(
+          toolName,
+          { questionId: nextJob.questionId, bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+          errorPayload,
+          questionResponse.response.status,
+          Date.now() - toolStart
+        );
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify(errorPayload) }]
+        };
+      }
+
+      const questionData = (await questionResponse.response.json()) as Record<string, unknown>;
+      const title = typeof questionData.title === 'string'
+        ? questionData.title.trim()
+        : (typeof nextJob.question.title === 'string' ? nextJob.question.title.trim() : '');
+      const bodyText = typeof questionData.bodyText === 'string'
+        ? questionData.bodyText.trim()
+        : (typeof questionData.bodyMd === 'string' ? questionData.bodyMd.trim() : '');
+      const draftQuery = [title, bodyText]
+        .filter((value) => typeof value === 'string' && value.trim().length > 0)
+        .join('\n\n')
+        .trim();
+      const limitedDraftQuery = draftQuery.slice(0, 500);
+      if (limitedDraftQuery.length < 8) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, toolName);
+        bumpMap(metrics.toolErrors, toolName);
+        const errorPayload = {
+          error: 'Could not build a useful draft query from the next job question.',
+          status: 422
+        };
+        captureToolEvent(
+          toolName,
+          { questionId: nextJob.questionId, bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+          errorPayload,
+          422,
+          Date.now() - toolStart
+        );
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify(errorPayload) }]
+        };
+      }
+
+      const draftResponse = await postWriteWithAutoTrial('/answer', {
+        query: limitedDraftQuery,
+        top_k: topK ?? 5,
+        include_evidence: includeEvidence ?? true,
+        mode: mode ?? 'balanced'
+      });
+      if (!draftResponse.response.ok) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, toolName);
+        bumpMap(metrics.toolErrors, toolName);
+        const text = await draftResponse.response.text();
+        const errorPayload = {
+          error: text || 'Failed to auto-generate answer draft via /answer',
+          status: draftResponse.response.status
+        };
+        captureToolEvent(
+          toolName,
+          { questionId: nextJob.questionId, bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+          errorPayload,
+          draftResponse.response.status,
+          Date.now() - toolStart
+        );
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify(errorPayload) }]
+        };
+      }
+
+      const draftData = (await draftResponse.response.json()) as Record<string, unknown>;
+      const draftMarkdown = typeof draftData.answer_markdown === 'string'
+        ? draftData.answer_markdown.trim()
+        : '';
+      if (!draftMarkdown) {
+        metrics.totalToolCalls += 1;
+        bumpMap(metrics.byTool, toolName);
+        bumpMap(metrics.toolErrors, toolName);
+        const errorPayload = {
+          error: 'Auto-generated draft is empty.',
+          status: 422
+        };
+        captureToolEvent(
+          toolName,
+          { questionId: nextJob.questionId, bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+          errorPayload,
+          422,
+          Date.now() - toolStart
+        );
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify(errorPayload) }]
+        };
+      }
+
+      const citations = Array.isArray(draftData.citations)
+        ? draftData.citations
+        : [];
+      const citationLines = citations
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') return '';
+          const item = entry as Record<string, unknown>;
+          if (typeof item.url !== 'string' || typeof item.title !== 'string') return '';
+          return `- [${item.title}](${item.url})`;
+        })
+        .filter((line) => line.length > 0)
+        .slice(0, 6);
+      resolvedBodyMd = citationLines.length > 0
+        ? `${draftMarkdown}\n\nSources:\n${citationLines.join('\n')}`
+        : draftMarkdown;
+      generatedDraft = {
+        byok: hasByok,
+        generationMode: hasByok ? 'llm_or_byok' : 'evidence_fallback',
+        queryLength: limitedDraftQuery.length,
+        mode: mode ?? 'balanced',
+        topK: topK ?? 5,
+        includeEvidence: includeEvidence ?? true,
+        warningCount: Array.isArray(draftData.warnings) ? draftData.warnings.length : 0
+      };
+    }
+
+    const payload: Record<string, unknown> = { bodyMd: resolvedBodyMd };
+    if (ttlMinutes !== undefined) payload.ttlMinutes = ttlMinutes;
+    if (forceTakeover !== undefined) payload.forceTakeover = forceTakeover;
+    if (acceptToken !== undefined) payload.acceptToken = acceptToken;
+    if (acceptIfOwner !== undefined) payload.acceptIfOwner = acceptIfOwner;
+    payload.autoVerify = autoVerify ?? true;
+    const writeResult = await postWriteWithAutoTrial(`/api/v1/questions/${nextJob.questionId}/answer-job`, payload);
+    const response = writeResult.response;
+    if (!response.ok) {
+      metrics.totalToolCalls += 1;
+      bumpMap(metrics.byTool, toolName);
+      bumpMap(metrics.toolErrors, toolName);
+      const text = await response.text();
+      const hint = response.status === 401 ? TRIAL_KEY_HINT : undefined;
+      logEvent('warn', {
+        kind: 'mcp_tool',
+        tool: toolName,
+        status: response.status,
+        durationMs: Date.now() - toolStart,
+        requestId
+      });
+      captureToolEvent(
+        toolName,
+        { questionId: nextJob.questionId, bodyMd: resolvedBodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+        { error: text || 'Failed to complete answer job', status: response.status, hint },
+        response.status,
+        Date.now() - toolStart
+      );
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ error: text || 'Failed to complete answer job', status: response.status, hint })
+          }
+        ]
+      };
+    }
+
+    const data = (await response.json()) as Record<string, unknown>;
+    const inlineNextJob = await getInlineNextJobSuggestion();
+    metrics.totalToolCalls += 1;
+    bumpMap(metrics.byTool, toolName);
+    logEvent('info', {
+      kind: 'mcp_tool',
+      tool: toolName,
+      status: response.status,
+      durationMs: Date.now() - toolStart,
+      requestId
+    });
+    captureToolEvent(
+      toolName,
+      { questionId: nextJob.questionId, bodyMd: resolvedBodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+      data,
+      response.status,
+      Date.now() - toolStart
+    );
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            ...data,
+            workflow,
+            questionId: nextJob.questionId,
+            question: {
+              id: nextJob.questionId,
+              title: typeof nextJob.question.title === 'string' ? nextJob.question.title : '',
+              url: typeof nextJob.question.url === 'string' ? nextJob.question.url : `${PUBLIC_BASE_URL}/q/${nextJob.questionId}`
+            },
+            answerJobRequest: nextJob.answerJobRequest,
+            generatedDraft,
+            auth: writeResult.usedTrialKey
+              ? 'trial_key'
+              : ((requestContext.getStore()?.authHeader || (MCP_USE_API_KEY_BY_DEFAULT && API_KEY)) ? 'provided_key' : 'keyless_managed'),
+            url: `${PUBLIC_BASE_URL}/q/${nextJob.questionId}`,
+            nextJob: inlineNextJob
+          })
+        }
+      ]
+    };
+  };
+
   server.registerTool(
     'answer_next_job',
     {
@@ -1135,298 +1462,28 @@ function registerTools(server: McpServer) {
         autoVerify: z.boolean().optional()
       }
     },
-    async ({ bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify }) => {
-      const toolStart = Date.now();
-      const requestId = requestContext.getStore()?.requestId ?? null;
-      const nextJobResponse = await getProtectedWithAutoTrial('/api/v1/agent/jobs/next');
-      if (!nextJobResponse.response.ok) {
-        metrics.totalToolCalls += 1;
-        bumpMap(metrics.byTool, 'answer_next_job');
-        bumpMap(metrics.toolErrors, 'answer_next_job');
-        const text = await nextJobResponse.response.text();
-        logEvent('warn', {
-          kind: 'mcp_tool',
-          tool: 'answer_next_job',
-          status: nextJobResponse.response.status,
-          durationMs: Date.now() - toolStart,
-          requestId
-        });
-        captureToolEvent(
-          'answer_next_job',
-          { bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
-          { error: text || 'Failed to fetch next job', status: nextJobResponse.response.status },
-          nextJobResponse.response.status,
-          Date.now() - toolStart
-        );
-        return {
-          isError: true,
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({ error: text || 'Failed to fetch next job', status: nextJobResponse.response.status })
-            }
-          ]
-        };
-      }
+    async ({ bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify }) => runAnswerNextJobTool(
+      { bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
+      { toolName: 'answer_next_job', workflow: 'answer_next_job' }
+    )
+  );
 
-      const nextJobData = (await nextJobResponse.response.json()) as Record<string, unknown>;
-      const nextJob = extractNextJobQuestionFromResponse(nextJobData);
-      if (!nextJob) {
-        metrics.totalToolCalls += 1;
-        bumpMap(metrics.byTool, 'answer_next_job');
-        bumpMap(metrics.toolErrors, 'answer_next_job');
-        logEvent('info', {
-          kind: 'mcp_tool',
-          tool: 'answer_next_job',
-          status: 409,
-          durationMs: Date.now() - toolStart,
-          requestId,
-          reason: 'no_next_job'
-        });
-        captureToolEvent(
-          'answer_next_job',
-          { bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
-          { error: 'No next job available for this agent.', status: 409, nextJob: null, demand: nextJobData.demand ?? null },
-          409,
-          Date.now() - toolStart
-        );
-        return {
-          isError: true,
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({
-                error: 'No next job available for this agent.',
-                status: 409,
-                demand: nextJobData.demand ?? null,
-                onboarding: nextJobData.onboarding ?? null
-              })
-            }
-          ]
-        };
-      }
-
-      let resolvedBodyMd = typeof bodyMd === 'string' ? bodyMd.trim() : '';
-      let generatedDraft: Record<string, unknown> | null = null;
-      if (!resolvedBodyMd) {
-        const ctx = requestContext.getStore();
-        const hasByok = Boolean((ctx?.llmProvider ?? '').trim() && (ctx?.llmApiKey ?? '').trim());
-        const questionResponse = await getProtectedWithAutoTrial(`/api/v1/questions/${nextJob.questionId}`);
-        if (!questionResponse.response.ok) {
-          metrics.totalToolCalls += 1;
-          bumpMap(metrics.byTool, 'answer_next_job');
-          bumpMap(metrics.toolErrors, 'answer_next_job');
-          const text = await questionResponse.response.text();
-          const errorPayload = {
-            error: text || 'Failed to load next job question details',
-            status: questionResponse.response.status
-          };
-          captureToolEvent(
-            'answer_next_job',
-            { questionId: nextJob.questionId, bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
-            errorPayload,
-            questionResponse.response.status,
-            Date.now() - toolStart
-          );
-          return {
-            isError: true,
-            content: [{ type: 'text', text: JSON.stringify(errorPayload) }]
-          };
-        }
-
-        const questionData = (await questionResponse.response.json()) as Record<string, unknown>;
-        const title = typeof questionData.title === 'string'
-          ? questionData.title.trim()
-          : (typeof nextJob.question.title === 'string' ? nextJob.question.title.trim() : '');
-        const bodyText = typeof questionData.bodyText === 'string'
-          ? questionData.bodyText.trim()
-          : (typeof questionData.bodyMd === 'string' ? questionData.bodyMd.trim() : '');
-        const draftQuery = [title, bodyText]
-          .filter((value) => typeof value === 'string' && value.trim().length > 0)
-          .join('\n\n')
-          .trim();
-        const limitedDraftQuery = draftQuery.slice(0, 500);
-        if (limitedDraftQuery.length < 8) {
-          metrics.totalToolCalls += 1;
-          bumpMap(metrics.byTool, 'answer_next_job');
-          bumpMap(metrics.toolErrors, 'answer_next_job');
-          const errorPayload = {
-            error: 'Could not build a useful draft query from the next job question.',
-            status: 422
-          };
-          captureToolEvent(
-            'answer_next_job',
-            { questionId: nextJob.questionId, bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
-            errorPayload,
-            422,
-            Date.now() - toolStart
-          );
-          return {
-            isError: true,
-            content: [{ type: 'text', text: JSON.stringify(errorPayload) }]
-          };
-        }
-
-        const draftResponse = await postWriteWithAutoTrial('/answer', {
-          query: limitedDraftQuery,
-          top_k: topK ?? 5,
-          include_evidence: includeEvidence ?? true,
-          mode: mode ?? 'balanced'
-        });
-        if (!draftResponse.response.ok) {
-          metrics.totalToolCalls += 1;
-          bumpMap(metrics.byTool, 'answer_next_job');
-          bumpMap(metrics.toolErrors, 'answer_next_job');
-          const text = await draftResponse.response.text();
-          const errorPayload = {
-            error: text || 'Failed to auto-generate answer draft via /answer',
-            status: draftResponse.response.status
-          };
-          captureToolEvent(
-            'answer_next_job',
-            { questionId: nextJob.questionId, bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
-            errorPayload,
-            draftResponse.response.status,
-            Date.now() - toolStart
-          );
-          return {
-            isError: true,
-            content: [{ type: 'text', text: JSON.stringify(errorPayload) }]
-          };
-        }
-
-        const draftData = (await draftResponse.response.json()) as Record<string, unknown>;
-        const draftMarkdown = typeof draftData.answer_markdown === 'string'
-          ? draftData.answer_markdown.trim()
-          : '';
-        if (!draftMarkdown) {
-          metrics.totalToolCalls += 1;
-          bumpMap(metrics.byTool, 'answer_next_job');
-          bumpMap(metrics.toolErrors, 'answer_next_job');
-          const errorPayload = {
-            error: 'Auto-generated draft is empty.',
-            status: 422
-          };
-          captureToolEvent(
-            'answer_next_job',
-            { questionId: nextJob.questionId, bodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
-            errorPayload,
-            422,
-            Date.now() - toolStart
-          );
-          return {
-            isError: true,
-            content: [{ type: 'text', text: JSON.stringify(errorPayload) }]
-          };
-        }
-
-        const citations = Array.isArray(draftData.citations)
-          ? draftData.citations
-          : [];
-        const citationLines = citations
-          .map((entry) => {
-            if (!entry || typeof entry !== 'object') return '';
-            const item = entry as Record<string, unknown>;
-            if (typeof item.url !== 'string' || typeof item.title !== 'string') return '';
-            return `- [${item.title}](${item.url})`;
-          })
-          .filter((line) => line.length > 0)
-          .slice(0, 6);
-        resolvedBodyMd = citationLines.length > 0
-          ? `${draftMarkdown}\n\nSources:\n${citationLines.join('\n')}`
-          : draftMarkdown;
-        generatedDraft = {
-          byok: hasByok,
-          generationMode: hasByok ? 'llm_or_byok' : 'evidence_fallback',
-          queryLength: limitedDraftQuery.length,
-          mode: mode ?? 'balanced',
-          topK: topK ?? 5,
-          includeEvidence: includeEvidence ?? true,
-          warningCount: Array.isArray(draftData.warnings) ? draftData.warnings.length : 0
-        };
-      }
-
-      const payload: Record<string, unknown> = { bodyMd: resolvedBodyMd };
-      if (ttlMinutes !== undefined) payload.ttlMinutes = ttlMinutes;
-      if (forceTakeover !== undefined) payload.forceTakeover = forceTakeover;
-      if (acceptToken !== undefined) payload.acceptToken = acceptToken;
-      if (acceptIfOwner !== undefined) payload.acceptIfOwner = acceptIfOwner;
-      payload.autoVerify = autoVerify ?? true;
-      const writeResult = await postWriteWithAutoTrial(`/api/v1/questions/${nextJob.questionId}/answer-job`, payload);
-      const response = writeResult.response;
-      if (!response.ok) {
-        metrics.totalToolCalls += 1;
-        bumpMap(metrics.byTool, 'answer_next_job');
-        bumpMap(metrics.toolErrors, 'answer_next_job');
-        const text = await response.text();
-        const hint = response.status === 401 ? TRIAL_KEY_HINT : undefined;
-        logEvent('warn', {
-          kind: 'mcp_tool',
-          tool: 'answer_next_job',
-          status: response.status,
-          durationMs: Date.now() - toolStart,
-          requestId
-        });
-        captureToolEvent(
-          'answer_next_job',
-          { questionId: nextJob.questionId, bodyMd: resolvedBodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
-          { error: text || 'Failed to complete answer job', status: response.status, hint },
-          response.status,
-          Date.now() - toolStart
-        );
-        return {
-          isError: true,
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({ error: text || 'Failed to complete answer job', status: response.status, hint })
-            }
-          ]
-        };
-      }
-
-      const data = (await response.json()) as Record<string, unknown>;
-      const inlineNextJob = await getInlineNextJobSuggestion();
-      metrics.totalToolCalls += 1;
-      bumpMap(metrics.byTool, 'answer_next_job');
-      logEvent('info', {
-        kind: 'mcp_tool',
-        tool: 'answer_next_job',
-        status: response.status,
-        durationMs: Date.now() - toolStart,
-        requestId
-      });
-      captureToolEvent(
-        'answer_next_job',
-        { questionId: nextJob.questionId, bodyMd: resolvedBodyMd, mode, topK, includeEvidence, ttlMinutes, forceTakeover, acceptToken, acceptIfOwner, autoVerify },
-        data,
-        response.status,
-        Date.now() - toolStart
-      );
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              ...data,
-              questionId: nextJob.questionId,
-              question: {
-                id: nextJob.questionId,
-                title: typeof nextJob.question.title === 'string' ? nextJob.question.title : '',
-                url: typeof nextJob.question.url === 'string' ? nextJob.question.url : `${PUBLIC_BASE_URL}/q/${nextJob.questionId}`
-              },
-              answerJobRequest: nextJob.answerJobRequest,
-              generatedDraft,
-              auth: writeResult.usedTrialKey
-                ? 'trial_key'
-                : ((requestContext.getStore()?.authHeader || (MCP_USE_API_KEY_BY_DEFAULT && API_KEY)) ? 'provided_key' : 'keyless_managed'),
-              url: `${PUBLIC_BASE_URL}/q/${nextJob.questionId}`,
-              nextJob: inlineNextJob
-            })
-          }
-        ]
-      };
-    }
+  server.registerTool(
+    'work_once',
+    {
+      title: 'Work once',
+      description: 'Zero-config one-shot: fetch next job, auto-draft answer, then auto-claim+submit+verify.',
+      inputSchema: {}
+    },
+    async () => runAnswerNextJobTool(
+      {
+        mode: 'balanced',
+        topK: 5,
+        includeEvidence: true,
+        autoVerify: true
+      },
+      { toolName: 'work_once', workflow: 'work_once' }
+    )
   );
 
   server.registerTool(
@@ -2259,13 +2316,17 @@ async function main() {
           respondJson(res, 200, {
             mcp: PUBLIC_MCP_URL,
             health: `${baseUrl}/health`,
-            agentCard: agentUrl
+            agentCard: agentUrl,
+            recommendedAction: {
+              tool: 'work_once',
+              args: {}
+            }
           });
         } else {
           respondText(
             res,
             200,
-            `A2ABench MCP\nMCP: ${PUBLIC_MCP_URL}\nHealth: ${baseUrl}/health\nAgent card: ${agentUrl}`
+            `A2ABench MCP\nMCP: ${PUBLIC_MCP_URL}\nHealth: ${baseUrl}/health\nAgent card: ${agentUrl}\nRecommended action: work_once {}`
           );
         }
       }
@@ -2393,6 +2454,8 @@ async function main() {
       <p>Remote URL: <code>${PUBLIC_MCP_URL}</code></p>
       <p>Auth: keyless writes are enabled by default (no bearer API key required).</p>
       <p>Docs: <a href="https://a2abench-api.web.app/docs">OpenAPI</a> • Repo: <a href="https://github.com/khalidsaidi/a2abench">GitHub</a></p>
+      <p>Recommended first action (single call):</p>
+      <pre>tool: work_once\nargs: {}</pre>
       <p>Claude Code:</p>
       <pre>claude mcp add --transport http a2abench ${PUBLIC_MCP_URL}</pre>
       <p>Cursor:</p>
@@ -2431,6 +2494,7 @@ async function main() {
             'create_answer',
             'answer_job',
             'answer_next_job',
+            'work_once',
             'claim_question',
             'release_claim',
             'pending_acceptance',
@@ -2451,13 +2515,18 @@ async function main() {
             claude_code: `claude mcp add --transport http a2abench ${PUBLIC_MCP_URL}`,
             cursor: `cursor mcp add a2abench --transport http --url ${PUBLIC_MCP_URL}`
           },
+          recommendedAction: {
+            tool: 'work_once',
+            args: {},
+            description: 'Single tool call to auto-fetch a job, draft an answer, and submit+verify.'
+          },
           resolvedAgentName: resolvedAgentName ?? null
         });
       } else {
         respondText(
           res,
           200,
-          `A2ABench MCP endpoint. Use an MCP client.\nEndpoint: ${PUBLIC_MCP_URL}\nAuth: keyless writes enabled (bearer optional)\nDocs: https://a2abench-api.web.app/docs\nRepo: https://github.com/khalidsaidi/a2abench\nClaude Code: claude mcp add --transport http a2abench ${PUBLIC_MCP_URL}\nCursor: cursor mcp add a2abench --transport http --url ${PUBLIC_MCP_URL}\nResolved-Agent: ${resolvedAgentName ?? 'unknown'}`
+          `A2ABench MCP endpoint. Use an MCP client.\nEndpoint: ${PUBLIC_MCP_URL}\nAuth: keyless writes enabled (bearer optional)\nRecommended action: work_once {}\nDocs: https://a2abench-api.web.app/docs\nRepo: https://github.com/khalidsaidi/a2abench\nClaude Code: claude mcp add --transport http a2abench ${PUBLIC_MCP_URL}\nCursor: cursor mcp add a2abench --transport http --url ${PUBLIC_MCP_URL}\nResolved-Agent: ${resolvedAgentName ?? 'unknown'}`
         );
       }
       metrics.totalRequests += 1;
