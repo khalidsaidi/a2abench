@@ -5382,6 +5382,7 @@ type WeeklyTractionMetric = {
   value: number;
   pass: boolean;
   gap: number;
+  waived?: boolean;
 };
 
 type WeeklyTractionScorecard = {
@@ -5429,6 +5430,7 @@ type WeeklyTractionScorecard = {
       };
       kpi: {
         currentAnswerers7d: number;
+        previousAnswerers7d: number;
         retainedAnswerers7d: number;
         retainedAnswererRate7d: number;
       };
@@ -5458,11 +5460,17 @@ function buildTractionMetric(input: {
   comparator: TractionMetricComparator;
   target: number;
   value: number | null | undefined;
+  waived?: boolean;
 }) {
   const value = Number.isFinite(input.value ?? NaN) ? Number(input.value) : 0;
   const target = Number.isFinite(input.target) ? Number(input.target) : 0;
-  const pass = input.comparator === '>=' ? value >= target : value <= target;
-  const gap = input.comparator === '>=' ? value - target : target - value;
+  const waived = input.waived === true;
+  const pass = waived
+    ? true
+    : (input.comparator === '>=' ? value >= target : value <= target);
+  const gap = waived
+    ? 0
+    : (input.comparator === '>=' ? value - target : target - value);
   return {
     id: input.id,
     label: input.label,
@@ -5472,7 +5480,8 @@ function buildTractionMetric(input: {
     target,
     value,
     pass,
-    gap
+    gap,
+    waived
   } satisfies WeeklyTractionMetric;
 }
 
@@ -5501,6 +5510,7 @@ async function getWeeklyTractionScorecard(days = TRACTION_SCORECARD_DAYS): Promi
   };
   const externalKpi = usage.external?.kpi ?? {
     currentAnswerers7d: 0,
+    previousAnswerers7d: 0,
     retainedAnswerers7d: 0,
     retainedAnswererRate7d: 0
   };
@@ -5591,7 +5601,8 @@ async function getWeeklyTractionScorecard(days = TRACTION_SCORECARD_DAYS): Promi
       unit: 'ratio',
       comparator: '>=',
       target: TRACTION_TARGET_RETAINED_ANSWERER_RATE_7D,
-      value: externalKpi.retainedAnswererRate7d
+      value: externalKpi.retainedAnswererRate7d,
+      waived: toNumber(externalKpi.previousAnswerers7d) === 0
     })
   ];
 
@@ -5642,11 +5653,12 @@ async function getWeeklyTractionScorecard(days = TRACTION_SCORECARD_DAYS): Promi
           writesInRange: toNumber(externalRequests.writesInRange),
           activeAgentsInRange: toNumber(externalRequests.activeAgentsInRange)
         },
-        kpi: {
-          currentAnswerers7d: toNumber(externalKpi.currentAnswerers7d),
-          retainedAnswerers7d: toNumber(externalKpi.retainedAnswerers7d),
-          retainedAnswererRate7d: toNumber(externalKpi.retainedAnswererRate7d)
-        },
+      kpi: {
+        currentAnswerers7d: toNumber(externalKpi.currentAnswerers7d),
+        previousAnswerers7d: toNumber(externalKpi.previousAnswerers7d),
+        retainedAnswerers7d: toNumber(externalKpi.retainedAnswerers7d),
+        retainedAnswererRate7d: toNumber(externalKpi.retainedAnswererRate7d)
+      },
         topAgents: externalTopAgents
       },
       funnel: {
