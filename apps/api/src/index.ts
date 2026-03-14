@@ -2607,6 +2607,29 @@ async function markAgentPullDeliveryOpened(
   };
 }
 
+async function markAgentPullDeliveriesOpened(
+  agentName: string | null | undefined,
+  questionIds: Array<string | null | undefined>,
+  options?: { limit?: number }
+) {
+  const normalizedAgent = normalizeAgentOrNull(agentName);
+  if (!normalizedAgent) return [];
+  const limit = Math.max(1, Math.min(20, Number(options?.limit ?? 8)));
+  const uniqueQuestionIds = Array.from(new Set(
+    questionIds
+      .map((value) => (value ?? '').trim())
+      .filter(Boolean)
+  )).slice(0, limit);
+  if (uniqueQuestionIds.length === 0) return [];
+
+  const opened: Array<{ id: string; questionId: string | null; openedAt: string; via: string }> = [];
+  for (const questionId of uniqueQuestionIds) {
+    const signal = await markAgentPullDeliveryOpened(normalizedAgent, questionId, { fallbackToAny: false });
+    if (signal) opened.push(signal);
+  }
+  return opened;
+}
+
 async function processOpenedUnansweredRequeue(options?: { limit?: number; dryRun?: boolean }) {
   const enabled = DELIVERY_REQUEUE_OPENED_ENABLED;
   if (!enabled) {
@@ -8922,6 +8945,7 @@ fastify.get('/api/v1/questions/unanswered', {
     querystring: {
       type: 'object',
       properties: {
+        agentName: { type: 'string' },
         tag: { type: 'string' },
         page: { type: 'integer', minimum: 1 },
         limit: { type: 'integer', minimum: 1, maximum: 100 }
@@ -8929,10 +8953,12 @@ fastify.get('/api/v1/questions/unanswered', {
     }
   }
 }, async (request) => {
-  const query = request.query as { tag?: string; page?: number; limit?: number };
+  const query = request.query as { agentName?: string; tag?: string; page?: number; limit?: number };
   const page = Math.max(1, Number(query.page ?? 1));
   const take = Math.min(100, Math.max(1, Number(query.limit ?? 20)));
   const skip = (page - 1) * take;
+  const agentName = normalizeAgentOrNull(query.agentName ?? getAgentNameWithBinding(request));
+  const baseUrl = getBaseUrl(request);
 
   const where: any = {
     answers: { none: {} }
@@ -8949,6 +8975,15 @@ fastify.get('/api/v1/questions/unanswered', {
       bounty: true
     }
   });
+
+  const [pendingQueueCount, pendingQuestionIds, autoSubscription] = agentName
+    ? await Promise.all([
+        getPendingQuestionDeliveryCountForAgent(agentName),
+        getPendingQuestionDeliveryIdsForAgent(agentName, take),
+        ensureJobDiscoverySubscription(agentName)
+      ])
+    : [0, [], null];
+  const pendingQuestionSet = new Set(pendingQuestionIds);
 
   const sorted = items
     .map((item) => ({
@@ -8967,17 +9002,47 @@ fastify.get('/api/v1/questions/unanswered', {
             expiresAt: item.bounty?.expiresAt ?? null
           }
         : null,
-      actions: getQuestionActionHints(item.id)
+      queuedForAgent: agentName ? pendingQuestionSet.has(item.id) : false,
+      answerJobRequest: agentName ? buildAnswerJobRequest(item.id, agentName, baseUrl) : null,
+      actions: getQuestionActionHints(item.id, baseUrl)
     }))
     .sort((a, b) => {
+      const queuedDelta = Number(b.queuedForAgent) - Number(a.queuedForAgent);
+      if (queuedDelta !== 0) return queuedDelta;
       const bountyDelta = (b.bounty?.amount ?? 0) - (a.bounty?.amount ?? 0);
       if (bountyDelta !== 0) return bountyDelta;
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
 
+  const paged = sorted.slice(skip, skip + take);
+  const openedSignals = agentName
+    ? await markAgentPullDeliveriesOpened(
+        agentName,
+        paged.filter((row) => row.queuedForAgent).map((row) => row.id),
+        { limit: Math.min(10, take) }
+      )
+    : [];
+
   return {
     page,
-    results: sorted.slice(skip, skip + take)
+    agent: agentName
+      ? {
+          name: agentName,
+          pendingQueue: pendingQueueCount,
+          queuedInPage: paged.filter((row) => row.queuedForAgent).length,
+          openedFromQueue: openedSignals.length,
+          autoSubscription: autoSubscription
+            ? {
+                enabled: autoSubscription.enabled,
+                created: autoSubscription.created,
+                subscriptionId: autoSubscription.id,
+                mode: autoSubscription.mode
+              }
+            : null
+        }
+      : null,
+    deliverySignals: openedSignals,
+    results: paged
   };
 });
 
@@ -8987,6 +9052,7 @@ fastify.get('/api/v1/feed/unanswered', {
     querystring: {
       type: 'object',
       properties: {
+        agentName: { type: 'string' },
         since: { type: 'string' },
         tag: { type: 'string' },
         limit: { type: 'integer', minimum: 1, maximum: 200 }
@@ -8994,9 +9060,11 @@ fastify.get('/api/v1/feed/unanswered', {
     }
   }
 }, async (request) => {
-  const query = request.query as { since?: string; tag?: string; limit?: number };
+  const query = request.query as { agentName?: string; since?: string; tag?: string; limit?: number };
   const take = Math.min(200, Math.max(1, Number(query.limit ?? 50)));
   const sinceDate = query.since ? new Date(query.since) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const agentName = normalizeAgentOrNull(query.agentName ?? getAgentNameWithBinding(request));
+  const baseUrl = getBaseUrl(request);
 
   const where: any = {
     answers: { none: {} },
@@ -9016,14 +9084,24 @@ fastify.get('/api/v1/feed/unanswered', {
     }
   });
 
-  return {
-    since: sinceDate.toISOString(),
-    results: items.map((item) => ({
+  const [pendingQueueCount, pendingQuestionIds, autoSubscription] = agentName
+    ? await Promise.all([
+        getPendingQuestionDeliveryCountForAgent(agentName),
+        getPendingQuestionDeliveryIdsForAgent(agentName, take),
+        ensureJobDiscoverySubscription(agentName)
+      ])
+    : [0, [], null];
+  const pendingQuestionSet = new Set(pendingQuestionIds);
+
+  const results = items
+    .map((item) => ({
       id: item.id,
       title: item.title,
       createdAt: item.createdAt,
       tags: item.tags.map((link) => link.tag.name),
       source: getQuestionSource(item),
+      queuedForAgent: agentName ? pendingQuestionSet.has(item.id) : false,
+      answerJobRequest: agentName ? buildAnswerJobRequest(item.id, agentName, baseUrl) : null,
       bounty: getActiveBountyAmount(item.bounty) > 0
         ? {
             amount: getActiveBountyAmount(item.bounty),
@@ -9031,6 +9109,40 @@ fastify.get('/api/v1/feed/unanswered', {
           }
         : null
     }))
+    .sort((a, b) => {
+      const queuedDelta = Number(b.queuedForAgent) - Number(a.queuedForAgent);
+      if (queuedDelta !== 0) return queuedDelta;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+
+  const openedSignals = agentName
+    ? await markAgentPullDeliveriesOpened(
+        agentName,
+        results.filter((row) => row.queuedForAgent).map((row) => row.id),
+        { limit: Math.min(10, take) }
+      )
+    : [];
+
+  return {
+    since: sinceDate.toISOString(),
+    agent: agentName
+      ? {
+          name: agentName,
+          pendingQueue: pendingQueueCount,
+          queuedInPage: results.filter((row) => row.queuedForAgent).length,
+          openedFromQueue: openedSignals.length,
+          autoSubscription: autoSubscription
+            ? {
+                enabled: autoSubscription.enabled,
+                created: autoSubscription.created,
+                subscriptionId: autoSubscription.id,
+                mode: autoSubscription.mode
+              }
+            : null
+        }
+      : null,
+    deliverySignals: openedSignals,
+    results
   };
 });
 
