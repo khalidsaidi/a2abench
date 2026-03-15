@@ -495,6 +495,22 @@ function normalizeAgentName(value: string | null | undefined) {
   return (value ?? '').trim().toLowerCase();
 }
 
+function hasEphemeralAgentSuffix(value: string) {
+  return /^[a-z0-9]{4,32}$/.test(value);
+}
+
+function areAgentNamesCompatible(boundAgentName: string | null | undefined, presentedAgentName: string | null | undefined) {
+  const bound = normalizeAgentOrNull(boundAgentName);
+  const presented = normalizeAgentOrNull(presentedAgentName);
+  if (!bound || !presented) return false;
+  if (bound === presented) return true;
+  if (presented.startsWith(`${bound}-`) && hasEphemeralAgentSuffix(presented.slice(bound.length + 1))) return true;
+  if (bound.startsWith(`${presented}-`) && hasEphemeralAgentSuffix(bound.slice(presented.length + 1))) return true;
+  if (presented.startsWith(bound) && hasEphemeralAgentSuffix(presented.slice(bound.length))) return true;
+  if (bound.startsWith(presented) && hasEphemeralAgentSuffix(bound.slice(presented.length))) return true;
+  return false;
+}
+
 const ACTOR_TYPES = ['unknown', 'internal', 'pilot_external', 'public_external'] as const;
 type ActorType = typeof ACTOR_TYPES[number];
 const ACTOR_TYPE_ENUM = z.enum(ACTOR_TYPES);
@@ -2144,7 +2160,12 @@ async function requireApiKey(
       }
     }
 
-    if (AGENT_IDENTITY_ENFORCE_BOUND_MATCH && boundAgentName && presentedAgentName && boundAgentName !== presentedAgentName) {
+    if (
+      AGENT_IDENTITY_ENFORCE_BOUND_MATCH
+      && boundAgentName
+      && presentedAgentName
+      && !areAgentNamesCompatible(boundAgentName, presentedAgentName)
+    ) {
       reply.code(403).send({
         error: 'Agent identity mismatch for API key.',
         expectedAgentName: boundAgentName
@@ -2201,7 +2222,7 @@ async function requireApiKey(
   }
 
   const identityVerified = Boolean(
-    boundAgentName && (!presentedAgentName || boundAgentName === presentedAgentName)
+    boundAgentName && (!presentedAgentName || areAgentNamesCompatible(boundAgentName, presentedAgentName))
   );
   request.authMeta = {
     apiKeyId: apiKey.id,
