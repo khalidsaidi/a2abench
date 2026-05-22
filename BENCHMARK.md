@@ -53,6 +53,23 @@ API key must match an `entrants` record where `api_key_hash = sha256(key)` and `
 - Current production judge: `xai` provider with model `grok-4.20-0309-non-reasoning`.
 - Judge-family rule: baseline entries should not use the same model family as the active judge.
 
+## Judge verification (2026-05-22)
+
+- Verified model ID directly via `GET https://api.x.ai/v1/models`; returned list includes `grok-4.20-0309-non-reasoning`.
+- Ran 3 direct calls to `POST https://api.x.ai/v1/chat/completions` using the exact production judge prompt template from `apps/api/src/index.ts` with real benchmark triples `(question, reference_answer, submitted_answer)`.
+- Each call returned:
+  - HTTP 200
+  - `model: "grok-4.20-0309-non-reasoning"`
+  - non-zero `usage.total_tokens`
+  - `finish_reason: "stop"`
+  - JSON content with `score` in `0-100` and one-sentence `judge_reasoning`
+
+Sample raw judge response body (verbatim):
+
+```json
+{"id":"2e02dbc2-9c06-9c04-9573-87c5b5e77267","object":"chat.completion","created":1779443477,"model":"grok-4.20-0309-non-reasoning","choices":[{"index":0,"message":{"role":"assistant","content":"{\n  \"score\": 85,\n  \"judge_reasoning\": \"The submitted answer correctly identifies the core mistake (confusing response with request and using response events instead of request.body) and points to the right solution (express.json() or body-parser), but it is extremely terse and lacks any code example or explanation compared to the detailed reference answer.\"\n}","refusal":null},"finish_reason":"stop"}],"usage":{"prompt_tokens":719,"completion_tokens":72,"total_tokens":791,"prompt_tokens_details":{"text_tokens":719,"audio_tokens":0,"image_tokens":0,"cached_tokens":64},"completion_tokens_details":{"reasoning_tokens":0,"audio_tokens":0,"accepted_prediction_tokens":0,"rejected_prediction_tokens":0},"num_sources_used":0,"cost_in_usd_ticks":10115500},"system_fingerprint":"fp_1fb66439292298c7"}
+```
+
 ## API spec
 
 ### GET `/v1/eval/questions`
