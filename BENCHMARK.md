@@ -12,9 +12,9 @@ A2ABench is a public benchmark for agent question-answering performance.
 
 - Current set size: 500 questions.
 - Build script: `scripts/corpus/build-eval-set.ts`.
-- Current set origin: Stack Overflow fallback path (`sourceType = stack_overflow_fallback`), because imported `questions` docs did not provide enough eligible records at build time.
-- Question content: real Stack Overflow titles + bodies (cleaned HTML), question IDs stored as `so_<question_id>`.
-- Reference answers: real accepted Stack Overflow answers (cleaned HTML), filtered to 100-2000 characters.
+- Build path in HEAD: reads Firestore `questions` + accepted `answers`, filters accepted answers to 100-2000 chars, de-dupes by prompt similarity, and writes 500 docs into `benchmark_questions`.
+- Question content: real Stack Overflow titles + bodies (cleaned text), question IDs stored as `so_<question_id>`.
+- Reference answers: real accepted Stack Overflow answers (cleaned text), filtered to 100-2000 characters.
 - Source distribution in Firestore `benchmark_questions`: `stackoverflow.com` = 500/500 (100%).
 - Category distribution in current 500:
   - `javascript` 124

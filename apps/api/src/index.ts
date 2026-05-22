@@ -220,6 +220,23 @@ async function getEntrantByApiKey(apiKey: string): Promise<EntrantRecord | null>
 function toIso(value: unknown): string | null {
   if (value instanceof Timestamp) return value.toDate().toISOString();
   if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'string') {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  }
+  if (typeof value === 'number') {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  }
+  if (value && typeof value === 'object') {
+    const candidate = value as { _seconds?: unknown; _nanoseconds?: unknown };
+    if (typeof candidate._seconds === 'number') {
+      const nanos = typeof candidate._nanoseconds === 'number' ? candidate._nanoseconds : 0;
+      const millis = candidate._seconds * 1000 + Math.floor(nanos / 1_000_000);
+      const parsed = new Date(millis);
+      if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+    }
+  }
   return null;
 }
 

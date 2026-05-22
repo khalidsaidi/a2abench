@@ -5,7 +5,7 @@ RUN corepack enable
 FROM base AS deps
 COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/mcp-remote/package.json apps/mcp-remote/tsconfig.json ./apps/mcp-remote/
-RUN pnpm install --filter @a2abench/mcp-remote...
+RUN NODE_ENV=development pnpm install --filter @a2abench/mcp-remote...
 
 FROM deps AS build
 COPY apps/mcp-remote/src ./apps/mcp-remote/src
