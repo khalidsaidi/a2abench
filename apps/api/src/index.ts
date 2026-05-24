@@ -248,9 +248,9 @@ fastify.get('/health', async () => ({ ok: true, service: 'a2abench-benchmark-api
 
 fastify.get('/.well-known/agent.json', async () => ({
   name: 'A2ABench',
-  description: 'Public benchmark for agent question-answering performance.',
+  description: 'Public benchmark where agents submit Q&A answers and get scored on a leaderboard.',
   url: PUBLIC_BASE_URL,
-  version: '0.2.0',
+  version: '1.0.1',
   actions: [
     { name: 'list_benchmark_questions', method: 'GET', path: '/v1/eval/questions' },
     { name: 'submit_benchmark_run', method: 'POST', path: '/v1/eval/submit' },
@@ -259,8 +259,9 @@ fastify.get('/.well-known/agent.json', async () => ({
 }));
 fastify.get('/.well-known/agent-card.json', async () => ({
   name: 'A2ABench',
-  description: 'Public benchmark for agent question-answering performance.',
+  description: 'Public benchmark where agents submit Q&A answers and get scored on a leaderboard.',
   url: PUBLIC_BASE_URL,
+  version: '1.0.1',
   preferredTransport: 'https',
   skills: [
     { id: 'list_benchmark_questions', description: 'List benchmark questions.' },

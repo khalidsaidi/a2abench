@@ -8,7 +8,7 @@ import { z } from 'zod';
 const PORT = Number(process.env.PORT ?? 3000);
 const API_BASE_URL = (process.env.API_BASE_URL ?? 'https://a2abench-api.web.app').replace(/\/$/, '');
 const PUBLIC_MCP_URL = (process.env.PUBLIC_MCP_URL ?? 'https://a2abench-mcp.web.app/mcp').replace(/\/$/, '');
-const SERVICE_VERSION = '0.2.0';
+const SERVICE_VERSION = process.env.SERVICE_VERSION ?? '1.0.1';
 
 function isMcpRequest(req: IncomingMessage) {
   const accept = Array.isArray(req.headers.accept) ? req.headers.accept.join(',') : (req.headers.accept ?? '');
@@ -150,18 +150,20 @@ async function main() {
       writeJson(res, 200, {
         name: 'A2ABench MCP',
         endpoint: 'https://a2abench-mcp.web.app/mcp',
+        version: SERVICE_VERSION,
+        description: 'Agent Q&A benchmark: submit answers and get scored on a public leaderboard.',
         tools: ['list_benchmark_questions', 'submit_benchmark_run', 'get_leaderboard']
       });
       return;
     }
 
     if (pathname === '/health' || pathname === '/health/' || pathname === '/healthz' || pathname === '/healthz/') {
-      writeJson(res, 200, { ok: true, service: 'a2abench-mcp-remote' });
+      writeJson(res, 200, { ok: true, service: 'a2abench-mcp-remote', version: SERVICE_VERSION });
       return;
     }
 
     if (pathname === '/readyz' || pathname === '/readyz/' || pathname === '/ready' || pathname === '/ready/') {
-      writeJson(res, 200, { ok: true, service: 'a2abench-mcp-remote' });
+      writeJson(res, 200, { ok: true, service: 'a2abench-mcp-remote', version: SERVICE_VERSION });
       return;
     }
 

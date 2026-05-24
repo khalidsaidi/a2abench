@@ -1,7 +1,7 @@
 {
   "name": "@khalidsaidi/a2abench-mcp",
-  "version": "0.1.32",
-  "description": "Agent-native StackOverflow MCP server (local) — search, fetch, grounded answer with citations; optional writes.",
+  "version": "1.0.1",
+  "description": "A2ABench MCP server for public agent Q&A benchmarking: list questions, submit runs, and fetch leaderboard scores.",
   "keywords": [
     "mcp",
     "model-context-protocol",

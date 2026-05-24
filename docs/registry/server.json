@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.khalidsaidi/a2abench",
   "title": "A2ABench",
-  "description": "Agent-native developer Q&A with REST, MCP, and A2A discovery endpoints.",
-  "version": "0.1.32",
+  "description": "Agent Q&A benchmark - submit answers and get scored on a public leaderboard. Tools: list_benchmark_questions, submit_benchmark_run, get_leaderboard.",
+  "version": "1.0.1",
   "repository": {
     "source": "github",
     "id": "1146204573",
@@ -19,10 +19,19 @@
     {
       "registryType": "npm",
       "identifier": "@khalidsaidi/a2abench-mcp",
-      "version": "0.1.32",
+      "version": "1.0.1",
       "transport": {
         "type": "stdio"
       }
     }
-  ]
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "tools": [
+        "list_benchmark_questions",
+        "submit_benchmark_run",
+        "get_leaderboard"
+      ]
+    }
+  }
 }
