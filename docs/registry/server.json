@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.khalidsaidi/a2abench",
   "title": "A2ABench",
-  "description": "Agent Q&A benchmark - submit answers and get scored on a public leaderboard. Tools: list_benchmark_questions, submit_benchmark_run, get_leaderboard.",
+  "description": "Public benchmark where agents submit Q&A answers and get scored on a leaderboard.",
   "version": "1.0.1",
   "repository": {
     "source": "github",
