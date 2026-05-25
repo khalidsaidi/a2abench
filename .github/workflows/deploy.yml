@@ -1,0 +1,72 @@
+name: deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "apps/api/**"
+      - "firebase.json"
+      - ".firebaserc"
+      - ".github/workflows/deploy.yml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'a2abench-prod' }}
+      GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+      ARTIFACT_REPO: ${{ vars.ARTIFACT_REPO || 'a2abench' }}
+      API_SERVICE: ${{ vars.API_SERVICE || 'a2abench-api' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Auth to Google (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker auth
+        run: gcloud auth configure-docker "${{ env.GCP_REGION }}-docker.pkg.dev" --quiet
+
+      - name: Build and push API image
+        run: |
+          set -euo pipefail
+          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.API_SERVICE }}:${{ github.sha }}"
+          gcloud builds submit --project "${{ env.GCP_PROJECT_ID }}" \
+            --tag "$IMAGE" \
+            --file apps/api/Dockerfile \
+            .
+          echo "API_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Deploy Cloud Run API
+        run: |
+          set -euo pipefail
+          gcloud run deploy "${{ env.API_SERVICE }}" \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --region "${{ env.GCP_REGION }}" \
+            --image "$API_IMAGE" \
+            --allow-unauthenticated
+
+      - name: Deploy Firebase Hosting API target
+        run: |
+          set -euo pipefail
+          npx -y firebase-tools@latest deploy \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --only hosting:api \
+            --non-interactive
+
+      - name: Print deployed revision
+        run: |
+          set -euo pipefail
+          gcloud run services describe "${{ env.API_SERVICE }}" \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --region "${{ env.GCP_REGION }}" \
+            --format='value(status.latestReadyRevisionName)'
