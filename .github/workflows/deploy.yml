@@ -42,8 +42,9 @@ jobs:
           IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.API_SERVICE }}:${{ github.sha }}"
           BUILD_OUTPUT="$(gcloud builds submit --project "${{ env.GCP_PROJECT_ID }}" \
             --async \
-            --tag "$IMAGE" \
-            apps/api 2>&1)"
+            --config cloudbuild.dockerfile.yaml \
+            --substitutions=_IMAGE="$IMAGE",_DOCKERFILE="apps/api/Dockerfile",_CONTEXT="." \
+            . 2>&1)"
           echo "$BUILD_OUTPUT"
           BUILD_ID="$(printf '%s\n' "$BUILD_OUTPUT" | sed -n 's/.*builds\/\([0-9a-f-]\{36\}\).*/\1/p' | head -n1)"
           if [[ -z "$BUILD_ID" ]]; then
