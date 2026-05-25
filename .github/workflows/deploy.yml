@@ -41,6 +41,7 @@ jobs:
           set -euo pipefail
           IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.API_SERVICE }}:${{ github.sha }}"
           gcloud builds submit --project "${{ env.GCP_PROJECT_ID }}" \
+            --suppress-logs \
             --tag "$IMAGE" \
             apps/api
           echo "API_IMAGE=$IMAGE" >> "$GITHUB_ENV"
