@@ -15,6 +15,16 @@ const JUDGE_LLM_KEY = process.env.JUDGE_LLM_KEY ?? '';
 const JUDGE_DAILY_TOKEN_CAP = Math.max(1, Number(process.env.JUDGE_DAILY_TOKEN_CAP ?? 200_000));
 const JUDGE_CONCURRENCY = Math.max(1, Math.min(10, Number(process.env.JUDGE_CONCURRENCY ?? 10)));
 const QUESTIONS_PAGE_SIZE = 50;
+const REQUEST_KEY_IP_DAILY_LIMIT = Math.max(1, Number(process.env.REQUEST_KEY_IP_DAILY_LIMIT ?? 5));
+const RUN_DAILY_LIMIT = Math.max(1, Number(process.env.RUN_DAILY_LIMIT ?? 1));
+const RUN_TOTAL_LIMIT = Math.max(1, Number(process.env.RUN_TOTAL_LIMIT ?? 10));
+const FEEDBACK_EMAIL_TO = process.env.FEEDBACK_EMAIL_TO ?? 'khalidsaidi66@gmail.com';
+const FEEDBACK_EMAIL_FROM = process.env.FEEDBACK_EMAIL_FROM ?? 'AI Status Dashboard <hello@aistatusdashboard.com>';
+const FEEDBACK_SENDGRID_API_KEY = process.env.FEEDBACK_SENDGRID_API_KEY ?? '';
+const FEEDBACK_RESEND_API_KEY = process.env.FEEDBACK_RESEND_API_KEY ?? '';
+const FEEDBACK_GITHUB_TOKEN = process.env.FEEDBACK_GITHUB_TOKEN ?? '';
+const FEEDBACK_GITHUB_REPO = process.env.FEEDBACK_GITHUB_REPO ?? 'khalidsaidi/a2abench';
+const FEEDBACK_GITHUB_MENTION = process.env.FEEDBACK_GITHUB_MENTION ?? '@khalidsaidi';
 
 const submitSchema = z.object({
   entrant_name: z.string().trim().min(1).max(80),
@@ -22,6 +32,17 @@ const submitSchema = z.object({
     question_id: z.string().trim().min(1).max(200),
     answer: z.string().trim().min(1).max(12_000)
   })).min(1).max(500)
+});
+
+const requestKeySchema = z.object({
+  email: z.string().trim().email().max(200),
+  agent_name: z.string().trim().min(1).max(80)
+});
+
+const feedbackSchema = z.object({
+  name: z.string().trim().max(120).optional().or(z.literal('')),
+  email: z.string().trim().email().max(200).optional().or(z.literal('')),
+  message: z.string().trim().min(1).max(4000)
 });
 
 function parseServiceAccount() {
@@ -47,6 +68,31 @@ const db = initFirestore();
 
 function hashApiKey(key: string) {
   return crypto.createHash('sha256').update(key).digest('hex');
+}
+
+function hashValue(value: string) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function currentUtcDay() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function generateApiKey() {
+  return `a2a_${crypto.randomBytes(24).toString('base64url')}`;
+}
+
+function clientIp(request: { headers: Record<string, unknown>; ip?: string }) {
+  const forwarded = request.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) {
+    return forwarded.split(',')[0].trim();
+  }
+  return request.ip ?? 'unknown';
+}
+
+async function getReservedDailyTokens(day: string) {
+  const snap = await db.collection('judge_daily_tokens').doc(day).get();
+  return Number(snap.get('tokens') ?? 0);
 }
 
 function parseApiKey(rawAuth: unknown, rawHeader: unknown): string | null {
@@ -206,15 +252,122 @@ async function judgeAnswer(prompt: string, referenceAnswer: string, submittedAns
 type EntrantRecord = {
   id: string;
   entrant_name?: string;
+  email?: string;
+  daily_run_count?: number;
+  total_run_count?: number;
+  daily_run_date?: string;
+  api_key_hash?: string;
+  key_hash?: string;
   [key: string]: unknown;
 };
 
 async function getEntrantByApiKey(apiKey: string): Promise<EntrantRecord | null> {
   const apiKeyHash = hashApiKey(apiKey);
-  const snap = await db.collection('entrants').where('api_key_hash', '==', apiKeyHash).limit(1).get();
-  if (snap.empty) return null;
-  const doc = snap.docs[0];
+  const primary = await db.collection('entrants').where('api_key_hash', '==', apiKeyHash).limit(1).get();
+  if (!primary.empty) {
+    const doc = primary.docs[0];
+    return { id: doc.id, ...(doc.data() as Record<string, unknown>) };
+  }
+  const secondary = await db.collection('entrants').where('key_hash', '==', apiKeyHash).limit(1).get();
+  if (secondary.empty) return null;
+  const doc = secondary.docs[0];
   return { id: doc.id, ...(doc.data() as Record<string, unknown>) };
+}
+
+function parseFromAddress(raw: string) {
+  const match = raw.match(/^\s*([^<]+?)\s*<([^>]+)>\s*$/);
+  if (match) {
+    return { name: match[1].trim(), email: match[2].trim() };
+  }
+  return { email: raw.trim() };
+}
+
+async function sendFeedbackEmail(payload: { name?: string; email?: string; message: string; ip: string; userAgent: string }) {
+  const from = parseFromAddress(FEEDBACK_EMAIL_FROM);
+  const text = [
+    'A2ABench feedback submission',
+    '',
+    `Name: ${payload.name || '(not provided)'}`,
+    `Email: ${payload.email || '(not provided)'}`,
+    `IP: ${payload.ip}`,
+    `User-Agent: ${payload.userAgent || '(not provided)'}`,
+    '',
+    'Message:',
+    payload.message
+  ].join('\n');
+  const errors: string[] = [];
+
+  if (FEEDBACK_RESEND_API_KEY) {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${FEEDBACK_RESEND_API_KEY}`
+      },
+      body: JSON.stringify({
+        from: from.email,
+        to: [FEEDBACK_EMAIL_TO],
+        subject: 'A2ABench feedback submission',
+        text
+      })
+    });
+    if (response.ok) return { sent: true, channel: 'resend' as const };
+    const body = await response.text();
+    errors.push(`resend ${response.status}: ${body.slice(0, 120)}`);
+  }
+
+  if (FEEDBACK_SENDGRID_API_KEY) {
+    const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${FEEDBACK_SENDGRID_API_KEY}`
+      },
+      body: JSON.stringify({
+        personalizations: [{ to: [{ email: FEEDBACK_EMAIL_TO }] }],
+        from,
+        subject: 'A2ABench feedback submission',
+        content: [{ type: 'text/plain', value: text }]
+      })
+    });
+    if (response.ok) return { sent: true, channel: 'sendgrid' as const };
+    const body = await response.text();
+    errors.push(`sendgrid ${response.status}: ${body.slice(0, 120)}`);
+  }
+
+  if (FEEDBACK_GITHUB_TOKEN) {
+    const title = `feedback: ${new Date().toISOString()}`;
+    const issueBody = [
+      `${FEEDBACK_GITHUB_MENTION} new feedback submission`,
+      '',
+      `Name: ${payload.name || '(not provided)'}`,
+      `Email: ${payload.email || '(not provided)'}`,
+      `IP: ${payload.ip}`,
+      `User-Agent: ${payload.userAgent || '(not provided)'}`,
+      '',
+      'Message:',
+      payload.message
+    ].join('\n');
+    const response = await fetch(`https://api.github.com/repos/${FEEDBACK_GITHUB_REPO}/issues`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${FEEDBACK_GITHUB_TOKEN}`,
+        'x-github-api-version': '2022-11-28',
+        'user-agent': 'a2abench-feedback-bot'
+      },
+      body: JSON.stringify({
+        title,
+        body: issueBody
+      })
+    });
+    if (response.ok) return { sent: true, channel: 'github_issue_notification' as const };
+    const body = await response.text();
+    errors.push(`github ${response.status}: ${body.slice(0, 120)}`);
+  }
+
+  if (errors.length > 0) return { sent: false, reason: errors.join(' | ') };
+  return { sent: false, reason: 'no_feedback_notifier_configured' as const };
 }
 
 function toIso(value: unknown): string | null {
@@ -269,6 +422,65 @@ fastify.get('/.well-known/agent-card.json', async () => ({
     { id: 'get_leaderboard', description: 'Fetch ranked benchmark runs.' }
   ]
 }));
+
+fastify.post('/v1/eval/request-key', async (request, reply) => {
+  const parsed = requestKeySchema.safeParse(request.body);
+  if (!parsed.success) {
+    reply.code(400).send({ error: 'Invalid request body', details: parsed.error.issues });
+    return;
+  }
+
+  const ip = clientIp(request as unknown as { headers: Record<string, unknown>; ip?: string });
+  const userAgent = String(request.headers['user-agent'] ?? '');
+  const day = currentUtcDay();
+  const ipDocId = `${day}:${hashValue(ip)}`;
+  const limitRef = db.collection('key_request_limits').doc(ipDocId);
+
+  try {
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(limitRef);
+      const currentCount = Number(snap.get('count') ?? 0);
+      if (currentCount >= REQUEST_KEY_IP_DAILY_LIMIT) {
+        throw new Error('ip_limit_exceeded');
+      }
+      tx.set(limitRef, {
+        day,
+        ip_hash: hashValue(ip),
+        count: currentCount + 1,
+        updated_at: FieldValue.serverTimestamp()
+      }, { merge: true });
+    });
+  } catch (error) {
+    if (String((error as Error).message) === 'ip_limit_exceeded') {
+      reply.code(429).send({ error: `Too many key requests from this IP today. Limit is ${REQUEST_KEY_IP_DAILY_LIMIT} per 24h.` });
+      return;
+    }
+    throw error;
+  }
+
+  const body = parsed.data;
+  const apiKey = generateApiKey();
+  const keyHash = hashApiKey(apiKey);
+  await db.collection('entrants').doc().set({
+    entrant_name: body.agent_name,
+    email: body.email,
+    api_key_hash: keyHash,
+    key_hash: keyHash,
+    created_at: FieldValue.serverTimestamp(),
+    ip,
+    user_agent: userAgent,
+    daily_run_count: 0,
+    total_run_count: 0,
+    daily_run_date: day
+  });
+
+  reply.code(200).send({
+    api_key: apiKey,
+    entrant_name: body.agent_name,
+    daily_limit: RUN_DAILY_LIMIT,
+    total_limit: RUN_TOTAL_LIMIT
+  });
+});
 
 fastify.get('/v1/eval/questions', async (request, reply) => {
   const page = Math.max(1, Number((request.query as { page?: string }).page ?? '1'));
@@ -364,6 +576,25 @@ fastify.post('/v1/eval/submit', async (request, reply) => {
     return;
   }
 
+  const day = currentUtcDay();
+  const reservedToday = await getReservedDailyTokens(day);
+  if (reservedToday >= JUDGE_DAILY_TOKEN_CAP) {
+    reply.code(429).send({ error: 'Judge daily capacity reached. Please retry after UTC midnight.' });
+    return;
+  }
+
+  const entrantDay = String(entrant.daily_run_date ?? '');
+  const entrantDailyCount = entrantDay === day ? Number(entrant.daily_run_count ?? 0) : 0;
+  const entrantTotalCount = Number(entrant.total_run_count ?? 0);
+  if (entrantDailyCount >= RUN_DAILY_LIMIT) {
+    reply.code(429).send({ error: `Daily run limit reached (${RUN_DAILY_LIMIT}/day). Try again after UTC midnight.` });
+    return;
+  }
+  if (entrantTotalCount >= RUN_TOTAL_LIMIT) {
+    reply.code(429).send({ error: `Total run limit reached (${RUN_TOTAL_LIMIT} lifetime).` });
+    return;
+  }
+
   const uniqueByQuestion = new Map<string, string>();
   for (const submission of body.submissions) {
     if (!uniqueByQuestion.has(submission.question_id)) {
@@ -397,7 +628,6 @@ fastify.post('/v1/eval/submit', async (request, reply) => {
 
   let totalScore = 0;
   let judgedCount = 0;
-  let perRunEstimatedTokens = 0;
 
   const workItems = Array.from(questions.entries()).map(([questionId, data]) => ({
     questionId,
@@ -406,30 +636,21 @@ fastify.post('/v1/eval/submit', async (request, reply) => {
     answer: uniqueByQuestion.get(questionId) ?? ''
   }));
 
+  const totalEstimatedTokens = workItems.reduce((sum, item) => sum + estimateTokens(item.prompt, item.reference, item.answer), 0);
+  if (totalEstimatedTokens > JUDGE_DAILY_TOKEN_CAP) {
+    reply.code(429).send({ error: 'Submission token estimate exceeds daily judge cap.' });
+    return;
+  }
+
+  try {
+    await reserveDailyTokens(totalEstimatedTokens);
+  } catch {
+    reply.code(429).send({ error: 'Judge daily capacity reached. Please retry after UTC midnight.' });
+    return;
+  }
+
   for (const group of chunked(workItems, JUDGE_CONCURRENCY)) {
     const judged = await Promise.all(group.map(async (item) => {
-      const estimate = estimateTokens(item.prompt, item.reference, item.answer);
-      if (perRunEstimatedTokens + estimate > JUDGE_DAILY_TOKEN_CAP) {
-        return {
-          questionId: item.questionId,
-          answer: item.answer,
-          score: 0,
-          judge_reasoning: `Run token cap ${JUDGE_DAILY_TOKEN_CAP} reached before scoring this answer.`
-        };
-      }
-
-      try {
-        await reserveDailyTokens(estimate);
-      } catch {
-        return {
-          questionId: item.questionId,
-          answer: item.answer,
-          score: 0,
-          judge_reasoning: `Daily token cap ${JUDGE_DAILY_TOKEN_CAP} reached.`
-        };
-      }
-
-      perRunEstimatedTokens += estimate;
       const judgedResult = await judgeAnswer(item.prompt, item.reference, item.answer);
       return {
         questionId: item.questionId,
@@ -463,8 +684,23 @@ fastify.post('/v1/eval/submit', async (request, reply) => {
     total_score: averageScore,
     question_count: judgedCount,
     completed_at: FieldValue.serverTimestamp(),
-    token_estimate: perRunEstimatedTokens
+    token_estimate: totalEstimatedTokens
   }, { merge: true });
+
+  const entrantRef = db.collection('entrants').doc(entrant.id);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(entrantRef);
+    const dayNow = currentUtcDay();
+    const storedDay = String(snap.get('daily_run_date') ?? '');
+    const dailyCount = storedDay === dayNow ? Number(snap.get('daily_run_count') ?? 0) : 0;
+    const totalCount = Number(snap.get('total_run_count') ?? 0);
+    tx.set(entrantRef, {
+      daily_run_date: dayNow,
+      daily_run_count: dailyCount + 1,
+      total_run_count: totalCount + 1,
+      updated_at: FieldValue.serverTimestamp()
+    }, { merge: true });
+  });
 
   reply.code(200).send({
     run_id: runRef.id,
@@ -475,13 +711,58 @@ fastify.post('/v1/eval/submit', async (request, reply) => {
   });
 });
 
+fastify.post('/v1/feedback', async (request, reply) => {
+  const parsed = feedbackSchema.safeParse(request.body);
+  if (!parsed.success) {
+    reply.code(400).send({ error: 'Invalid request body', details: parsed.error.issues });
+    return;
+  }
+
+  const body = parsed.data;
+  const ip = clientIp(request as unknown as { headers: Record<string, unknown>; ip?: string });
+  const userAgent = String(request.headers['user-agent'] ?? '');
+  const docRef = db.collection('feedback').doc();
+  await docRef.set({
+    name: body.name || null,
+    email: body.email || null,
+    message: body.message,
+    ip,
+    user_agent: userAgent,
+    created_at: FieldValue.serverTimestamp()
+  });
+
+  let emailSent = false;
+  let emailError: string | null = null;
+  try {
+    const sent = await sendFeedbackEmail({
+      name: body.name || undefined,
+      email: body.email || undefined,
+      message: body.message,
+      ip,
+      userAgent
+    });
+    emailSent = sent.sent;
+  } catch (error) {
+    emailError = String((error as Error).message || error);
+  }
+
+  reply.code(200).send({
+    ok: true,
+    feedback_id: docRef.id,
+    email_notified: emailSent,
+    email_error: emailError
+  });
+});
+
 fastify.setNotFoundHandler((_request, reply) => {
   reply.code(404).send({
     error: 'Not found',
     endpoints: [
       'GET /v1/eval/questions',
+      'POST /v1/eval/request-key',
       'POST /v1/eval/submit',
-      'GET /v1/eval/leaderboard'
+      'GET /v1/eval/leaderboard',
+      'POST /v1/feedback'
     ]
   });
 });

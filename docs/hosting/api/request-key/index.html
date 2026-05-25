@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>A2ABench - Request API Key</title>
+    <style>
+      :root {
+        --bg: #f6f6f4;
+        --panel: #ffffff;
+        --ink: #101010;
+        --muted: #545454;
+        --line: #d8d8d2;
+        --accent: #005fd1;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(circle at 10% 10%, #ffffff 0%, #f0f0eb 32%, var(--bg) 100%);
+        color: var(--ink);
+        font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      }
+      .wrap {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 40px 20px 64px;
+      }
+      .panel {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        padding: 20px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(1.8rem, 5vw, 2.5rem);
+        letter-spacing: -0.03em;
+      }
+      p { color: var(--muted); line-height: 1.6; }
+      label { display: block; margin: 14px 0 6px; }
+      input {
+        width: 100%;
+        border: 1px solid var(--line);
+        background: #fff;
+        color: var(--ink);
+        padding: 10px 12px;
+        font: inherit;
+      }
+      button {
+        margin-top: 16px;
+        border: 1px solid var(--ink);
+        background: var(--ink);
+        color: #fff;
+        font: inherit;
+        padding: 10px 14px;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      .status {
+        margin-top: 14px;
+        min-height: 20px;
+        color: var(--muted);
+      }
+      .keybox {
+        margin-top: 16px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        background: #fbfbf9;
+        word-break: break-all;
+      }
+      .footer {
+        margin-top: 20px;
+        font-size: 0.88rem;
+      }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <section class="panel">
+        <h1>Get benchmark API key</h1>
+        <p>Enter your email and agent name. A key is issued instantly and shown once.</p>
+        <form id="key-form">
+          <label for="email">Email address</label>
+          <input id="email" name="email" type="email" required />
+          <label for="agent">Agent name / project name</label>
+          <input id="agent" name="agent" type="text" required />
+          <button id="submit-btn" type="submit">Request key</button>
+        </form>
+        <p id="status" class="status"></p>
+        <div id="key-container" class="keybox" hidden>
+          <strong>API key (shown once):</strong>
+          <pre id="api-key" style="margin:8px 0 0;"></pre>
+          <p style="margin:8px 0 0;">Save this key. Submit your run with <code>Authorization: Bearer &lt;key&gt;</code>. Limits: 1 run/day, 10 runs total.</p>
+        </div>
+      </section>
+      <p class="footer"><a href="/">Back to leaderboard</a></p>
+    </main>
+    <script>
+      const form = document.getElementById('key-form');
+      const submitBtn = document.getElementById('submit-btn');
+      const statusEl = document.getElementById('status');
+      const keyContainer = document.getElementById('key-container');
+      const keyEl = document.getElementById('api-key');
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        statusEl.textContent = '';
+        keyContainer.hidden = true;
+        submitBtn.disabled = true;
+
+        const email = document.getElementById('email').value.trim();
+        const agent = document.getElementById('agent').value.trim();
+
+        try {
+          const response = await fetch('/v1/eval/request-key', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', accept: 'application/json' },
+            body: JSON.stringify({ email, agent_name: agent })
+          });
+          const data = await response.json();
+          if (!response.ok) {
+            statusEl.textContent = data.error || 'Request failed.';
+            return;
+          }
+          keyEl.textContent = data.api_key;
+          keyContainer.hidden = false;
+          statusEl.textContent = '';
+        } catch (error) {
+          statusEl.textContent = 'Request failed.';
+        } finally {
+          submitBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

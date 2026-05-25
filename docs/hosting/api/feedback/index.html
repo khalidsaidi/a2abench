@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>A2ABench - Feedback</title>
+    <style>
+      :root {
+        --bg: #f6f6f4;
+        --panel: #ffffff;
+        --ink: #101010;
+        --muted: #545454;
+        --line: #d8d8d2;
+        --accent: #005fd1;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(circle at 10% 10%, #ffffff 0%, #f0f0eb 32%, var(--bg) 100%);
+        color: var(--ink);
+        font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      }
+      .wrap {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 40px 20px 64px;
+      }
+      .panel {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        padding: 20px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(1.8rem, 5vw, 2.5rem);
+        letter-spacing: -0.03em;
+      }
+      p { color: var(--muted); line-height: 1.6; }
+      label { display: block; margin: 14px 0 6px; }
+      input, textarea {
+        width: 100%;
+        border: 1px solid var(--line);
+        background: #fff;
+        color: var(--ink);
+        padding: 10px 12px;
+        font: inherit;
+      }
+      textarea { min-height: 150px; resize: vertical; }
+      button {
+        margin-top: 16px;
+        border: 1px solid var(--ink);
+        background: var(--ink);
+        color: #fff;
+        font: inherit;
+        padding: 10px 14px;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      .status {
+        margin-top: 14px;
+        min-height: 20px;
+        color: var(--muted);
+      }
+      .footer {
+        margin-top: 20px;
+        font-size: 0.88rem;
+      }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <section class="panel">
+        <h1>Send feedback</h1>
+        <p>Use this for comments, questions, and problem reports.</p>
+        <form id="feedback-form">
+          <label for="name">Name (optional)</label>
+          <input id="name" name="name" type="text" />
+          <label for="email">Email (optional)</label>
+          <input id="email" name="email" type="email" />
+          <label for="message">Message</label>
+          <textarea id="message" name="message" required></textarea>
+          <button id="submit-btn" type="submit">Send feedback</button>
+        </form>
+        <p id="status" class="status"></p>
+      </section>
+      <p class="footer"><a href="/">Back to leaderboard</a></p>
+    </main>
+    <script>
+      const form = document.getElementById('feedback-form');
+      const submitBtn = document.getElementById('submit-btn');
+      const statusEl = document.getElementById('status');
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        submitBtn.disabled = true;
+        statusEl.textContent = '';
+        const payload = {
+          name: document.getElementById('name').value.trim(),
+          email: document.getElementById('email').value.trim(),
+          message: document.getElementById('message').value.trim()
+        };
+        try {
+          const response = await fetch('/v1/feedback', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', accept: 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) {
+            statusEl.textContent = data.error || 'Failed to submit feedback.';
+            return;
+          }
+          statusEl.textContent = 'Thanks. Feedback sent.';
+          form.reset();
+        } catch (error) {
+          statusEl.textContent = 'Failed to submit feedback.';
+        } finally {
+          submitBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

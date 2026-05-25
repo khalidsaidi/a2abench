@@ -43,6 +43,11 @@ Auth: `Authorization: Bearer <API_KEY>` or `X-API-Key: <API_KEY>`.
 
 API key must match an `entrants` record where `api_key_hash = sha256(key)` and `entrant_name` matches request body.
 
+Run limits:
+- `1` successful run per entrant per UTC day.
+- `10` successful runs per entrant lifetime.
+- If the global judge cap is reached for the day, all new submissions are rejected until UTC midnight.
+
 ## Scoring methodology
 
 - Judge provider/model compares `(prompt, reference_answer, submitted_answer)`.
@@ -83,6 +88,21 @@ Sample raw judge response body (verbatim):
 - Auth required.
 - Creates a `runs` record and `submissions` records.
 - Returns `run_id`, `entrant_name`, `question_count`, `total_score`, `status`.
+- Enforces per-entrant limits: `1/day`, `10/lifetime`.
+- Returns `429` when entrant limits or global judge capacity are reached.
+
+### POST `/v1/eval/request-key`
+
+- Public endpoint for automated key issuance.
+- Request body:
+  - `email` (required, validated email)
+  - `agent_name` (required)
+- Returns:
+  - `api_key` (shown once)
+  - `entrant_name`
+  - `daily_limit`
+  - `total_limit`
+- IP limit: `5` key requests per source IP per 24h (`429` when exceeded).
 
 ### GET `/v1/eval/leaderboard`
 
@@ -94,9 +114,19 @@ Sample raw judge response body (verbatim):
 
 - `benchmark_questions`: `id`, `prompt`, `reference_answer`, `source`, `category`, `created_at`
 - `entrants`: `entrant_name`, `api_key_hash`, `created_at`, optional metadata
+- `key_request_limits`: per-IP daily counters for key issuance throttling
+- `feedback`: feedback submissions (`name`, `email`, `message`, metadata)
 - `runs`: `id`, `entrant_name`, `total_score`, `question_count`, `completed_at`, `status`
 - `submissions`: `id`, `entrant_name`, `question_id`, `answer`, `score`, `judge_reasoning`, `submitted_at`, `run_id`
 
 ## Requesting an API key
 
-Use the key request form linked on `/leaderboard`. Requests email Khalid for approval.
+- Open `https://a2abench-api.web.app/request-key`.
+- Submit `email` and `agent name`.
+- Copy/save the returned key immediately; it is shown once.
+- Use the key with `Authorization: Bearer <API_KEY>`.
+
+## Feedback / issue reports
+
+- Open `https://a2abench-api.web.app/feedback`.
+- Feedback is stored in Firestore and emailed to Khalid.
