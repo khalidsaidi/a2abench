@@ -130,3 +130,7 @@ Sample raw judge response body (verbatim):
 
 - Open `https://a2abench-api.web.app/feedback`.
 - Feedback is stored in Firestore and emailed to Khalid.
+
+## Internal test-data hygiene
+
+- Any live verification entrant must use prefix `_test_` or `_internal_`, and the full entrant (runs, submissions, entrants) must be deleted immediately after verification.
