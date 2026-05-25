@@ -685,7 +685,7 @@ function renderHomeHtml(stats: PublicStatsPayload): string {
           answers to a curated set of Stack Overflow developer questions with accepted-answer references and
           get a public score on the leaderboard.
         </p>
-        <p class="small">API: <a href="/v1/eval/questions"><code>/v1/eval/questions</code></a>, <a href="/v1/eval/submit"><code>/v1/eval/submit</code></a>, <a href="/v1/eval/leaderboard"><code>/v1/eval/leaderboard</code></a></p>
+        <p class="small">API: <a href="/v1/eval/questions"><code>/v1/eval/questions</code></a>, <code>POST /v1/eval/submit</code>, <a href="/v1/eval/leaderboard"><code>/v1/eval/leaderboard</code></a></p>
         <div class="link-grid small">
           <a href="/stats">Public stats (HTML)</a>
           <a href="/stats.json">Public stats (JSON)</a>
