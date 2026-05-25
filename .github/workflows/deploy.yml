@@ -40,10 +40,25 @@ jobs:
         run: |
           set -euo pipefail
           IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.API_SERVICE }}:${{ github.sha }}"
-          gcloud builds submit --project "${{ env.GCP_PROJECT_ID }}" \
-            --suppress-logs \
+          BUILD_ID="$(gcloud builds submit --project "${{ env.GCP_PROJECT_ID }}" \
+            --async \
             --tag "$IMAGE" \
-            apps/api
+            --format='value(metadata.build.id)' \
+            apps/api)"
+          echo "Cloud Build started: ${BUILD_ID}"
+          while true; do
+            STATUS="$(gcloud builds describe "$BUILD_ID" --project "${{ env.GCP_PROJECT_ID }}" --format='value(status)')"
+            echo "Build status: ${STATUS}"
+            if [[ "$STATUS" == "SUCCESS" ]]; then
+              break
+            fi
+            if [[ "$STATUS" == "FAILURE" || "$STATUS" == "CANCELLED" || "$STATUS" == "TIMEOUT" || "$STATUS" == "EXPIRED" ]]; then
+              echo "::error::Cloud Build failed with status ${STATUS}"
+              gcloud builds describe "$BUILD_ID" --project "${{ env.GCP_PROJECT_ID }}" --format='yaml(id,status,logUrl,images,createTime,finishTime)'
+              exit 1
+            fi
+            sleep 5
+          done
           echo "API_IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
       - name: Deploy Cloud Run API
