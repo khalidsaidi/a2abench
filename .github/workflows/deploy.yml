@@ -42,8 +42,7 @@ jobs:
           IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.API_SERVICE }}:${{ github.sha }}"
           gcloud builds submit --project "${{ env.GCP_PROJECT_ID }}" \
             --tag "$IMAGE" \
-            --file apps/api/Dockerfile \
-            .
+            apps/api
           echo "API_IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
       - name: Deploy Cloud Run API
