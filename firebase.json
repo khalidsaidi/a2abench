@@ -10,11 +10,6 @@
       ],
       "redirects": [
         {
-          "source": "/",
-          "destination": "/docs",
-          "type": 302
-        },
-        {
           "source": "/sitemap.xml/",
           "destination": "/sitemap.xml",
           "type": 308
@@ -44,6 +39,13 @@
         },
         {
           "source": "/api/**",
+          "run": {
+            "serviceId": "a2abench-api",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/v1/**",
           "run": {
             "serviceId": "a2abench-api",
             "region": "us-central1"
