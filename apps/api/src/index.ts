@@ -2,6 +2,7 @@ import 'dotenv/config';
 import crypto from 'node:crypto';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import formbody from '@fastify/formbody';
 import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
@@ -307,6 +308,115 @@ function cacheControlHeader() {
   return `public, max-age=${PUBLIC_CACHE_SECONDS}`;
 }
 
+function requestIp(headers: Record<string, string | string[] | undefined>, fallback: string | undefined): string {
+  const fwd = headers['x-forwarded-for'];
+  const raw = Array.isArray(fwd) ? String(fwd[0] ?? '') : String(fwd ?? '');
+  const first = raw.split(',')[0]?.trim();
+  if (first) return first;
+  const realIp = headers['x-real-ip'];
+  if (typeof realIp === 'string' && realIp.trim()) return realIp.trim();
+  return String(fallback ?? 'unknown');
+}
+
+function asFormBody(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object') return {};
+  const out: Record<string, string> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof raw === 'string') out[key] = raw.trim();
+  }
+  return out;
+}
+
+function issueApiKeyPlaintext(): string {
+  return `a2ab_${crypto.randomBytes(24).toString('hex')}`;
+}
+
+async function enforceRequestKeyLimit(ip: string): Promise<void> {
+  const day = new Date().toISOString().slice(0, 10);
+  const ipHash = crypto.createHash('sha256').update(ip).digest('hex').slice(0, 20);
+  const docRef = db.collection('request_key_limits').doc(`${day}_${ipHash}`);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(docRef);
+    const current = Number(snap.get('count') ?? 0);
+    if (current >= REQUEST_KEY_IP_DAILY_LIMIT) {
+      throw new Error('Daily request-key limit reached for this IP.');
+    }
+    tx.set(docRef, {
+      day,
+      ip_hash: ipHash,
+      count: current + 1,
+      updated_at: FieldValue.serverTimestamp()
+    }, { merge: true });
+  });
+}
+
+async function issueEntrantApiKey(input: {
+  entrantName: string;
+  email: string;
+  organization: string;
+  ip: string;
+  userAgent: string;
+}): Promise<{ apiKey: string; entrantId: string }> {
+  const entrantLc = input.entrantName.toLowerCase();
+  const existing = await db.collection('entrants').where('entrant_name_lc', '==', entrantLc).limit(1).get();
+  const apiKey = issueApiKeyPlaintext();
+  const payload = {
+    entrant_name: input.entrantName,
+    entrant_name_lc: entrantLc,
+    contact_email: input.email,
+    organization: input.organization,
+    api_key_hash: hashApiKey(apiKey),
+    api_key_prefix: apiKey.slice(0, 12),
+    status: 'active',
+    last_issued_at: FieldValue.serverTimestamp(),
+    last_issued_ip: input.ip,
+    last_issued_user_agent: input.userAgent
+  };
+
+  if (!existing.empty) {
+    const doc = existing.docs[0];
+    await doc.ref.set(payload, { merge: true });
+    return { apiKey, entrantId: doc.id };
+  }
+
+  const created = await db.collection('entrants').add({
+    ...payload,
+    created_at: FieldValue.serverTimestamp()
+  });
+  return { apiKey, entrantId: created.id };
+}
+
+async function createFeedbackIssue(input: {
+  title: string;
+  body: string;
+}): Promise<{ issueNumber: number; issueUrl: string }> {
+  if (!FEEDBACK_GITHUB_TOKEN) {
+    throw new Error('FEEDBACK_GITHUB_TOKEN is not configured');
+  }
+  const response = await fetch(`https://api.github.com/repos/${FEEDBACK_GITHUB_REPO}/issues`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${FEEDBACK_GITHUB_TOKEN}`,
+      'content-type': 'application/json',
+      accept: 'application/vnd.github+json',
+      'user-agent': 'a2abench-feedback-bot'
+    },
+    body: JSON.stringify({
+      title: input.title,
+      body: input.body
+    })
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`GitHub issue create failed (${response.status}): ${text.slice(0, 180)}`);
+  }
+  const parsed = await response.json() as { number?: unknown; html_url?: unknown };
+  return {
+    issueNumber: Number(parsed.number ?? 0),
+    issueUrl: String(parsed.html_url ?? '')
+  };
+}
+
 async function countCollection(name: string): Promise<number> {
   const snapshot = await db.collection(name).count().get();
   return Number(snapshot.data().count ?? 0);
@@ -454,7 +564,7 @@ function renderLeaderboardRows(rows: LeaderboardRow[]): string {
         `<td>${entrantSafe}</td>`,
         `<td class="num">${row.score.toFixed(2)}</td>`,
         `<td>${date}</td>`,
-        `<td><a href="/leaderboard?run=${encodeURIComponent(row.run_id)}">${runIdSafe.slice(0, 12)}</a></td>`,
+        `<td><a href="/v1/eval/leaderboard?run=${encodeURIComponent(row.run_id)}">${runIdSafe.slice(0, 12)}</a></td>`,
         '</tr>'
       ].join('');
     })
@@ -609,7 +719,7 @@ function renderHomeHtml(stats: PublicStatsPayload): string {
 
       <section class="submit">
         <h2 style="margin-top:0">Submit your agent</h2>
-        <p>Read the benchmark format and scoring in <a href="/BENCHMARK.md">BENCHMARK.md</a>.</p>
+        <p>Read benchmark format and scoring in <a href="https://github.com/khalidsaidi/a2abench/blob/main/BENCHMARK.md">BENCHMARK.md</a>.</p>
         <p><a href="/request-key">Get a benchmark API key</a></p>
         <p><a href="/feedback">Send feedback or report an issue</a></p>
       </section>
@@ -659,6 +769,96 @@ function renderStatsHtml(stats: PublicStatsPayload): string {
 </html>`;
 }
 
+function renderRequestKeyHtml(input: { error?: string; apiKey?: string; entrantName?: string; email?: string; organization?: string }) {
+  const error = input.error ? `<p class="err">${escapeHtml(input.error)}</p>` : '';
+  const issued = input.apiKey
+    ? `<section class="ok"><h2>Key issued</h2><p>Entrant: <strong>${escapeHtml(input.entrantName ?? '')}</strong></p><p>Your API key (shown once):</p><pre>${escapeHtml(input.apiKey)}</pre><p>Use as <code>Authorization: Bearer &lt;key&gt;</code> or <code>X-API-Key</code>.</p></section>`
+    : '';
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A2ABench request key</title>
+    <style>
+      body { margin: 32px auto; max-width: 760px; padding: 0 16px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #111; }
+      form { border: 1px solid #d9d9d9; padding: 14px; border-radius: 10px; background: #fff; }
+      label { display: block; margin-bottom: 10px; }
+      input, textarea, button { width: 100%; padding: 8px 10px; font: inherit; }
+      button { cursor: pointer; }
+      .ok { margin-top: 14px; border: 1px solid #cce7d0; background: #f4fff5; padding: 12px; border-radius: 10px; }
+      .err { margin-top: 12px; border: 1px solid #efb7b7; background: #fff4f4; padding: 10px; border-radius: 8px; }
+      pre { overflow-x: auto; white-space: pre-wrap; word-break: break-all; background: #f7f7f7; padding: 8px; border-radius: 8px; }
+      a { color: #0b57d0; }
+    </style>
+  </head>
+  <body>
+    <h1>Request A2ABench API key</h1>
+    <p>Auto-issued immediately. No manual approval.</p>
+    ${error}
+    <form method="post" action="/request-key">
+      <label>Entrant name
+        <input name="entrant_name" required maxlength="80" value="${escapeHtml(input.entrantName ?? '')}" />
+      </label>
+      <label>Email
+        <input type="email" name="email" required maxlength="180" value="${escapeHtml(input.email ?? '')}" />
+      </label>
+      <label>Organization (optional)
+        <input name="organization" maxlength="120" value="${escapeHtml(input.organization ?? '')}" />
+      </label>
+      <button type="submit">Issue key</button>
+    </form>
+    ${issued}
+    <p><a href="/">Back to homepage</a> · <a href="/stats">Public stats</a></p>
+  </body>
+</html>`;
+}
+
+function renderFeedbackHtml(input: { error?: string; ok?: string; title?: string; email?: string; message?: string; issueUrl?: string }) {
+  const error = input.error ? `<p class="err">${escapeHtml(input.error)}</p>` : '';
+  const ok = input.ok
+    ? `<p class="ok">${escapeHtml(input.ok)}${input.issueUrl ? ` <a href="${escapeHtml(input.issueUrl)}" target="_blank" rel="noreferrer">Open issue</a>` : ''}</p>`
+    : '';
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A2ABench feedback</title>
+    <style>
+      body { margin: 32px auto; max-width: 760px; padding: 0 16px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #111; }
+      form { border: 1px solid #d9d9d9; padding: 14px; border-radius: 10px; background: #fff; }
+      label { display: block; margin-bottom: 10px; }
+      input, textarea, button { width: 100%; padding: 8px 10px; font: inherit; }
+      textarea { min-height: 140px; }
+      button { cursor: pointer; }
+      .ok { margin-top: 12px; border: 1px solid #cce7d0; background: #f4fff5; padding: 10px; border-radius: 8px; }
+      .err { margin-top: 12px; border: 1px solid #efb7b7; background: #fff4f4; padding: 10px; border-radius: 8px; }
+      a { color: #0b57d0; }
+    </style>
+  </head>
+  <body>
+    <h1>Feedback</h1>
+    <p>Submits directly to the GitHub issue tracker.</p>
+    ${error}
+    ${ok}
+    <form method="post" action="/feedback">
+      <label>Title
+        <input name="title" required maxlength="140" value="${escapeHtml(input.title ?? '')}" />
+      </label>
+      <label>Contact email (optional)
+        <input type="email" name="email" maxlength="180" value="${escapeHtml(input.email ?? '')}" />
+      </label>
+      <label>Details
+        <textarea name="message" required maxlength="5000">${escapeHtml(input.message ?? '')}</textarea>
+      </label>
+      <button type="submit">Open feedback issue</button>
+    </form>
+    <p><a href="/">Back to homepage</a> · <a href="/stats">Public stats</a></p>
+  </body>
+</html>`;
+}
+
 function sitemapXml(baseUrl: string): string {
   const now = new Date().toISOString();
   const urls = [
@@ -679,6 +879,7 @@ function sitemapXml(baseUrl: string): string {
 
 const fastify = Fastify({ logger: true });
 await fastify.register(cors, { origin: true });
+await fastify.register(formbody);
 
 fastify.get('/', async (_request, reply) => {
   const stats = await loadPublicStats();
@@ -704,6 +905,116 @@ fastify.get('/stats', async (_request, reply) => {
   const stats = await loadPublicStats();
   reply.header('Cache-Control', cacheControlHeader());
   reply.type('text/html').send(renderStatsHtml(stats));
+});
+
+fastify.get('/request-key', async (_request, reply) => {
+  reply.header('Cache-Control', 'no-store');
+  reply.type('text/html').send(renderRequestKeyHtml({}));
+});
+
+fastify.post('/request-key', async (request, reply) => {
+  const form = asFormBody(request.body);
+  const entrantName = (form.entrant_name ?? '').trim();
+  const email = (form.email ?? '').trim();
+  const organization = (form.organization ?? '').trim();
+  if (!entrantName || entrantName.length > 80) {
+    reply.code(400).header('Cache-Control', 'no-store').type('text/html').send(
+      renderRequestKeyHtml({ error: 'Entrant name is required (max 80 chars).', entrantName, email, organization })
+    );
+    return;
+  }
+  if (!email || email.length > 180 || !email.includes('@')) {
+    reply.code(400).header('Cache-Control', 'no-store').type('text/html').send(
+      renderRequestKeyHtml({ error: 'Valid email is required.', entrantName, email, organization })
+    );
+    return;
+  }
+  const ip = requestIp(request.headers, request.ip);
+  const userAgent = String(request.headers['user-agent'] ?? '');
+  try {
+    await enforceRequestKeyLimit(ip);
+    const issued = await issueEntrantApiKey({ entrantName, email, organization, ip, userAgent });
+    reply.header('Cache-Control', 'no-store');
+    reply.type('text/html').send(
+      renderRequestKeyHtml({ apiKey: issued.apiKey, entrantName, email, organization })
+    );
+  } catch (error) {
+    reply.code(429).header('Cache-Control', 'no-store').type('text/html').send(
+      renderRequestKeyHtml({
+        error: error instanceof Error ? error.message : 'Failed to issue API key.',
+        entrantName,
+        email,
+        organization
+      })
+    );
+  }
+});
+
+fastify.get('/feedback', async (_request, reply) => {
+  reply.header('Cache-Control', 'no-store');
+  reply.type('text/html').send(renderFeedbackHtml({}));
+});
+
+fastify.post('/feedback', async (request, reply) => {
+  const form = asFormBody(request.body);
+  const title = (form.title ?? '').trim();
+  const email = (form.email ?? '').trim();
+  const message = (form.message ?? '').trim();
+  if (!title || title.length > 140) {
+    reply.code(400).header('Cache-Control', 'no-store').type('text/html').send(
+      renderFeedbackHtml({ error: 'Title is required (max 140 chars).', title, email, message })
+    );
+    return;
+  }
+  if (!message || message.length > 5000) {
+    reply.code(400).header('Cache-Control', 'no-store').type('text/html').send(
+      renderFeedbackHtml({ error: 'Message is required (max 5000 chars).', title, email, message })
+    );
+    return;
+  }
+
+  const ip = requestIp(request.headers, request.ip);
+  const userAgent = String(request.headers['user-agent'] ?? '');
+  const issueTitle = `[feedback] ${title}`;
+  const issueBody = [
+    `Reporter: ${email || 'anonymous'}`,
+    `IP: ${ip}`,
+    `User-Agent: ${userAgent || 'unknown'}`,
+    '',
+    message,
+    '',
+    FEEDBACK_GITHUB_MENTION ? `cc ${FEEDBACK_GITHUB_MENTION}` : ''
+  ].join('\n');
+
+  try {
+    const issue = await createFeedbackIssue({ title: issueTitle, body: issueBody });
+    await db.collection('feedback').add({
+      title,
+      email: email || null,
+      message,
+      issue_number: issue.issueNumber,
+      issue_url: issue.issueUrl,
+      created_at: FieldValue.serverTimestamp(),
+      ip,
+      user_agent: userAgent
+    });
+    reply.header('Cache-Control', 'no-store');
+    reply.type('text/html').send(
+      renderFeedbackHtml({
+        ok: `Issue #${issue.issueNumber} created.`,
+        issueUrl: issue.issueUrl
+      })
+    );
+  } catch (error) {
+    reply.code(500).header('Cache-Control', 'no-store').type('text/html').send(
+      renderFeedbackHtml({
+        error: error instanceof Error ? error.message : 'Failed to create feedback issue.',
+        title,
+        email,
+        message
+      })
+    );
+  }
 });
 
 fastify.get('/robots.txt', async (_request, reply) => {
