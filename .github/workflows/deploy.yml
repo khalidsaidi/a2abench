@@ -40,11 +40,16 @@ jobs:
         run: |
           set -euo pipefail
           IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.API_SERVICE }}:${{ github.sha }}"
-          BUILD_ID="$(gcloud builds submit --project "${{ env.GCP_PROJECT_ID }}" \
+          BUILD_OUTPUT="$(gcloud builds submit --project "${{ env.GCP_PROJECT_ID }}" \
             --async \
             --tag "$IMAGE" \
-            --format='value(metadata.build.id)' \
-            apps/api)"
+            apps/api 2>&1)"
+          echo "$BUILD_OUTPUT"
+          BUILD_ID="$(printf '%s\n' "$BUILD_OUTPUT" | sed -n 's/.*builds\/\([0-9a-f-]\{36\}\).*/\1/p' | head -n1)"
+          if [[ -z "$BUILD_ID" ]]; then
+            echo "::error::Unable to parse Cloud Build ID from submit output"
+            exit 1
+          fi
           echo "Cloud Build started: ${BUILD_ID}"
           while true; do
             STATUS="$(gcloud builds describe "$BUILD_ID" --project "${{ env.GCP_PROJECT_ID }}" --format='value(status)')"
