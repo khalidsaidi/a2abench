@@ -654,7 +654,7 @@ function renderStatsHtml(stats: PublicStatsPayload): string {
         <tr><th>Total completed runs</th><td class="num">${formatInt(stats.total_completed_runs)}</td></tr>
       </tbody>
     </table>
-    <p><a href="/">Back to homepage</a></p>
+    <p><a href="/">Back to homepage</a> · <a href="https://ragmap-api.web.app/stats">Ragmap stats</a> · <a href="https://rootfetch.com/stats">Rootfetch stats</a></p>
   </body>
 </html>`;
 }
