@@ -28,6 +28,7 @@ const FEEDBACK_GITHUB_REPO = process.env.FEEDBACK_GITHUB_REPO ?? 'khalidsaidi/a2
 const FEEDBACK_GITHUB_MENTION = process.env.FEEDBACK_GITHUB_MENTION ?? '@khalidsaidi';
 const SIBLING_RAGMAP_URL = 'https://ragmap-api.web.app';
 const SIBLING_ROOTFETCH_URL = 'https://rootfetch.com';
+const SIBLING_AGENTABILITY_URL = 'https://agentability.org';
 const BASELINE_ENTRANT_NAMES = new Set(
   (process.env.BASELINE_ENTRANTS ?? 'claude-haiku-4-5,gemini-2-0-flash,gemini-2-5-flash')
     .split(',')
@@ -59,6 +60,13 @@ function siblingLinksForStats(): Record<string, SiblingStatsLink> {
       stats_url: `${SIBLING_ROOTFETCH_URL}/stats`,
       stats_json_url: `${SIBLING_ROOTFETCH_URL}/stats.json`,
       agent_card_url: `${SIBLING_ROOTFETCH_URL}/.well-known/agent.json`
+    },
+    agentability: {
+      name: 'Agentability',
+      url: SIBLING_AGENTABILITY_URL,
+      stats_url: `${SIBLING_AGENTABILITY_URL}/stats`,
+      stats_json_url: `${SIBLING_AGENTABILITY_URL}/stats.json`,
+      agent_card_url: `${SIBLING_AGENTABILITY_URL}/.well-known/agent.json`
     }
   };
 }
@@ -76,12 +84,18 @@ function relatedProjectsForAgentCard() {
       url: SIBLING_ROOTFETCH_URL,
       agent_card_url: `${SIBLING_ROOTFETCH_URL}/.well-known/agent.json`,
       description: 'DNS delegation intelligence with MCP telemetry.'
+    },
+    {
+      name: 'Agentability',
+      url: SIBLING_AGENTABILITY_URL,
+      agent_card_url: `${SIBLING_AGENTABILITY_URL}/.well-known/agent.json`,
+      description: 'Agent-readiness audit and evidence-backed report publishing.'
     }
   ];
 }
 
 function crossProjectFooterHtml() {
-  return `<footer data-cross-project-footer style="margin-top:28px;padding-top:14px;border-top:1px solid #d8d8d2;color:#555;font-size:13px">Cross-project: <a href="${SIBLING_RAGMAP_URL}/stats">Ragmap</a> · <a href="${SIBLING_ROOTFETCH_URL}/stats">Rootfetch</a> — MCP search · DNS delegation</footer>`;
+  return `<footer data-cross-project-footer style="margin-top:28px;padding-top:14px;border-top:1px solid #d8d8d2;color:#555;font-size:13px">Cross-project: <a href="${SIBLING_RAGMAP_URL}/stats">Ragmap</a> · <a href="${SIBLING_ROOTFETCH_URL}/stats">Rootfetch</a> · <a href="${SIBLING_AGENTABILITY_URL}/stats">Agentability</a> — MCP search · DNS delegation · agent-readiness audit</footer>`;
 }
 
 function attachCrossProjectFooter(html: string) {
@@ -749,6 +763,7 @@ function renderHomeHtml(stats: PublicStatsPayload): string {
           <a href="/.well-known/agent.json">Agent card</a>
           <a href="https://ragmap-api.web.app/stats">Ragmap stats</a>
           <a href="https://rootfetch.com/stats">Rootfetch stats</a>
+          <a href="https://agentability.org/stats">Agentability stats</a>
         </div>
       </section>
 
@@ -783,6 +798,7 @@ function renderHomeHtml(stats: PublicStatsPayload): string {
 
       <p class="footer small"><a href="https://ragmap-api.web.app/">Related: Ragmap</a> - search engine for MCP servers.</p>
       <p class="footer small"><a href="https://rootfetch.com/">Related: Rootfetch</a> - delegation intelligence for DNS-visible evidence.</p>
+      <p class="footer small"><a href="https://agentability.org/">Related: Agentability</a> - agent-readiness audit and report engine.</p>
       <p class="footer small">Server-rendered at ${escapeHtml(stats.as_of_utc)} (cache ${PUBLIC_CACHE_SECONDS}s).</p>
     </main>
   </body>
@@ -821,7 +837,7 @@ function renderStatsHtml(stats: PublicStatsPayload): string {
         <tr><th>Total completed runs</th><td class="num">${formatInt(stats.total_completed_runs)}</td></tr>
       </tbody>
     </table>
-    <p><a href="/">Back to homepage</a> · <a href="https://ragmap-api.web.app/stats">Ragmap stats</a> · <a href="https://rootfetch.com/stats">Rootfetch stats</a></p>
+    <p><a href="/">Back to homepage</a> · <a href="https://ragmap-api.web.app/stats">Ragmap stats</a> · <a href="https://rootfetch.com/stats">Rootfetch stats</a> · <a href="https://agentability.org/stats">Agentability stats</a></p>
   </body>
 </html>`;
 }
@@ -1111,7 +1127,8 @@ fastify.get('/llms.txt', async (_request, reply) => {
       `- ${PUBLIC_BASE_URL}/feedback\n\n` +
       `## Related projects\n` +
       `- Ragmap: ${SIBLING_RAGMAP_URL} (stats: ${SIBLING_RAGMAP_URL}/stats)\n` +
-      `- Rootfetch: ${SIBLING_ROOTFETCH_URL} (stats: ${SIBLING_ROOTFETCH_URL}/stats)\n`
+      `- Rootfetch: ${SIBLING_ROOTFETCH_URL} (stats: ${SIBLING_ROOTFETCH_URL}/stats)\n` +
+      `- Agentability: ${SIBLING_AGENTABILITY_URL} (stats: ${SIBLING_AGENTABILITY_URL}/stats)\n`
   );
 });
 
