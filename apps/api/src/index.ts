@@ -355,7 +355,33 @@ type PublicStatsCache = {
   payload: PublicStatsPayload;
 };
 
+type AgentabilityReportSummary = {
+  score: number | null;
+  grade: string | null;
+};
+
 let publicStatsCache: PublicStatsCache | null = null;
+
+async function fetchAgentabilityReportSummary(domain: string): Promise<AgentabilityReportSummary> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 1500);
+  try {
+    const url = `${SIBLING_AGENTABILITY_URL}/v1/evaluations/${encodeURIComponent(domain)}/latest.json`;
+    const response = await fetch(url, { method: 'GET', signal: controller.signal });
+    if (!response.ok) {
+      return { score: null, grade: null };
+    }
+    const payload = (await response.json()) as Record<string, unknown>;
+    return {
+      score: typeof payload.score === 'number' ? payload.score : null,
+      grade: typeof payload.grade === 'string' ? payload.grade : null
+    };
+  } catch {
+    return { score: null, grade: null };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function isBaselineEntrant(name: string): boolean {
   return BASELINE_ENTRANT_NAMES.has(name.trim().toLowerCase());
@@ -641,8 +667,12 @@ function renderLeaderboardRows(rows: LeaderboardRow[]): string {
     .join('');
 }
 
-function renderHomeHtml(stats: PublicStatsPayload): string {
+function renderHomeHtml(stats: PublicStatsPayload, audit: AgentabilityReportSummary): string {
   const leaderboardRows = renderLeaderboardRows(stats.top10);
+  const auditLabel =
+    typeof audit.score === 'number'
+      ? `Audited by Agentability - score ${audit.score.toFixed(1)}/100${audit.grade ? ` (${escapeHtml(audit.grade)})` : ''} (full report ->)`
+      : 'Audited by Agentability (full report ->)';
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -794,6 +824,7 @@ function renderHomeHtml(stats: PublicStatsPayload): string {
         <p>Read benchmark format and scoring in <a href="https://github.com/khalidsaidi/a2abench/blob/main/BENCHMARK.md">BENCHMARK.md</a>.</p>
         <p><a href="/request-key">Get a benchmark API key</a></p>
         <p><a href="/feedback">Send feedback or report an issue</a></p>
+        <p><a href="https://agentability.org/reports/a2abench-api.web.app" aria-label="Agentability report for A2ABench">${auditLabel}</a></p>
       </section>
 
       <p class="footer small"><a href="https://ragmap-api.web.app/">Related: Ragmap</a> - search engine for MCP servers.</p>
@@ -961,9 +992,12 @@ fastify.addHook('onSend', async (request, reply, payload) => {
 });
 
 fastify.get('/', async (_request, reply) => {
-  const stats = await loadPublicStats();
+  const [stats, audit] = await Promise.all([
+    loadPublicStats(),
+    fetchAgentabilityReportSummary('a2abench-api.web.app')
+  ]);
   reply.header('Cache-Control', cacheControlHeader());
-  reply.type('text/html').send(renderHomeHtml(stats));
+  reply.type('text/html').send(renderHomeHtml(stats, audit));
 });
 
 fastify.get('/stats.json', async (_request, reply) => {
