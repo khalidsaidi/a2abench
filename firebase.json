@@ -39,6 +39,13 @@
           }
         },
         {
+          "source": "/llms.txt",
+          "run": {
+            "serviceId": "a2abench-api",
+            "region": "us-central1"
+          }
+        },
+        {
           "source": "/request-key",
           "run": {
             "serviceId": "a2abench-api",
