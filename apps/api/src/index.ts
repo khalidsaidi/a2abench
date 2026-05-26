@@ -26,6 +26,8 @@ const FEEDBACK_RESEND_API_KEY = process.env.FEEDBACK_RESEND_API_KEY ?? '';
 const FEEDBACK_GITHUB_TOKEN = process.env.FEEDBACK_GITHUB_TOKEN ?? '';
 const FEEDBACK_GITHUB_REPO = process.env.FEEDBACK_GITHUB_REPO ?? 'khalidsaidi/a2abench';
 const FEEDBACK_GITHUB_MENTION = process.env.FEEDBACK_GITHUB_MENTION ?? '@khalidsaidi';
+const SIBLING_RAGMAP_URL = 'https://ragmap-api.web.app';
+const SIBLING_ROOTFETCH_URL = 'https://rootfetch.com';
 const BASELINE_ENTRANT_NAMES = new Set(
   (process.env.BASELINE_ENTRANTS ?? 'claude-haiku-4-5,gemini-2-0-flash,gemini-2-5-flash')
     .split(',')
@@ -33,6 +35,60 @@ const BASELINE_ENTRANT_NAMES = new Set(
     .filter(Boolean)
 );
 const PUBLIC_CACHE_SECONDS = 60;
+
+type SiblingStatsLink = {
+  name: string;
+  url: string;
+  stats_url: string;
+  stats_json_url: string;
+  agent_card_url: string;
+};
+
+function siblingLinksForStats(): Record<string, SiblingStatsLink> {
+  return {
+    ragmap: {
+      name: 'Ragmap',
+      url: SIBLING_RAGMAP_URL,
+      stats_url: `${SIBLING_RAGMAP_URL}/stats`,
+      stats_json_url: `${SIBLING_RAGMAP_URL}/stats.json`,
+      agent_card_url: `${SIBLING_RAGMAP_URL}/.well-known/agent.json`
+    },
+    rootfetch: {
+      name: 'Rootfetch',
+      url: SIBLING_ROOTFETCH_URL,
+      stats_url: `${SIBLING_ROOTFETCH_URL}/stats`,
+      stats_json_url: `${SIBLING_ROOTFETCH_URL}/stats.json`,
+      agent_card_url: `${SIBLING_ROOTFETCH_URL}/.well-known/agent.json`
+    }
+  };
+}
+
+function relatedProjectsForAgentCard() {
+  return [
+    {
+      name: 'Ragmap',
+      url: SIBLING_RAGMAP_URL,
+      agent_card_url: `${SIBLING_RAGMAP_URL}/.well-known/agent.json`,
+      description: 'MCP search and RAG-focused server discovery.'
+    },
+    {
+      name: 'Rootfetch',
+      url: SIBLING_ROOTFETCH_URL,
+      agent_card_url: `${SIBLING_ROOTFETCH_URL}/.well-known/agent.json`,
+      description: 'DNS delegation intelligence with MCP telemetry.'
+    }
+  ];
+}
+
+function crossProjectFooterHtml() {
+  return `<footer data-cross-project-footer style="margin-top:28px;padding-top:14px;border-top:1px solid #d8d8d2;color:#555;font-size:13px">Cross-project: <a href="${SIBLING_RAGMAP_URL}/stats">Ragmap</a> · <a href="${SIBLING_ROOTFETCH_URL}/stats">Rootfetch</a> — MCP search · DNS delegation</footer>`;
+}
+
+function attachCrossProjectFooter(html: string) {
+  if (!html.toLowerCase().includes('</body>')) return html;
+  if (html.includes('data-cross-project-footer')) return html;
+  return html.replace(/<\/body>/i, `${crossProjectFooterHtml()}\n</body>`);
+}
 
 const submitSchema = z.object({
   entrant_name: z.string().trim().min(1).max(80),
@@ -880,6 +936,12 @@ function sitemapXml(baseUrl: string): string {
 const fastify = Fastify({ logger: true });
 await fastify.register(cors, { origin: true });
 await fastify.register(formbody);
+fastify.addHook('onSend', async (request, reply, payload) => {
+  const contentType = String(reply.getHeader('content-type') ?? '').toLowerCase();
+  if (!contentType.includes('text/html')) return payload;
+  if (typeof payload !== 'string') return payload;
+  return attachCrossProjectFooter(payload);
+});
 
 fastify.get('/', async (_request, reply) => {
   const stats = await loadPublicStats();
@@ -897,7 +959,8 @@ fastify.get('/stats.json', async (_request, reply) => {
     feedback_count: stats.feedback_count,
     baseline_runs: stats.baseline_runs,
     last_submission_ts: stats.last_submission_ts,
-    generated_at: stats.generated_at
+    generated_at: stats.generated_at,
+    siblings: siblingLinksForStats()
   });
 });
 
@@ -1033,6 +1096,24 @@ fastify.get('/sitemap.xml', async (_request, reply) => {
   reply.type('application/xml').send(sitemapXml(PUBLIC_BASE_URL));
 });
 
+fastify.get('/llms.txt', async (_request, reply) => {
+  reply.header('Cache-Control', cacheControlHeader());
+  reply.type('text/plain').send(
+    `# A2ABench\n\n` +
+      `A2ABench is a public Q&A benchmark for agent submissions.\n\n` +
+      `## Public endpoints\n` +
+      `- ${PUBLIC_BASE_URL}/stats\n` +
+      `- ${PUBLIC_BASE_URL}/stats.json\n` +
+      `- ${PUBLIC_BASE_URL}/v1/eval/questions\n` +
+      `- ${PUBLIC_BASE_URL}/v1/eval/leaderboard\n` +
+      `- ${PUBLIC_BASE_URL}/request-key\n` +
+      `- ${PUBLIC_BASE_URL}/feedback\n\n` +
+      `## Related projects\n` +
+      `- Ragmap: ${SIBLING_RAGMAP_URL} (stats: ${SIBLING_RAGMAP_URL}/stats)\n` +
+      `- Rootfetch: ${SIBLING_ROOTFETCH_URL} (stats: ${SIBLING_ROOTFETCH_URL}/stats)\n`
+  );
+});
+
 fastify.get('/healthz', async () => ({ ok: true, service: 'a2abench-benchmark-api' }));
 fastify.get('/health', async () => ({ ok: true, service: 'a2abench-benchmark-api' }));
 
@@ -1045,7 +1126,8 @@ fastify.get('/.well-known/agent.json', async () => ({
     { name: 'list_benchmark_questions', method: 'GET', path: '/v1/eval/questions' },
     { name: 'submit_benchmark_run', method: 'POST', path: '/v1/eval/submit' },
     { name: 'get_leaderboard', method: 'GET', path: '/v1/eval/leaderboard' }
-  ]
+  ],
+  related: relatedProjectsForAgentCard()
 }));
 fastify.get('/.well-known/agent-card.json', async () => ({
   name: 'A2ABench',
@@ -1057,7 +1139,8 @@ fastify.get('/.well-known/agent-card.json', async () => ({
     { id: 'list_benchmark_questions', description: 'List benchmark questions.' },
     { id: 'submit_benchmark_run', description: 'Submit answers for scoring.' },
     { id: 'get_leaderboard', description: 'Fetch ranked benchmark runs.' }
-  ]
+  ],
+  related: relatedProjectsForAgentCard()
 }));
 
 fastify.get('/v1/eval/questions', async (request, reply) => {
