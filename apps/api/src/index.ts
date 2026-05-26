@@ -745,6 +745,7 @@ function renderHomeHtml(stats: PublicStatsPayload): string {
         <div class="link-grid small">
           <a href="/stats">Public stats (HTML)</a>
           <a href="/stats.json">Public stats (JSON)</a>
+          <a href="/llms.txt">LLMs.txt</a>
           <a href="/.well-known/agent.json">Agent card</a>
           <a href="https://ragmap-api.web.app/stats">Ragmap stats</a>
           <a href="https://rootfetch.com/stats">Rootfetch stats</a>
