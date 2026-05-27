@@ -30,6 +30,7 @@ const SIBLING_RAGMAP_URL = 'https://ragmap-api.web.app';
 const SIBLING_ROOTFETCH_URL = 'https://rootfetch.com';
 const SIBLING_AGENTABILITY_URL = 'https://agentability.org';
 const SIBLING_RELAYORB_URL = 'https://relayorb.com';
+const SIBLING_AISTATUSDASHBOARD_URL = 'https://aistatusdashboard.com';
 const BASELINE_ENTRANT_NAMES = new Set(
   (process.env.BASELINE_ENTRANTS ?? 'claude-haiku-4-5,gemini-2-0-flash,gemini-2-5-flash')
     .split(',')
@@ -75,6 +76,13 @@ function siblingLinksForStats(): Record<string, SiblingStatsLink> {
       stats_url: `${SIBLING_RELAYORB_URL}/stats`,
       stats_json_url: `${SIBLING_RELAYORB_URL}/stats.json`,
       agent_card_url: `${SIBLING_RELAYORB_URL}/.well-known/agent.json`
+    },
+    aistatusdashboard: {
+      name: 'AIStatusDashboard',
+      url: SIBLING_AISTATUSDASHBOARD_URL,
+      stats_url: `${SIBLING_AISTATUSDASHBOARD_URL}/stats`,
+      stats_json_url: `${SIBLING_AISTATUSDASHBOARD_URL}/stats.json`,
+      agent_card_url: `${SIBLING_AISTATUSDASHBOARD_URL}/.well-known/agent.json`
     }
   };
 }
@@ -104,12 +112,18 @@ function relatedProjectsForAgentCard() {
       url: SIBLING_RELAYORB_URL,
       agent_card_url: `${SIBLING_RELAYORB_URL}/.well-known/agent.json`,
       description: 'Tool control plane for AI agents with contract-first routing.'
+    },
+    {
+      name: 'AIStatusDashboard',
+      url: SIBLING_AISTATUSDASHBOARD_URL,
+      agent_card_url: `${SIBLING_AISTATUSDASHBOARD_URL}/.well-known/agent.json`,
+      description: 'Real-time AI provider status monitoring with evidence-backed metrics.'
     }
   ];
 }
 
 function crossProjectFooterHtml() {
-  return `<footer data-cross-project-footer style="margin-top:28px;padding-top:14px;border-top:1px solid #d8d8d2;color:#555;font-size:13px">Cross-project: <a href="${SIBLING_RAGMAP_URL}/stats">Ragmap</a> · <a href="${SIBLING_ROOTFETCH_URL}/stats">Rootfetch</a> · <a href="${SIBLING_AGENTABILITY_URL}/stats">Agentability</a> · <a href="${SIBLING_RELAYORB_URL}/stats">RelayOrb</a> — MCP search · DNS delegation · agent-readiness audit · tool control plane</footer>`;
+  return `<footer data-cross-project-footer style="margin-top:28px;padding-top:14px;border-top:1px solid #d8d8d2;color:#555;font-size:13px">Cross-project: <a href="${SIBLING_RAGMAP_URL}/stats">Ragmap</a> · <a href="${SIBLING_ROOTFETCH_URL}/stats">Rootfetch</a> · <a href="${SIBLING_AGENTABILITY_URL}/stats">Agentability</a> · <a href="${SIBLING_RELAYORB_URL}/stats">RelayOrb</a> · <a href="${SIBLING_AISTATUSDASHBOARD_URL}/stats">AIStatusDashboard</a> — MCP search · DNS delegation · agent-readiness audit · tool control plane · status monitoring</footer>`;
 }
 
 function attachCrossProjectFooter(html: string) {
@@ -1177,7 +1191,8 @@ fastify.get('/llms.txt', async (_request, reply) => {
       `- Ragmap: ${SIBLING_RAGMAP_URL} (stats: ${SIBLING_RAGMAP_URL}/stats)\n` +
       `- Rootfetch: ${SIBLING_ROOTFETCH_URL} (stats: ${SIBLING_ROOTFETCH_URL}/stats)\n` +
       `- Agentability: ${SIBLING_AGENTABILITY_URL} (stats: ${SIBLING_AGENTABILITY_URL}/stats)\n` +
-      `- RelayOrb: ${SIBLING_RELAYORB_URL} (stats: ${SIBLING_RELAYORB_URL}/stats)\n`
+      `- RelayOrb: ${SIBLING_RELAYORB_URL} (stats: ${SIBLING_RELAYORB_URL}/stats)\n` +
+      `- AIStatusDashboard: ${SIBLING_AISTATUSDASHBOARD_URL} (stats: ${SIBLING_AISTATUSDASHBOARD_URL}/stats)\n`
   );
 });
 
