@@ -6,6 +6,7 @@ import formbody from '@fastify/formbody';
 import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
+import { toPrivateFeedbackRecord } from './feedback.js';
 
 const PORT = Number(process.env.PORT ?? 3000);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -23,9 +24,6 @@ const FEEDBACK_EMAIL_TO = process.env.FEEDBACK_EMAIL_TO ?? 'khalidsaidi66@gmail.
 const FEEDBACK_EMAIL_FROM = process.env.FEEDBACK_EMAIL_FROM ?? 'AI Status Dashboard <hello@aistatusdashboard.com>';
 const FEEDBACK_SENDGRID_API_KEY = process.env.FEEDBACK_SENDGRID_API_KEY ?? '';
 const FEEDBACK_RESEND_API_KEY = process.env.FEEDBACK_RESEND_API_KEY ?? '';
-const FEEDBACK_GITHUB_TOKEN = process.env.FEEDBACK_GITHUB_TOKEN ?? '';
-const FEEDBACK_GITHUB_REPO = process.env.FEEDBACK_GITHUB_REPO ?? 'khalidsaidi/a2abench';
-const FEEDBACK_GITHUB_MENTION = process.env.FEEDBACK_GITHUB_MENTION ?? '@khalidsaidi';
 const SIBLING_RAGMAP_URL = 'https://ragmap-api.web.app';
 const SIBLING_ROOTFETCH_URL = 'https://rootfetch.com';
 const SIBLING_AGENTABILITY_URL = 'https://agentability.org';
@@ -510,39 +508,17 @@ async function issueEntrantApiKey(input: {
   return { apiKey, entrantId: created.id };
 }
 
-async function createFeedbackIssue(input: {
-  title: string;
-  body: string;
-}): Promise<{ issueNumber: number; issueUrl: string }> {
-  if (!FEEDBACK_GITHUB_TOKEN) {
-    throw new Error('FEEDBACK_GITHUB_TOKEN is not configured');
-  }
-  const response = await fetch(`https://api.github.com/repos/${FEEDBACK_GITHUB_REPO}/issues`, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${FEEDBACK_GITHUB_TOKEN}`,
-      'content-type': 'application/json',
-      accept: 'application/vnd.github+json',
-      'user-agent': 'a2abench-feedback-bot'
-    },
-    body: JSON.stringify({
-      title: input.title,
-      body: input.body
-    })
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`GitHub issue create failed (${response.status}): ${text.slice(0, 180)}`);
-  }
-  const parsed = await response.json() as { number?: unknown; html_url?: unknown };
-  return {
-    issueNumber: Number(parsed.number ?? 0),
-    issueUrl: String(parsed.html_url ?? '')
-  };
-}
-
 async function countCollection(name: string): Promise<number> {
   const snapshot = await db.collection(name).count().get();
+  return Number(snapshot.data().count ?? 0);
+}
+
+async function countVerifiedExternalFeedback(): Promise<number> {
+  const snapshot = await db
+    .collection('feedback')
+    .where('classification', '==', 'verified_external')
+    .count()
+    .get();
   return Number(snapshot.data().count ?? 0);
 }
 
@@ -648,7 +624,7 @@ async function loadPublicStats(force = false): Promise<PublicStatsPayload> {
   const [submissions, keysIssued, feedbackCount, top10, entrantStats, lastSubmissionTs] = await Promise.all([
     countCollection('submissions'),
     countCollection('entrants'),
-    countCollection('feedback'),
+    countVerifiedExternalFeedback(),
     loadLeaderboardRows(10),
     loadDistinctEntrantsAndBaselineRuns(),
     loadLastSubmissionTimestamp()
@@ -829,7 +805,7 @@ function renderHomeHtml(stats: PublicStatsPayload, audit: AgentabilityReportSumm
         <div class="stat-card"><div class="k">Total submissions</div><div class="v">${formatInt(stats.submissions)}</div></div>
         <div class="stat-card"><div class="k">Distinct external entrants</div><div class="v">${formatInt(stats.entrants)}</div></div>
         <div class="stat-card"><div class="k">API keys issued</div><div class="v">${formatInt(stats.keys_issued)}</div></div>
-        <div class="stat-card"><div class="k">Feedback issues opened</div><div class="v">${formatInt(stats.feedback_count)}</div></div>
+        <div class="stat-card"><div class="k">Verified external feedback</div><div class="v">${formatInt(stats.feedback_count)}</div></div>
       </section>
 
       <section class="table-wrap">
@@ -891,7 +867,7 @@ function renderStatsHtml(stats: PublicStatsPayload): string {
         <tr><th>Submissions</th><td class="num">${formatInt(stats.submissions)}</td></tr>
         <tr><th>Distinct external entrants</th><td class="num">${formatInt(stats.entrants)}</td></tr>
         <tr><th>API keys issued</th><td class="num">${formatInt(stats.keys_issued)}</td></tr>
-        <tr><th>Feedback issues opened</th><td class="num">${formatInt(stats.feedback_count)}</td></tr>
+        <tr><th>Verified external feedback</th><td class="num">${formatInt(stats.feedback_count)}</td></tr>
         <tr><th>Baseline runs</th><td class="num">${formatInt(stats.baseline_runs)}</td></tr>
         <tr><th>Total completed runs</th><td class="num">${formatInt(stats.total_completed_runs)}</td></tr>
       </tbody>
@@ -984,7 +960,7 @@ function renderFeedbackHtml(input: { error?: string; ok?: string; title?: string
       <label>Details
         <textarea name="message" required maxlength="5000">${escapeHtml(input.message ?? '')}</textarea>
       </label>
-      <button type="submit">Open feedback issue</button>
+      <button type="submit">Send feedback</button>
     </form>
     <p><a href="/">Back to homepage</a> · <a href="/stats">Public stats</a></p>
   </body>
@@ -1117,40 +1093,26 @@ fastify.post('/feedback', async (request, reply) => {
 
   const ip = requestIp(request.headers, request.ip);
   const userAgent = String(request.headers['user-agent'] ?? '');
-  const issueTitle = `[feedback] ${title}`;
-  const issueBody = [
-    `Reporter: ${email || 'anonymous'}`,
-    `IP: ${ip}`,
-    `User-Agent: ${userAgent || 'unknown'}`,
-    '',
+  const feedbackRecord = toPrivateFeedbackRecord({
+    title,
+    email,
     message,
-    '',
-    FEEDBACK_GITHUB_MENTION ? `cc ${FEEDBACK_GITHUB_MENTION}` : ''
-  ].join('\n');
+    ip,
+    userAgent
+  });
 
   try {
-    const issue = await createFeedbackIssue({ title: issueTitle, body: issueBody });
-    await db.collection('feedback').add({
-      title,
-      email: email || null,
-      message,
-      issue_number: issue.issueNumber,
-      issue_url: issue.issueUrl,
-      created_at: FieldValue.serverTimestamp(),
-      ip,
-      user_agent: userAgent
-    });
+    await db.collection('feedback').add({ ...feedbackRecord, created_at: FieldValue.serverTimestamp() });
     reply.header('Cache-Control', 'no-store');
     reply.type('text/html').send(
       renderFeedbackHtml({
-        ok: `Issue #${issue.issueNumber} created.`,
-        issueUrl: issue.issueUrl
+        ok: 'Feedback received.'
       })
     );
   } catch (error) {
     reply.code(500).header('Cache-Control', 'no-store').type('text/html').send(
       renderFeedbackHtml({
-        error: error instanceof Error ? error.message : 'Failed to create feedback issue.',
+        error: error instanceof Error ? error.message : 'Failed to submit feedback.',
         title,
         email,
         message

@@ -14,3 +14,9 @@ Thanks for your interest in contributing!
 - Keep changes focused and include tests when possible
 - Run `pnpm -r lint`, `pnpm -r typecheck`, and `pnpm -r test`
 - Follow the existing code style
+
+## Issue Intake
+
+- Use GitHub issues for actionable bug reports and feature requests only.
+- Product feedback should go through the `/feedback` form on the public site.
+- Do not post personal contact data in issue bodies.
