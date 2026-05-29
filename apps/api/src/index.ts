@@ -947,7 +947,7 @@ function renderFeedbackHtml(input: { error?: string; ok?: string; title?: string
   </head>
   <body>
     <h1>Feedback</h1>
-    <p>Submits directly to the GitHub issue tracker.</p>
+    <p>Stored in a private feedback inbox for triage.</p>
     ${error}
     ${ok}
     <form method="post" action="/feedback">
