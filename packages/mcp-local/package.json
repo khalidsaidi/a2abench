@@ -14,19 +14,15 @@
     "cursor",
     "developer-tools",
     "qna",
-    "stackoverflow",
-    "search",
-    "fetch",
-    "answer",
-    "rag",
-    "citations",
-    "grounded",
+    "benchmark",
+    "leaderboard",
+    "evals",
     "json-rpc",
     "stdio",
     "a2a"
   ],
   "license": "MIT",
-  "homepage": "https://a2abench-api.web.app/docs",
+  "homepage": "https://github.com/khalidsaidi/a2abench/tree/main/packages/mcp-local#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/khalidsaidi/a2abench.git",
@@ -43,7 +39,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "dev": "tsx src/cli.ts",

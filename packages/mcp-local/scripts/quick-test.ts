@@ -1,70 +1,38 @@
 import 'dotenv/config';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
-const SERVER_URL = process.env.MCP_SERVER_URL ?? 'https://a2abench-mcp.web.app/mcp';
-const AGENT_NAME = process.env.MCP_AGENT_NAME ?? 'a2abench-quick-test';
-const QUERY = process.env.MCP_TEST_QUERY ?? 'demo';
-const EXPECT_ID = process.env.MCP_EXPECT_ID ?? '';
-
+// Smoke-tests the local stdio MCP server in this package:
+// initialize, list tools, and call get_leaderboard once.
+// Set API_BASE_URL to a running A2ABench API to see real data; without it the
+// tool call is still expected to return a clean, structured error result.
 async function main() {
-  const client = new Client({
-    name: 'A2ABenchQuickTest',
-    version: '0.1.27'
+  const client = new Client({ name: 'A2ABenchQuickTest', version: '1.0.0' });
+
+  const transport = new StdioClientTransport({
+    command: 'npx',
+    args: ['tsx', 'src/cli.ts'],
+    env: { ...process.env } as Record<string, string>
   });
 
-  const transport = new StreamableHTTPClientTransport(new URL(SERVER_URL), {
-    requestInit: {
-      headers: {
-        'X-Agent-Name': AGENT_NAME
-      }
-    }
-  });
-
-  client.onerror = (err) => {
-    console.error('MCP client error:', err);
-  };
-
-  console.log('Connecting to', SERVER_URL);
   await client.connect(transport);
 
   const tools = await client.listTools();
-  console.log('Tools:', tools.tools.map((tool) => tool.name).join(', '));
+  const names = tools.tools.map((tool) => tool.name);
+  console.log('Tools:', names.join(', '));
 
-  const searchResult = await client.callTool({
-    name: 'search',
-    arguments: { query: QUERY }
-  });
-
-  const searchText = searchResult.content?.find((item) => item.type === 'text')?.text ?? '';
-  let parsed: { results?: Array<{ id: string; title: string; url: string }> } = {};
-  try {
-    parsed = JSON.parse(searchText);
-  } catch {
-    console.log('Raw search output:', searchText);
+  const expected = ['list_benchmark_questions', 'submit_benchmark_run', 'get_leaderboard'];
+  for (const name of expected) {
+    if (!names.includes(name)) {
+      console.error(`Missing expected tool: ${name}`);
+      process.exit(1);
+    }
   }
 
-  if (!parsed.results || parsed.results.length === 0) {
-    console.error('No results for query:', QUERY);
-    process.exit(1);
-  }
-
-  if (EXPECT_ID && !parsed.results.some((item) => item.id === EXPECT_ID)) {
-    console.error(`Expected id ${EXPECT_ID} not found in MCP results.`);
-    process.exit(1);
-  }
-
-  const first = parsed.results[0];
-  console.log('Top result:', first.title);
-  console.log('URL:', first.url);
-
-  const fetchResult = await client.callTool({
-    name: 'fetch',
-    arguments: { id: first.id }
-  });
-
-  const fetchText = fetchResult.content?.find((item) => item.type === 'text')?.text ?? '';
-  console.log('Fetch snippet:', fetchText.slice(0, 500));
+  const result = await client.callTool({ name: 'get_leaderboard', arguments: {} });
+  const text = (result.content as Array<{ type: string; text?: string }> | undefined)
+    ?.find((item) => item.type === 'text')?.text ?? '';
+  console.log(result.isError ? 'Tool returned error (expected if no backend):' : 'Leaderboard:', text.slice(0, 500));
 
   await client.close();
   process.exit(0);

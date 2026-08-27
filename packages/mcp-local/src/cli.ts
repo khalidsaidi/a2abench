@@ -1,8 +1,18 @@
 #!/usr/bin/env node
 import 'dotenv/config';
+import { readFileSync } from 'node:fs';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+
+const PACKAGE_VERSION: string = (() => {
+  try {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    return typeof pkg.version === 'string' ? pkg.version : '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
 
 const API_BASE_URL = (process.env.API_BASE_URL ?? 'https://a2abench-api.web.app').replace(/\/$/, '');
 
@@ -22,10 +32,72 @@ async function apiPost(path: string, body: unknown, apiKey?: string) {
   });
 }
 
+type ToolResult = {
+  isError?: boolean;
+  content: Array<{ type: 'text'; text: string }>;
+};
+
+/**
+ * Turn an HTTP response into an MCP tool result.
+ * Failures are surfaced as a short, structured message (status code + brief
+ * detail); raw error bodies (e.g. hosting "Site Not Found" HTML pages) are
+ * never passed through.
+ */
+async function toToolResult(action: string, response: Response): Promise<ToolResult> {
+  const text = await response.text();
+  if (response.ok) {
+    return { content: [{ type: 'text', text }] };
+  }
+  const contentType = response.headers.get('content-type') ?? '';
+  let detail: string | undefined;
+  if (contentType.includes('application/json')) {
+    try {
+      const parsed = JSON.parse(text);
+      detail = typeof parsed === 'string' ? parsed : (parsed?.error ?? parsed?.message);
+      if (typeof detail !== 'string') detail = JSON.stringify(parsed).slice(0, 300);
+    } catch {
+      detail = undefined;
+    }
+  } else if (contentType.includes('text/plain')) {
+    detail = text.slice(0, 300);
+  }
+  // Anything else (HTML error pages, etc.) is dropped: it is noise for an agent.
+  return {
+    isError: true,
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          error: `${action} failed: HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`,
+          status: response.status,
+          ...(detail ? { detail } : {}),
+          hint: `Check that the A2ABench API is reachable at ${API_BASE_URL} (override with the API_BASE_URL environment variable).`
+        })
+      }
+    ]
+  };
+}
+
+function networkErrorResult(action: string, err: unknown): ToolResult {
+  const message = err instanceof Error ? err.message : String(err);
+  return {
+    isError: true,
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          error: `${action} failed: could not reach the A2ABench API (${message})`,
+          hint: `Check that the A2ABench API is reachable at ${API_BASE_URL} (override with the API_BASE_URL environment variable).`
+        })
+      }
+    ]
+  };
+}
+
 function createServer() {
   const server = new McpServer({
     name: 'A2ABench',
-    version: '0.2.0'
+    version: PACKAGE_VERSION
   });
 
   server.registerTool(
@@ -38,15 +110,12 @@ function createServer() {
       }
     },
     async ({ page }) => {
-      const response = await apiGet('/v1/eval/questions', page ? { page: String(page) } : undefined);
-      const text = await response.text();
-      if (!response.ok) {
-        return {
-          isError: true,
-          content: [{ type: 'text', text: JSON.stringify({ error: text || 'Failed to list questions', status: response.status }) }]
-        };
+      try {
+        const response = await apiGet('/v1/eval/questions', page ? { page: String(page) } : undefined);
+        return await toToolResult('list_benchmark_questions', response);
+      } catch (err) {
+        return networkErrorResult('list_benchmark_questions', err);
       }
-      return { content: [{ type: 'text', text }] };
     }
   );
 
@@ -67,15 +136,12 @@ function createServer() {
       }
     },
     async ({ entrant_name, api_key, submissions }) => {
-      const response = await apiPost('/v1/eval/submit', { entrant_name, submissions }, api_key);
-      const text = await response.text();
-      if (!response.ok) {
-        return {
-          isError: true,
-          content: [{ type: 'text', text: JSON.stringify({ error: text || 'Failed to submit run', status: response.status }) }]
-        };
+      try {
+        const response = await apiPost('/v1/eval/submit', { entrant_name, submissions }, api_key);
+        return await toToolResult('submit_benchmark_run', response);
+      } catch (err) {
+        return networkErrorResult('submit_benchmark_run', err);
       }
-      return { content: [{ type: 'text', text }] };
     }
   );
 
@@ -89,15 +155,12 @@ function createServer() {
       }
     },
     async ({ limit }) => {
-      const response = await apiGet('/v1/eval/leaderboard', limit ? { limit: String(limit) } : undefined);
-      const text = await response.text();
-      if (!response.ok) {
-        return {
-          isError: true,
-          content: [{ type: 'text', text: JSON.stringify({ error: text || 'Failed to fetch leaderboard', status: response.status }) }]
-        };
+      try {
+        const response = await apiGet('/v1/eval/leaderboard', limit ? { limit: String(limit) } : undefined);
+        return await toToolResult('get_leaderboard', response);
+      } catch (err) {
+        return networkErrorResult('get_leaderboard', err);
       }
-      return { content: [{ type: 'text', text }] };
     }
   );
 
